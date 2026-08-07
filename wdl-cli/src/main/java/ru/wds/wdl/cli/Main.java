@@ -1,15 +1,27 @@
 package ru.wds.wdl.cli;
 
+import ru.wds.wdl.ast.Expr;
+import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.lexer.Token;
+import ru.wds.wdl.parser.Parser;
+import ru.wds.wdl.runtime.ExecutionContext;
+import ru.wds.wdl.runtime.Interpreter;
+import ru.wds.wdl.runtime.Output;
+import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Source;
+import ru.wds.wdl.tools.AstDumper;
 import ru.wds.wdl.tools.TokenDumper;
+import ru.wds.wdl.value.NullValue;
+import ru.wds.wdl.value.Value;
 
+import java.io.BufferedReader;
 import java.io.Console;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.charset.Charset;
 import java.nio.charset.IllegalCharsetNameException;
@@ -36,6 +48,16 @@ public final class Main {
     /** Кодировка вывода, если автоопределение не устраивает: {@code -Dwdl.console.encoding=cp866}. */
     private static final String ENCODING_PROPERTY = "wdl.console.encoding";
 
+    /** Что делать со скриптом: докуда вести его по конвейеру. */
+    private enum Mode {
+        /** Разобрать и вычислить. */
+        RUN,
+        /** Показать поток токенов. */
+        TOKENS,
+        /** Показать синтаксическое дерево. */
+        AST
+    }
+
     private Main() {
     }
 
@@ -51,32 +73,31 @@ public final class Main {
         switch (args[0]) {
             case "--version", "-v" -> out.println("wdl " + version());
             case "--help", "-h" -> printUsage(out);
-            case "--repl" -> out.println("REPL ещё не реализован.");
-            case "--tokens" -> {
-                if (args.length < 2) {
-                    fail("Ключу --tokens нужен путь к файлу.");
-                }
-                System.exit(execute(args[1], true));
-            }
+            case "--repl" -> System.exit(repl());
+            case "--tokens" -> System.exit(executeWithArgument(args, Mode.TOKENS));
+            case "--ast" -> System.exit(executeWithArgument(args, Mode.AST));
             default -> {
                 if (args[0].startsWith("-")) {
                     fail("Неизвестный ключ: " + args[0]);
                 }
-                System.exit(execute(args[0], false));
+                System.exit(execute(args[0], Mode.RUN));
             }
         }
     }
 
+    private static int executeWithArgument(String[] args, Mode mode) {
+        if (args.length < 2) {
+            fail("Ключу " + args[0] + " нужен путь к файлу.");
+        }
+        return execute(args[1], mode);
+    }
+
     /**
-     * Прогоняет файл через конвейер компиляции.
-     * <p>
-     * Сейчас конвейер заканчивается на лексере, поэтому «выполнение» — это разбор
-     * на токены и вывод результата. Когда появятся парсер и интерпретатор, отсюда
-     * же пойдут следующие этапы, а поведение {@code --tokens} останется прежним.
+     * Прогоняет файл через конвейер: исходник → токены → дерево → выполнение.
      *
      * @return код возврата процесса
      */
-    private static int execute(String fileName, boolean tokensOnly) {
+    private static int execute(String fileName, Mode mode) {
         Source source;
         try {
             Path path = Path.of(fileName);
@@ -96,22 +117,119 @@ public final class Main {
         Diagnostics diagnostics = new Diagnostics(source);
         List<Token> tokens = Lexer.tokenize(source, diagnostics);
 
-        if (!diagnostics.isEmpty()) {
-            System.err.print(diagnostics.renderAll());
-            System.err.flush();
+        if (mode == Mode.TOKENS) {
+            showDiagnostics(diagnostics);
+            if (diagnostics.hasErrors()) {
+                return EXIT_SCRIPT_ERROR;
+            }
+            System.out.print(TokenDumper.dump(source, tokens));
+            return 0;
         }
+
+        Program program = Parser.parseProgram(tokens, diagnostics);
+        showDiagnostics(diagnostics);
         if (diagnostics.hasErrors()) {
             System.err.println("Разбор не удался: ошибок — " + diagnostics.errorCount() + ".");
             return EXIT_SCRIPT_ERROR;
         }
 
-        System.out.print(TokenDumper.dump(source, tokens));
-        if (!tokensOnly) {
-            System.out.println();
-            System.out.println("Токенов: " + tokens.size()
-                    + ". Дальше лексера конвейер пока не идёт — парсер и интерпретатор в работе.");
+        if (mode == Mode.AST) {
+            System.out.print(AstDumper.dump(program));
+            return 0;
         }
-        return 0;
+
+        try {
+            // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
+            // а не ядра: встроенный движок по умолчанию не печатает никуда.
+            new Interpreter().run(program, ExecutionContext.fresh(Output.standard()));
+            return 0;
+        } catch (WdlRuntimeError e) {
+            // Ошибка выполнения показывается так же, как ошибка разбора: с местом в скрипте.
+            System.err.println(diagnostics.render(e.toDiagnostic()));
+            return EXIT_SCRIPT_ERROR;
+        }
+    }
+
+    /**
+     * Интерактивный режим: строка — выражение — значение.
+     * <p>
+     * Каждая строка разбирается отдельно и со своей диагностикой: ошибка в одной
+     * не должна мешать следующим. Окружение при этом общее — когда появятся
+     * переменные, они переживут ввод строки.
+     */
+    private static int repl() {
+        System.out.println("wdl " + version() + " — интерактивный режим. Выход: :q или Ctrl+D.");
+        Interpreter interpreter = new Interpreter();
+        ExecutionContext context = ExecutionContext.fresh(Output.standard());
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, outputCharset()));
+        while (true) {
+            System.out.print("wdl> ");
+            System.out.flush();
+            String line;
+            try {
+                line = reader.readLine();
+            } catch (IOException e) {
+                System.err.println("Не удалось прочитать ввод: " + e.getMessage());
+                return EXIT_USAGE_ERROR;
+            }
+            if (line == null || line.trim().equals(":q")) {
+                System.out.println();
+                return 0;
+            }
+            if (line.isBlank()) {
+                continue;
+            }
+            evaluateLine(line, interpreter, context);
+        }
+    }
+
+    /**
+     * Выполняет строку REPL.
+     * <p>
+     * Строка может быть и выражением, и инструкцией, а различить их заранее нельзя:
+     * {@code f(1)} — и то, и другое. Поэтому сначала пробуем разобрать как выражение
+     * с отдельной диагностикой, которую в случае неудачи просто выбрасываем, — и если
+     * получилось, печатаем значение. Не получилось — это инструкция, выполняем её.
+     */
+    private static void evaluateLine(String line, Interpreter interpreter, ExecutionContext context) {
+        Source source = Source.ofString(line);
+        List<Token> tokens = Lexer.tokenize(source, new Diagnostics(source));
+
+        Diagnostics asExpression = new Diagnostics(source);
+        Expr expr = Parser.parseExpression(tokens, asExpression);
+        if (!asExpression.hasErrors()) {
+            try {
+                Value value = interpreter.eval(expr, context);
+                // println уже всё напечатал и вернул null — печатать его ещё раз незачем.
+                if (value != NullValue.NULL) {
+                    // В отладочном виде: строку в кавычках здесь видеть полезнее.
+                    System.out.println(value);
+                }
+            } catch (WdlRuntimeError e) {
+                System.err.println(asExpression.render(e.toDiagnostic()));
+            }
+            return;
+        }
+
+        Diagnostics diagnostics = new Diagnostics(source);
+        Program program = Parser.parseProgram(tokens, diagnostics);
+        showDiagnostics(diagnostics);
+        if (diagnostics.hasErrors()) {
+            return;
+        }
+        try {
+            interpreter.run(program, context);
+        } catch (WdlRuntimeError e) {
+            System.err.println(diagnostics.render(e.toDiagnostic()));
+        }
+    }
+
+    private static void showDiagnostics(Diagnostics diagnostics) {
+        if (!diagnostics.isEmpty()) {
+            System.err.print(diagnostics.renderAll());
+            System.err.flush();
+        }
     }
 
     /**
@@ -159,11 +277,15 @@ public final class Main {
                 wdl — встраиваемый скриптовый язык для JVM
 
                 Использование:
-                  wdl <файл.wdl>          запустить скрипт
+                  wdl <файл.wdl>          выполнить скрипт
+                  wdl --ast <файл>        показать синтаксическое дерево
                   wdl --tokens <файл>     показать поток токенов
                   wdl --repl              интерактивный режим
                   wdl --version           версия
-                  wdl --help              эта справка""");
+                  wdl --help              эта справка
+
+                Скрипт — это присваивания и вызовы: println, print, typeof, len.
+                Ветвления, циклы и свои функции появятся на следующих шагах.""");
     }
 
     private static String version() {

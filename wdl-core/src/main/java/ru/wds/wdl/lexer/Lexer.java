@@ -34,6 +34,8 @@ public final class Lexer {
     private static final Map<String, TokenType> KEYWORDS;
     private static final Map<String, TokenType> OPERATORS;
     private static final int MAX_OPERATOR_LENGTH;
+    /** Маркер кодировки в начале файла (U+FEFF). */
+    private static final char BOM = '\uFEFF';
     /** Быстрая проверка «символ может начинать оператор» — таблица по ASCII. */
     private static final boolean[] OPERATOR_START = new boolean[128];
 
@@ -82,6 +84,12 @@ public final class Lexer {
     }
 
     private List<Token> run() {
+        // Редакторы Windows охотно ставят в начало UTF-8 файла BOM. Это маркер кодировки,
+        // а не символ программы: пропускаем его молча, иначе первый же скрипт, сохранённый
+        // «Блокнотом», падает с ошибкой про неизвестный символ в первой позиции.
+        if (length > 0 && text.charAt(0) == BOM) {
+            pos = 1;
+        }
         while (pos < length) {
             char current = text.charAt(pos);
             if (Character.isWhitespace(current)) {

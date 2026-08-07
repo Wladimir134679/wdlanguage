@@ -245,6 +245,12 @@ class LexerTest {
     }
 
     @Test
+    @DisplayName("BOM в начале файла — маркер кодировки, а не символ программы")
+    void byteOrderMarkIsSkipped() {
+        assertEquals(List.of(TokenType.WORD, TokenType.ASSIGN, TokenType.INT), types("\uFEFFa = 1"));
+    }
+
+    @Test
     @DisplayName("пустой исходник даёт только EOF")
     void emptySource() {
         List<Token> tokens = Lexer.tokenize(Source.ofString(""), diagnose(""));
