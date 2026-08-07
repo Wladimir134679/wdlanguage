@@ -14,13 +14,16 @@ dependencies {
 application {
     mainClass.set("ru.wds.wdl.cli.Main")
     applicationName = "wdl"
-    // stdout.encoding/stderr.encoding нужны для Java 19+, чтобы русский текст
-    // не ломался в консоли Windows.
-    applicationDefaultJvmArgs = listOf(
-        "-Dfile.encoding=UTF-8",
-        "-Dstdout.encoding=UTF-8",
-        "-Dstderr.encoding=UTF-8",
-    )
+    // Кодировкой вывода занимается сам Main: JVM-аргументы отсюда достаются только
+    // задаче `run` и стартовым скриптам дистрибутива, а из IDE приложение запускают
+    // мимо них — и русский текст превращается в мусор.
+    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8")
+}
+
+// Пути в --args пользователь пишет от корня репозитория, а не от каталога модуля:
+// `--args="examples/lexer-check.wdl"` должно работать как есть.
+tasks.named<JavaExec>("run") {
+    workingDir = rootDir
 }
 
 /**
