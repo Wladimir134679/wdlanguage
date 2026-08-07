@@ -43,6 +43,8 @@
 * [Выражения](docs/expressions.md) — приоритеты, семантика операций, рецепты
   «как добавить оператор / тип / узел».
 * [Инструкции](docs/statements.md) — присваивание, вызов, встроенные функции, вывод.
+* [Ветвления и циклы](docs/control-flow.md) — `if`, `while`, `for`, перебор `for ... in`,
+  `break`/`continue`, области видимости.
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
 
 ## Команды
@@ -53,6 +55,7 @@
 ./gradlew :wdl-cli:run --args="--help"
 ./gradlew :wdl-cli:run --args="examples/hello.wdl"                # выполнить скрипт
 ./gradlew :wdl-cli:run --args="examples/expressions.wdl"          # шпаргалка по выражениям
+./gradlew :wdl-cli:run --args="examples/control-flow.wdl"         # ветвления и циклы
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"          # показать дерево
 ./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl" # показать токены
 ./gradlew :wdl-cli:repl --console=plain     # REPL (нужен живой stdin)
@@ -75,9 +78,11 @@ $ wdl examples/hello.wdl
 
 Готовы лексер (`ru.wds.wdl.lexer`), диагностика (`ru.wds.wdl.diagnostic`), значения
 (`ru.wds.wdl.value`), AST (`ru.wds.wdl.ast`), парсер (`ru.wds.wdl.parser`)
-и интерпретатор (`ru.wds.wdl.runtime`). Скрипт — это присваивания и вызовы
-(`println`, `print`, `typeof`, `len`); ветвлений, циклов и своих функций ещё нет.
-Подробности — в [docs/statements.md](docs/statements.md) и [docs/expressions.md](docs/expressions.md).
+и интерпретатор (`ru.wds.wdl.runtime`). Скрипт — это присваивания, вызовы
+(`println`, `print`, `typeof`, `len`), блоки, ветвления и циклы (`if`, `while`, `for`,
+`for ... in`, `break`, `continue`); своих функций, классов и модулей ещё нет.
+Подробности — в [docs/statements.md](docs/statements.md),
+[docs/control-flow.md](docs/control-flow.md) и [docs/expressions.md](docs/expressions.md).
 
 Решения парсера и интерпретатора, определяющие остальное:
 

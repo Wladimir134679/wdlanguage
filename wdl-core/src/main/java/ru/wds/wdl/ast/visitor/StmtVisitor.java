@@ -19,6 +19,20 @@ public interface StmtVisitor<R, C> {
 
     R visitAssign(AssignStmt stmt, C context);
 
+    R visitBlock(BlockStmt stmt, C context);
+
+    R visitIf(IfStmt stmt, C context);
+
+    R visitWhile(WhileStmt stmt, C context);
+
+    R visitFor(ForStmt stmt, C context);
+
+    R visitForEach(ForEachStmt stmt, C context);
+
+    R visitBreak(BreakStmt stmt, C context);
+
+    R visitContinue(ContinueStmt stmt, C context);
+
     R visitErrorStmt(ErrorStmt stmt, C context);
 
     /** Точка входа: направляет инструкцию нужному методу. */
@@ -26,6 +40,13 @@ public interface StmtVisitor<R, C> {
         return switch (stmt) {
             case ExprStmt s -> visitExprStmt(s, context);
             case AssignStmt s -> visitAssign(s, context);
+            case BlockStmt s -> visitBlock(s, context);
+            case IfStmt s -> visitIf(s, context);
+            case WhileStmt s -> visitWhile(s, context);
+            case ForStmt s -> visitFor(s, context);
+            case ForEachStmt s -> visitForEach(s, context);
+            case BreakStmt s -> visitBreak(s, context);
+            case ContinueStmt s -> visitContinue(s, context);
             case ErrorStmt s -> visitErrorStmt(s, context);
         };
     }

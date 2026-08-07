@@ -36,8 +36,15 @@ public final class Interpreter
 
     /** Выполняет скрипт целиком. */
     public void run(Program program, ExecutionContext context) {
-        for (Stmt statement : program.statements()) {
-            visit(statement, context);
+        try {
+            for (Stmt statement : program.statements()) {
+                visit(statement, context);
+            }
+        } catch (LoopSignal signal) {
+            // break или continue вне цикла. Парсер такое не пропускает, поэтому сюда
+            // можно попасть только с деревом, собранным в обход разбора, — то есть
+            // из-за ошибки в движке, а не в скрипте.
+            throw new IllegalStateException("выход из цикла вне цикла: дерево собрано неверно", signal);
         }
     }
 
@@ -81,9 +88,175 @@ public final class Interpreter
         return null;
     }
 
+    /**
+     * Блок — единственное, что создаёт область видимости.
+     * <p>
+     * Отсюда правило, которое стоит держать в голове, читая скрипт: имя, впервые
+     * присвоенное внутри блока, снаружи не существует, а присваивание уже известному
+     * имени уходит туда, где оно заведено (см. {@link VariablePlace#write}). Тело
+     * из одной инструкции без скобок своей области не заводит — там просто нет блока.
+     */
+    @Override
+    public Void visitBlock(BlockStmt stmt, ExecutionContext context) {
+        ExecutionContext inner = context.nested();
+        for (Stmt statement : stmt.statements()) {
+            visit(statement, inner);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitIf(IfStmt stmt, ExecutionContext context) {
+        if (eval(stmt.condition(), context).isTruthy()) {
+            visit(stmt.thenBranch(), context);
+        } else if (stmt.hasElse()) {
+            visit(stmt.elseBranch(), context);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitWhile(WhileStmt stmt, ExecutionContext context) {
+        while (eval(stmt.condition(), context).isTruthy()) {
+            checkInterrupted(stmt.span());
+            if (runLoopBody(stmt.body(), context)) {
+                break;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Цикл со счётчиком.
+     * <p>
+     * Инициализатор, условие и шаг живут в собственной области видимости цикла:
+     * {@code i} из {@code for (i = 0; ...)} снаружи не виден и не мешает следующему
+     * циклу с таким же именем. Отсутствующее условие — это {@code null}, и читается
+     * оно как «повторять всегда»: {@code for (;;)}.
+     */
+    @Override
+    public Void visitFor(ForStmt stmt, ExecutionContext context) {
+        ExecutionContext loop = context.nested();
+        if (stmt.init() != null) {
+            visit(stmt.init(), loop);
+        }
+        while (stmt.condition() == null || eval(stmt.condition(), loop).isTruthy()) {
+            checkInterrupted(stmt.span());
+            if (runLoopBody(stmt.body(), loop)) {
+                break;
+            }
+            // Шаг выполняется и после continue. Пропускать его — самый простой способ
+            // превратить обычный цикл в вечный, и язык так делать не станет.
+            if (stmt.step() != null) {
+                visit(stmt.step(), loop);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Перебор массива, строки или объекта.
+     * <p>
+     * По массиву идём по индексу с заранее снятой длиной, по объекту — по снимку ключей.
+     * Причина одна: тело цикла имеет полное право менять то, что перебирают, и получить
+     * за это {@code ConcurrentModificationException} из внутренностей Java автор скрипта
+     * не должен. Добавленное во время перебора в этот проход не попадёт, удалённое —
+     * не сломает.
+     * <p>
+     * У объекта перебираются <b>ключи</b>: значение по ключу всегда рядом ({@code o[к]}),
+     * а обратной операции не существует.
+     */
+    @Override
+    public Void visitForEach(ForEachStmt stmt, ExecutionContext context) {
+        Value iterable = eval(stmt.iterable(), context);
+        switch (iterable) {
+            case ArrayValue array -> {
+                int size = array.size();
+                for (int i = 0; i < size && i < array.size(); i++) {
+                    if (iteration(stmt, context, array.get(i))) {
+                        return null;
+                    }
+                }
+            }
+            case StringValue string -> {
+                String text = string.value();
+                for (int i = 0; i < text.length(); i++) {
+                    if (iteration(stmt, context, StringValue.of(String.valueOf(text.charAt(i))))) {
+                        return null;
+                    }
+                }
+            }
+            case ObjectValue object -> {
+                for (Value key : List.copyOf(object.entries().keySet())) {
+                    if (iteration(stmt, context, key)) {
+                        return null;
+                    }
+                }
+            }
+            default -> throw new WdlRuntimeError(stmt.iterable().span(),
+                    "перебрать можно массив, строку или объект, а здесь "
+                            + iterable.type().title() + " (" + iterable + ")");
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitBreak(BreakStmt stmt, ExecutionContext context) {
+        throw LoopSignal.Break.INSTANCE;
+    }
+
+    @Override
+    public Void visitContinue(ContinueStmt stmt, ExecutionContext context) {
+        throw LoopSignal.Continue.INSTANCE;
+    }
+
     @Override
     public Void visitErrorStmt(ErrorStmt stmt, ExecutionContext context) {
         throw brokenTree(stmt.span());
+    }
+
+    // --- механика циклов -----------------------------------------------------
+
+    /**
+     * Один проход тела цикла.
+     *
+     * @return {@code true}, если цикл надо прервать
+     */
+    private boolean runLoopBody(Stmt body, ExecutionContext context) {
+        try {
+            visit(body, context);
+        } catch (LoopSignal.Break ignored) {
+            return true;
+        } catch (LoopSignal.Continue ignored) {
+            // Проход закончен досрочно; остальное решает сам цикл.
+        }
+        return false;
+    }
+
+    /**
+     * Один проход перебора: переменная цикла заводится в собственной области прохода,
+     * а не переиспользуется между итерациями. Сейчас разницы не видно, но когда появятся
+     * функции, замыкание захватит значение своего прохода — те самые грабли, на которые
+     * JavaScript наступал до {@code let}.
+     *
+     * @return {@code true}, если цикл прерван
+     */
+    private boolean iteration(ForEachStmt stmt, ExecutionContext context, Value element) {
+        checkInterrupted(stmt.span());
+        ExecutionContext step = context.nested();
+        step.scope().define(stmt.name(), element);
+        return runLoopBody(stmt.body(), step);
+    }
+
+    /**
+     * Даёт остановить зациклившийся скрипт снаружи — обычным
+     * {@link Thread#interrupt()}. Три строки на цикл против «приложение висит,
+     * и сделать с этим нечего».
+     */
+    private static void checkInterrupted(Span span) {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new WdlRuntimeError(span, "выполнение прервано");
+        }
     }
 
     // --- выражения -----------------------------------------------------------

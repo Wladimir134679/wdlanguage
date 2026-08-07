@@ -40,6 +40,13 @@ public final class Parser {
     private final List<Token> tokens;
     private final Diagnostics diagnostics;
     private int index;
+    /**
+     * Сколько циклов вокруг разбираемой сейчас инструкции. Нужен ровно для одного:
+     * поймать {@code break} и {@code continue} вне цикла при разборе, а не при выполнении
+     * той единственной ветки, куда до релиза никто не заглянул. Когда появятся функции,
+     * их тело обязано начинаться с нуля — из цикла нельзя выйти через границу функции.
+     */
+    private int loopDepth;
 
     private Parser(List<Token> tokens, Diagnostics diagnostics) {
         this.tokens = Objects.requireNonNull(tokens, "tokens");
@@ -84,7 +91,29 @@ public final class Parser {
     }
 
     /**
-     * Инструкция: присваивание или вызов.
+     * Инструкция: ветвление, цикл, блок, выход из цикла — или простая инструкция.
+     * <p>
+     * Вид определяется первым же токеном, без заглядывания вперёд. Здесь же решается
+     * вопрос, который в языках с литералом объекта решать приходится всем:
+     * <b>{@code &#123;} в начале инструкции — это блок, а не объект.</b> Диспетчер
+     * перехватывает фигурную скобку раньше, чем начнётся разбор выражения, поэтому
+     * литерал объекта остаётся возможен только там, где ждут значение. Ни особых
+     * случаев, ни отката разбора.
+     */
+    private Stmt statement() {
+        return switch (peek().type()) {
+            case LBRACE -> block();
+            case IF -> ifStatement();
+            case WHILE -> whileStatement();
+            case FOR -> forStatement();
+            case BREAK -> breakStatement();
+            case CONTINUE -> continueStatement();
+            default -> simpleStatement();
+        };
+    }
+
+    /**
+     * Простая инструкция: присваивание или вызов.
      * <p>
      * Разбор начинается одинаково — с выражения, — и только потом решается, чем эта
      * строка оказалась. Если дальше идёт знак присваивания, разобранное выражение
@@ -92,7 +121,7 @@ public final class Parser {
      * не делает и об этом надо сказать. Заглядывать вперёд не нужно: цель присваивания
      * и обычное выражение начинаются одинаково и разбираются одним и тем же кодом.
      */
-    private Stmt statement() {
+    private Stmt simpleStatement() {
         Expr expr = expression(0);
 
         AssignOp assign = Operators.assign(peek().type());
@@ -139,6 +168,147 @@ public final class Parser {
         return new ErrorStmt(span);
     }
 
+    // --- ветвления и циклы ---------------------------------------------------
+
+    /**
+     * Блок: инструкции в фигурных скобках. Внутри — тот же цикл, что и в
+     * {@link #program()}, только границей служит {@code &#125;}, а не конец файла.
+     */
+    private BlockStmt block() {
+        Token open = advance(); // {
+        List<Stmt> statements = new ArrayList<>();
+        skipSeparators();
+        while (!check(TokenType.RBRACE) && !check(TokenType.EOF)) {
+            int before = index;
+            statements.add(statement());
+            ensureProgress(before);
+            skipSeparators();
+        }
+        Token close = expect(TokenType.RBRACE, "закрывающую скобку '}'");
+        return new BlockStmt(statements, open.span().to(close.span()));
+    }
+
+    /**
+     * Ветвление, вместе со всей цепочкой {@code else if}.
+     * <p>
+     * Цепочка не требует ни особого узла, ни цикла: {@code else if} — это рекурсивный
+     * вызов, кладущий следующий {@link IfStmt} в иначе-ветвь текущего. Здесь же сам собой
+     * решается висячий {@code else}: он достаётся тому {@code if}, который разбирается
+     * прямо сейчас, то есть ближайшему.
+     */
+    private Stmt ifStatement() {
+        Token keyword = advance(); // if
+        Expr condition = condition("'if'");
+        Stmt thenBranch = body("'if'");
+
+        Stmt elseBranch = null;
+        if (check(TokenType.ELSE)) {
+            advance();
+            elseBranch = check(TokenType.IF) ? ifStatement() : body("'else'");
+        }
+        Stmt last = elseBranch != null ? elseBranch : thenBranch;
+        return new IfStmt(condition, thenBranch, elseBranch, keyword.span().to(last.span()));
+    }
+
+    private Stmt whileStatement() {
+        Token keyword = advance(); // while
+        Expr condition = condition("'while'");
+        Stmt body = loopBody("цикла 'while'");
+        return new WhileStmt(condition, body, keyword.span().to(body.span()));
+    }
+
+    /**
+     * Цикл {@code for} в обеих формах.
+     * <p>
+     * Что это за форма, видно по двум токенам после открывающей скобки: имя и
+     * {@code in} — перебор, что угодно другое — цикл со счётчиком. Заглядывание
+     * ровно на два токена и без отката: {@link #peek(int)} для этого и есть.
+     */
+    private Stmt forStatement() {
+        Token keyword = advance(); // for
+        expect(TokenType.LPAREN, "открывающую скобку '(' после 'for'");
+        if (check(TokenType.WORD) && peek(1).type() == TokenType.IN) {
+            return forEachStatement(keyword);
+        }
+
+        // Пропущенная часть остаётся null: чего нет в тексте, того нет и в дереве,
+        // а «нет условия» интерпретатор читает как «повторять всегда».
+        Stmt init = check(TokenType.SEMICOLON) ? null : simpleStatement();
+        expect(TokenType.SEMICOLON, "точку с запятой ';' после инициализатора цикла");
+        Expr condition = check(TokenType.SEMICOLON) ? null : expression(0);
+        expect(TokenType.SEMICOLON, "точку с запятой ';' после условия цикла");
+        Stmt step = check(TokenType.RPAREN) ? null : simpleStatement();
+        expect(TokenType.RPAREN, "закрывающую скобку ')' после шага цикла");
+
+        Stmt body = loopBody("цикла 'for'");
+        return new ForStmt(init, condition, step, body, keyword.span().to(body.span()));
+    }
+
+    /** Перебор: {@code for (товар in корзина) ...}. Открывающая скобка уже съедена. */
+    private Stmt forEachStatement(Token keyword) {
+        Token name = advance(); // имя переменной цикла
+        advance();              // in
+        Expr iterable = expression(0);
+        expect(TokenType.RPAREN, "закрывающую скобку ')' после перебираемого значения");
+        Stmt body = loopBody("цикла 'for'");
+        return new ForEachStmt(name.text(), name.span(), iterable, body, keyword.span().to(body.span()));
+    }
+
+    private Stmt breakStatement() {
+        Token keyword = advance();
+        requireLoop(keyword);
+        return new BreakStmt(keyword.span());
+    }
+
+    private Stmt continueStatement() {
+        Token keyword = advance();
+        requireLoop(keyword);
+        return new ContinueStmt(keyword.span());
+    }
+
+    /**
+     * Условие в скобках. Скобки обязательны, и это не дань привычке: перевод строки
+     * в языке токена не даёт, поэтому без скобок {@code if x { ... }} неотличимо
+     * от {@code if} с литералом объекта в условии.
+     */
+    private Expr condition(String owner) {
+        expect(TokenType.LPAREN, "открывающую скобку '(' после " + owner);
+        Expr condition = expression(0);
+        expect(TokenType.RPAREN, "закрывающую скобку ')' после условия " + owner);
+        return condition;
+    }
+
+    /**
+     * Тело управляющей конструкции: блок или одна инструкция.
+     * <p>
+     * Одна инструкция разрешена намеренно — {@code if (x) println("да")} читается лучше
+     * четырёх строк, — но стоит помнить, что область видимости создаёт именно блок.
+     */
+    private Stmt body(String owner) {
+        if (check(TokenType.SEMICOLON) || check(TokenType.RBRACE) || check(TokenType.EOF)) {
+            diagnostics.error(peek().span(), "ожидалось тело " + owner + ", найдено " + describe(peek()));
+            return new ErrorStmt(peek().span());
+        }
+        return statement();
+    }
+
+    /** Тело цикла: то же, что и любое тело, но внутри него разрешены break и continue. */
+    private Stmt loopBody(String owner) {
+        loopDepth++;
+        try {
+            return body(owner);
+        } finally {
+            loopDepth--;
+        }
+    }
+
+    private void requireLoop(Token keyword) {
+        if (loopDepth == 0) {
+            diagnostics.error(keyword.span(),
+                    "'" + keyword.text() + "' допустим только внутри цикла");
+        }
+    }
+
     /** Точка с запятой — необязательный разделитель, и подряд их может быть сколько угодно. */
     private void skipSeparators() {
         while (match(TokenType.SEMICOLON)) {
@@ -154,6 +324,11 @@ public final class Parser {
      * {@link Token#afterNewline()}. Перевод строки не влияет на грамматику и не даёт
      * токена, но человек всё же пишет инструкции по строкам, и восстанавливаться
      * разумнее по тому, как текст выглядит, а не по тому, как он разбирается.
+     * <p>
+     * Третья граница — токены, за которые заходить нельзя ни при каких переносах строк:
+     * закрывающая фигурная скобка и слова, начинающие следующую конструкцию. Без этого
+     * опечатка в теле цикла съедала бы {@code &#125;}, и одна ошибка разваливала бы
+     * разбор всего оставшегося файла.
      */
     private void synchronize() {
         while (!check(TokenType.EOF)) {
@@ -161,11 +336,19 @@ public final class Parser {
                 advance();
                 return;
             }
-            if (peek().afterNewline()) {
+            if (peek().afterNewline() || isStatementBoundary(peek().type())) {
                 return;
             }
             advance();
         }
+    }
+
+    /** Токен, дальше которого паническое восстановление не идёт. */
+    private static boolean isStatementBoundary(TokenType type) {
+        return switch (type) {
+            case RBRACE, IF, ELSE, WHILE, FOR, BREAK, CONTINUE, FUN, RETURN -> true;
+            default -> false;
+        };
     }
 
     // --- ядро: разбор по силе связывания -------------------------------------

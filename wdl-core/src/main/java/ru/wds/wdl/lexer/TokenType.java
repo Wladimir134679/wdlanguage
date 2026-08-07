@@ -31,6 +31,8 @@ public enum TokenType {
     WHILE("while"),
     DO("do"),
     FOR("for"),
+    /** Перебор: {@code for (товар in корзина)}. Отдельного {@code foreach} в языке нет. */
+    IN("in"),
     BREAK("break"),
     CONTINUE("continue"),
     MATCH("match"),

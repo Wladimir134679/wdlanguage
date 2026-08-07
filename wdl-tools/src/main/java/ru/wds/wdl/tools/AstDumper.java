@@ -64,8 +64,76 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
+    public Void visitBlock(BlockStmt stmt, Integer depth) {
+        line(depth, "блок, инструкций: " + stmt.statements().size(), stmt.span());
+        stmt.statements().forEach(statement -> visit(statement, depth + 1));
+        return null;
+    }
+
+    @Override
+    public Void visitIf(IfStmt stmt, Integer depth) {
+        line(depth, "ветвление 'if'", stmt.span());
+        visit(stmt.condition(), depth + 1);
+        line(depth + 1, "тогда", stmt.thenBranch().span());
+        visit(stmt.thenBranch(), depth + 2);
+        if (stmt.hasElse()) {
+            line(depth + 1, "иначе", stmt.elseBranch().span());
+            visit(stmt.elseBranch(), depth + 2);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitWhile(WhileStmt stmt, Integer depth) {
+        line(depth, "цикл 'while'", stmt.span());
+        visit(stmt.condition(), depth + 1);
+        return visit(stmt.body(), depth + 1);
+    }
+
+    @Override
+    public Void visitFor(ForStmt stmt, Integer depth) {
+        line(depth, "цикл 'for'", stmt.span());
+        part(depth + 1, "начало", stmt.init());
+        if (stmt.condition() != null) {
+            line(depth + 1, "условие", stmt.condition().span());
+            visit(stmt.condition(), depth + 2);
+        } else {
+            line(depth + 1, "условие: нет, цикл вечный", stmt.span());
+        }
+        part(depth + 1, "шаг", stmt.step());
+        line(depth + 1, "тело", stmt.body().span());
+        return visit(stmt.body(), depth + 2);
+    }
+
+    @Override
+    public Void visitForEach(ForEachStmt stmt, Integer depth) {
+        line(depth, "перебор 'for ... in', переменная " + stmt.name(), stmt.span());
+        visit(stmt.iterable(), depth + 1);
+        return visit(stmt.body(), depth + 1);
+    }
+
+    @Override
+    public Void visitBreak(BreakStmt stmt, Integer depth) {
+        return line(depth, "break", stmt.span());
+    }
+
+    @Override
+    public Void visitContinue(ContinueStmt stmt, Integer depth) {
+        return line(depth, "continue", stmt.span());
+    }
+
+    @Override
     public Void visitErrorStmt(ErrorStmt stmt, Integer depth) {
         return line(depth, "<неразобранная инструкция>", stmt.span());
+    }
+
+    /** Необязательная часть цикла {@code for}: печатается только если она есть. */
+    private void part(int depth, String title, Stmt stmt) {
+        if (stmt == null) {
+            return;
+        }
+        line(depth, title, stmt.span());
+        visit(stmt, depth + 1);
     }
 
     // --- выражения -----------------------------------------------------------
