@@ -9,6 +9,7 @@ description = "Консольный запуск скриптов и REPL."
 dependencies {
     implementation(project(":wdl-api"))
     implementation(project(":wdl-tools"))
+    implementation("info.picocli:picocli:4.7.6")
 }
 
 application {
