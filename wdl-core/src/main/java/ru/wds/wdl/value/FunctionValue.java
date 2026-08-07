@@ -39,8 +39,12 @@ public non-sealed interface FunctionValue extends Value {
         return ValueType.FUNCTION;
     }
 
+    /**
+     * Печатается коротко — {@code fun println}. Сколько функция берёт аргументов,
+     * человек узнаёт в тот момент, когда это важно: из сообщения об ошибке вызова.
+     */
     @Override
     default String display() {
-        return "fun " + name() + "(" + arity().describe() + " аргументов)";
+        return "fun " + name();
     }
 }

@@ -226,9 +226,15 @@ public final class Operations {
      * Сдвиг, как и в Java, берёт величину по модулю 64.
      */
     private static Value bitwise(BinaryOp op, Value left, Value right, Span span) {
-        if (!(left instanceof NumberValue a) || !(right instanceof NumberValue b)
-                || !a.isInteger() || !b.isInteger()) {
+        if (!(left instanceof NumberValue a) || !(right instanceof NumberValue b)) {
             throw typeError(span, op, left, right, "побитовые операции работают только с целыми числами");
+        }
+        if (!a.isInteger() || !b.isInteger()) {
+            // Оба операнда числа, и говорить «не применима к типам число и число» бессмысленно:
+            // человеку нужно знать, что помешало именно вещественное значение, и какое.
+            Value fractional = a.isInteger() ? right : left;
+            throw new WdlRuntimeError(span, "операция '" + op.symbol()
+                    + "' работает только с целыми числами, а здесь вещественное " + fractional);
         }
         long x = a.asLong();
         long y = b.asLong();
