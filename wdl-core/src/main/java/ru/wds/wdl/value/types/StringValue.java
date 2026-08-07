@@ -1,4 +1,7 @@
-package ru.wds.wdl.value;
+package ru.wds.wdl.value.types;
+
+import ru.wds.wdl.value.Value;
+import ru.wds.wdl.value.ValueType;
 
 import java.util.Objects;
 

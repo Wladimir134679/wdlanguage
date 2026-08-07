@@ -1,11 +1,11 @@
 package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.value.Arity;
-import ru.wds.wdl.value.ArrayValue;
-import ru.wds.wdl.value.IntValue;
-import ru.wds.wdl.value.NullValue;
-import ru.wds.wdl.value.ObjectValue;
-import ru.wds.wdl.value.StringValue;
+import ru.wds.wdl.value.types.ArrayValue;
+import ru.wds.wdl.value.types.IntValue;
+import ru.wds.wdl.value.types.NullValue;
+import ru.wds.wdl.value.types.ObjectValue;
+import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
 
 import java.util.List;

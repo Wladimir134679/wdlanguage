@@ -1,4 +1,6 @@
-package ru.wds.wdl.value;
+package ru.wds.wdl.value.types;
+
+import ru.wds.wdl.value.NumberValue;
 
 /**
  * Целое число, 64 бита со знаком.

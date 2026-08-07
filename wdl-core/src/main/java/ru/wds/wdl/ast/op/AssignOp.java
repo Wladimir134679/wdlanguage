@@ -1,4 +1,4 @@
-package ru.wds.wdl.ast;
+package ru.wds.wdl.ast.op;
 
 /**
  * Вид присваивания: простое {@code =} или составное {@code +=}, {@code <<=} и прочие.

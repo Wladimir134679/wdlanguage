@@ -1,14 +1,14 @@
 package ru.wds.wdl.runtime;
 
-import ru.wds.wdl.ast.BinaryOp;
-import ru.wds.wdl.ast.UnaryOp;
+import ru.wds.wdl.ast.op.BinaryOp;
+import ru.wds.wdl.ast.op.UnaryOp;
 import ru.wds.wdl.source.Span;
-import ru.wds.wdl.value.ArrayValue;
-import ru.wds.wdl.value.BoolValue;
-import ru.wds.wdl.value.FloatValue;
-import ru.wds.wdl.value.IntValue;
+import ru.wds.wdl.value.types.ArrayValue;
+import ru.wds.wdl.value.types.BoolValue;
+import ru.wds.wdl.value.types.FloatValue;
+import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.NumberValue;
-import ru.wds.wdl.value.StringValue;
+import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
 
 /**

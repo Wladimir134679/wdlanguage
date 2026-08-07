@@ -1,4 +1,7 @@
-package ru.wds.wdl.value;
+package ru.wds.wdl.value.types;
+
+import ru.wds.wdl.value.Value;
+import ru.wds.wdl.value.ValueType;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -12,7 +15,7 @@ import java.util.StringJoiner;
  * Ключ — любое значение, а не только строка. Из-за этого объект закрывает сразу
  * две привычные роли: запись с полями ({@code точка.x}) и словарь
  * ({@code счётчики["ошибки"]}). Обе записи — одно и то же обращение, см.
- * {@link ru.wds.wdl.ast.AccessExpr}.
+ * {@link ru.wds.wdl.ast.expr.AccessExpr}.
  * <p>
  * Отсутствующий ключ даёт {@link NullValue#NULL}, а не ошибку: в динамическом
  * языке проверка «есть ли поле» — обычная операция, и заставлять писать её через

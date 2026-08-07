@@ -1,4 +1,6 @@
-package ru.wds.wdl.ast;
+package ru.wds.wdl.ast.visitor;
+
+import ru.wds.wdl.ast.stmt.*;
 
 /**
  * Посетитель инструкций — брат {@link ExprVisitor} и устроен так же.

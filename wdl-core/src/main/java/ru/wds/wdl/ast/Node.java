@@ -1,5 +1,7 @@
 package ru.wds.wdl.ast;
 
+import ru.wds.wdl.ast.expr.Expr;
+import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.source.Span;
 
 /**

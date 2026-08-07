@@ -1,4 +1,4 @@
-package ru.wds.wdl.ast;
+package ru.wds.wdl.ast.expr;
 
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Value;

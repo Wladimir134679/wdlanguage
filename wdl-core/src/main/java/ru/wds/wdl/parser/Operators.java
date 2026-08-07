@@ -1,8 +1,8 @@
 package ru.wds.wdl.parser;
 
-import ru.wds.wdl.ast.AssignOp;
-import ru.wds.wdl.ast.BinaryOp;
-import ru.wds.wdl.ast.UnaryOp;
+import ru.wds.wdl.ast.op.AssignOp;
+import ru.wds.wdl.ast.op.BinaryOp;
+import ru.wds.wdl.ast.op.UnaryOp;
 import ru.wds.wdl.lexer.TokenType;
 
 import java.util.Collections;

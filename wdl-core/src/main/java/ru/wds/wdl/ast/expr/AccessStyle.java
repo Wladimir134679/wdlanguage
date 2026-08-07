@@ -1,4 +1,4 @@
-package ru.wds.wdl.ast;
+package ru.wds.wdl.ast.expr;
 
 /**
  * Как обращение было записано в исходнике.

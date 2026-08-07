@@ -1,4 +1,7 @@
-package ru.wds.wdl.value;
+package ru.wds.wdl.value.types;
+
+import ru.wds.wdl.value.Value;
+import ru.wds.wdl.value.ValueType;
 
 /**
  * Логическое значение. Существует ровно два экземпляра: {@link #TRUE} и {@link #FALSE}.

@@ -1,5 +1,8 @@
 package ru.wds.wdl.value;
 
+import ru.wds.wdl.value.types.FloatValue;
+import ru.wds.wdl.value.types.IntValue;
+
 /**
  * Тип значения времени выполнения — с точки зрения языка, а не реализации.
  * <p>

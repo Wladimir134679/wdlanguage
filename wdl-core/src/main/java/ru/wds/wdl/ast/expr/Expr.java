@@ -1,4 +1,7 @@
-package ru.wds.wdl.ast;
+package ru.wds.wdl.ast.expr;
+
+import ru.wds.wdl.ast.Node;
+import ru.wds.wdl.ast.visitor.ExprVisitor;
 
 /**
  * Выражение — узел, вычисление которого даёт значение.

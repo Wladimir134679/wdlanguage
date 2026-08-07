@@ -1,4 +1,6 @@
-package ru.wds.wdl.ast;
+package ru.wds.wdl.ast.visitor;
+
+import ru.wds.wdl.ast.expr.*;
 
 /**
  * Посетитель выражений: одна операция над деревом целиком.

@@ -4,8 +4,8 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
-import ru.wds.wdl.ast.Expr;
 import ru.wds.wdl.ast.Program;
+import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.lexer.Token;
@@ -17,7 +17,7 @@ import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.tools.AstDumper;
 import ru.wds.wdl.tools.TokenDumper;
-import ru.wds.wdl.value.NullValue;
+import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.Value;
 
 import java.io.BufferedReader;

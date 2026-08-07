@@ -8,8 +8,8 @@ import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.parser.Parser;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.value.Arity;
-import ru.wds.wdl.value.IntValue;
-import ru.wds.wdl.value.NullValue;
+import ru.wds.wdl.value.types.IntValue;
+import ru.wds.wdl.value.types.NullValue;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

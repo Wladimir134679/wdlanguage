@@ -1,4 +1,7 @@
-package ru.wds.wdl.ast;
+package ru.wds.wdl.ast.stmt;
+
+import ru.wds.wdl.ast.Node;
+import ru.wds.wdl.ast.visitor.StmtVisitor;
 
 /**
  * Инструкция — узел, который выполняют ради действия, а не ради значения.

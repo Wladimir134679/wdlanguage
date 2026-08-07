@@ -1,5 +1,6 @@
-package ru.wds.wdl.ast;
+package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.source.Span;
 
 import java.util.Objects;

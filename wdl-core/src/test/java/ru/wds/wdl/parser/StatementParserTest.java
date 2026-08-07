@@ -3,15 +3,10 @@ package ru.wds.wdl.parser;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import ru.wds.wdl.ast.AccessExpr;
-import ru.wds.wdl.ast.AssignOp;
-import ru.wds.wdl.ast.AssignStmt;
-import ru.wds.wdl.ast.CallExpr;
-import ru.wds.wdl.ast.ErrorStmt;
-import ru.wds.wdl.ast.ExprStmt;
 import ru.wds.wdl.ast.Program;
-import ru.wds.wdl.ast.Stmt;
-import ru.wds.wdl.ast.VariableExpr;
+import ru.wds.wdl.ast.expr.*;
+import ru.wds.wdl.ast.op.*;
+import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.source.Source;
@@ -180,7 +175,7 @@ class StatementParserTest {
     }
 
     /** Выражение из строки — через присваивание, чтобы оно было допустимой инструкцией. */
-    private static ru.wds.wdl.ast.Expr exprOf(String code) {
+    private static Expr exprOf(String code) {
         return assertInstanceOf(AssignStmt.class, single("x = " + code)).value();
     }
 }

@@ -1,17 +1,7 @@
 package ru.wds.wdl.parser;
 
-import ru.wds.wdl.ast.AccessExpr;
-import ru.wds.wdl.ast.ArrayExpr;
-import ru.wds.wdl.ast.BinaryExpr;
-import ru.wds.wdl.ast.CallExpr;
-import ru.wds.wdl.ast.ErrorExpr;
-import ru.wds.wdl.ast.Expr;
-import ru.wds.wdl.ast.ExprVisitor;
-import ru.wds.wdl.ast.LiteralExpr;
-import ru.wds.wdl.ast.ObjectExpr;
-import ru.wds.wdl.ast.TernaryExpr;
-import ru.wds.wdl.ast.UnaryExpr;
-import ru.wds.wdl.ast.VariableExpr;
+import ru.wds.wdl.ast.expr.*;
+import ru.wds.wdl.ast.visitor.ExprVisitor;
 
 import java.util.stream.Collectors;
 

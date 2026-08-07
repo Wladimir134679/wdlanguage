@@ -1,5 +1,7 @@
 package ru.wds.wdl.value;
 
+import ru.wds.wdl.value.types.*;
+
 /**
  * Значение времени выполнения.
  * <p>

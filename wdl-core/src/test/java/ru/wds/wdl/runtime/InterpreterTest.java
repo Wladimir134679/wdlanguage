@@ -2,15 +2,15 @@ package ru.wds.wdl.runtime;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import ru.wds.wdl.ast.Expr;
+import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.parser.Parser;
 import ru.wds.wdl.source.Source;
-import ru.wds.wdl.value.ArrayValue;
-import ru.wds.wdl.value.FloatValue;
-import ru.wds.wdl.value.IntValue;
-import ru.wds.wdl.value.StringValue;
+import ru.wds.wdl.value.types.ArrayValue;
+import ru.wds.wdl.value.types.FloatValue;
+import ru.wds.wdl.value.types.IntValue;
+import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.ValueType;
 
