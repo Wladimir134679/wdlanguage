@@ -58,6 +58,8 @@ public enum TokenType {
     COLON(":"),
     QUESTION("?"),
     ARROW("->"),
+    /** Тело-выражение функции: {@code fun f(a, b) => a + b}. Заменяет {@code return}. */
+    FATARROW("=>"),
     /** Необязательный разделитель инструкций. Обязателен там, где его требует синтаксис: {@code for (i = 0; i < n; i++)}. */
     SEMICOLON(";"),
 

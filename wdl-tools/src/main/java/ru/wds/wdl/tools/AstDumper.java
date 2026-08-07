@@ -6,6 +6,8 @@ import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.ast.visitor.*;
 import ru.wds.wdl.source.Span;
 
+import java.util.stream.Collectors;
+
 /**
  * Печать дерева с отступами — главный инструмент отладки грамматики.
  * <p>
@@ -123,6 +125,18 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
+    public Void visitFunDecl(FunDeclStmt stmt, Integer depth) {
+        line(depth, "объявление функции " + stmt.name(), stmt.span());
+        return visit(stmt.function(), depth + 1);
+    }
+
+    @Override
+    public Void visitReturn(ReturnStmt stmt, Integer depth) {
+        line(depth, stmt.hasValue() ? "return" : "return без значения", stmt.span());
+        return stmt.hasValue() ? visit(stmt.value(), depth + 1) : null;
+    }
+
+    @Override
     public Void visitErrorStmt(ErrorStmt stmt, Integer depth) {
         return line(depth, "<неразобранная инструкция>", stmt.span());
     }
@@ -200,6 +214,20 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
             visit(entry.value(), depth + 2);
         }
         return null;
+    }
+
+    /**
+     * Функция печатается со списком параметров в одну строку, а тело — вложенным:
+     * так видно и то, что относится к самой функции, и форму её тела.
+     */
+    @Override
+    public Void visitFunction(FunctionExpr expr, Integer depth) {
+        String parameters = expr.params().stream()
+                .map(FunctionExpr.Param::name)
+                .collect(Collectors.joining(", "));
+        String arrow = expr.style() == BodyStyle.ARROW ? ", тело-выражение '=>'" : "";
+        line(depth, "функция " + expr.title() + "(" + parameters + ")" + arrow, expr);
+        return visit(expr.body(), depth + 1);
     }
 
     @Override

@@ -18,7 +18,7 @@ import ru.wds.wdl.ast.visitor.ExprVisitor;
  */
 public sealed interface Expr extends Node
         permits LiteralExpr, VariableExpr, UnaryExpr, BinaryExpr, TernaryExpr,
-                AccessExpr, CallExpr, ArrayExpr, ObjectExpr, ErrorExpr {
+                AccessExpr, CallExpr, ArrayExpr, ObjectExpr, FunctionExpr, ErrorExpr {
 
     /**
      * Принимает посетителя. Метод оставлен для симметрии с классическим паттерном

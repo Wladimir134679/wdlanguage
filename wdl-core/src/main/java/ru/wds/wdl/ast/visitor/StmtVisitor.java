@@ -33,6 +33,10 @@ public interface StmtVisitor<R, C> {
 
     R visitContinue(ContinueStmt stmt, C context);
 
+    R visitFunDecl(FunDeclStmt stmt, C context);
+
+    R visitReturn(ReturnStmt stmt, C context);
+
     R visitErrorStmt(ErrorStmt stmt, C context);
 
     /** Точка входа: направляет инструкцию нужному методу. */
@@ -47,6 +51,8 @@ public interface StmtVisitor<R, C> {
             case ForEachStmt s -> visitForEach(s, context);
             case BreakStmt s -> visitBreak(s, context);
             case ContinueStmt s -> visitContinue(s, context);
+            case FunDeclStmt s -> visitFunDecl(s, context);
+            case ReturnStmt s -> visitReturn(s, context);
             case ErrorStmt s -> visitErrorStmt(s, context);
         };
     }

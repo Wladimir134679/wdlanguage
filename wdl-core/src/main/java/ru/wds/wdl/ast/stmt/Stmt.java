@@ -17,7 +17,7 @@ import ru.wds.wdl.ast.visitor.StmtVisitor;
  */
 public sealed interface Stmt extends Node
         permits ExprStmt, AssignStmt, BlockStmt, IfStmt, WhileStmt, ForStmt, ForEachStmt,
-                BreakStmt, ContinueStmt, ErrorStmt {
+                BreakStmt, ContinueStmt, FunDeclStmt, ReturnStmt, ErrorStmt {
 
     /** Принимает посетителя; диспетчеризация — в {@link StmtVisitor#visit(Stmt, Object)}. */
     default <R, C> R accept(StmtVisitor<R, C> visitor, C context) {

@@ -78,6 +78,17 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
         return entries.isEmpty() ? "(object)" : "(object " + entries + ")";
     }
 
+    /**
+     * Тело не печатается: форму тела проверяет {@code AstDumper}, а здесь важно то,
+     * что относится к самой функции, — имя и параметры.
+     */
+    @Override
+    public String visitFunction(FunctionExpr expr, Void context) {
+        StringBuilder sb = new StringBuilder("(fun ").append(expr.title());
+        expr.params().forEach(param -> sb.append(' ').append(param.name()));
+        return sb.append(')').toString();
+    }
+
     @Override
     public String visitError(ErrorExpr expr, Void context) {
         return "<ошибка>";

@@ -9,6 +9,7 @@ import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.NumberValue;
+import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.ObjectValue;
 import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
@@ -34,33 +35,100 @@ import java.util.List;
 public final class Interpreter
         implements ExprVisitor<Value, ExecutionContext>, StmtVisitor<Void, ExecutionContext> {
 
-    /** Выполняет скрипт целиком. */
+    /**
+     * Выполняет скрипт целиком.
+     * <p>
+     * Перед первой инструкцией объявления функций верхнего уровня помечаются в области
+     * видимости запуска — см. {@link #hoistDeclarations}.
+     */
     public void run(Program program, ExecutionContext context) {
         try {
+            hoistDeclarations(program, context);
             for (Stmt statement : program.statements()) {
                 visit(statement, context);
             }
-        } catch (LoopSignal signal) {
-            // break или continue вне цикла. Парсер такое не пропускает, поэтому сюда
-            // можно попасть только с деревом, собранным в обход разбора, — то есть
-            // из-за ошибки в движке, а не в скрипте.
-            throw new IllegalStateException("выход из цикла вне цикла: дерево собрано неверно", signal);
+        } catch (ControlSignal signal) {
+            // break, continue или return вне своей конструкции. Парсер такое не пропускает,
+            // поэтому сюда можно попасть только с деревом, собранным в обход разбора, —
+            // то есть из-за ошибки в движке, а не в скрипте.
+            throw new IllegalStateException(
+                    "сигнал управления вне цикла или функции: дерево собрано неверно", signal);
+        } catch (StackOverflowError e) {
+            throw stackExhausted();
+        }
+    }
+
+    /**
+     * Помечает объявления функций <b>верхнего уровня</b> до начала выполнения.
+     * <p>
+     * Отсюда три вещи, которых иначе бы не было: функцию можно вызвать выше её объявления
+     * по тексту, две функции могут вызывать друг друга, а скрипт можно писать сверху вниз —
+     * сначала главное, потом вспомогательное.
+     * <p>
+     * Только верхний уровень, и это не упрощение, а решение: объявление внутри блока или
+     * внутри другой функции принадлежит своей области видимости, и поднимать его в корень
+     * значило бы протаскивать имя наружу — ровно то, чего область видимости не должна
+     * допускать. Такое объявление начинает существовать, когда до него доходит выполнение.
+     * <p>
+     * Замыкание помеченной функции — та же область, куда её положили, поэтому повторное
+     * определение при выполнении самой инструкции даёт ровно то же значение. Гасить его
+     * незачем.
+     */
+    private void hoistDeclarations(Program program, ExecutionContext context) {
+        for (Stmt statement : program.statements()) {
+            if (statement instanceof FunDeclStmt declaration) {
+                visitFunDecl(declaration, context);
+            }
         }
     }
 
     /**
      * Вычисляет выражение. Ошибки скрипта прилетают как {@link WdlRuntimeError}
      * с местом в исходнике.
+     * <p>
+     * Это внешняя точка входа — сюда приходят REPL и {@code engine.eval("a + b")}.
+     * Внутри дерева интерпретатор пользуется {@link #valueOf}: страховка от исчерпания
+     * стека имеет смысл только на границе, где стек уже раскручен.
      */
     public Value eval(Expr expr, ExecutionContext context) {
+        try {
+            return visit(expr, context);
+        } catch (StackOverflowError e) {
+            throw stackExhausted();
+        }
+    }
+
+    /** Вычисление выражения внутри дерева — без страховок, их место на границе. */
+    private Value valueOf(Expr expr, ExecutionContext context) {
         return visit(expr, context);
+    }
+
+    /**
+     * Стек потока кончился раньше, чем счётчик вложенных вызовов
+     * ({@link ExecutionContext#MAX_CALL_DEPTH}).
+     * <p>
+     * Счётчик — основная защита от бесконечной рекурсии, и он предсказуем: одно и то же
+     * число вызовов в любом окружении. Но сколько кадров Java уходит на один вызов wdl,
+     * зависит от формы тела, а сколько их вообще влезает — от размера стека потока,
+     * который движку не подчиняется. Поэтому здесь и стоит вторая линия: в чужом
+     * приложении скрипт обязан падать ошибкой скрипта, а не {@code StackOverflowError}
+     * посреди чужого кода.
+     * <p>
+     * Ловится ошибка только на границе выполнения, где стек уже раскручен: собирать
+     * сообщение в тот момент, когда стека нет, — верный способ получить второе
+     * переполнение вместо диагностики. Места в исходнике здесь нет и быть не может —
+     * его знал тот кадр, которого уже не существует.
+     */
+    private static WdlRuntimeError stackExhausted() {
+        return new WdlRuntimeError(Span.NONE, "стек вызовов исчерпан: рекурсия оказалась глубже, "
+                + "чем выдерживает поток. Проверьте условие выхода из рекурсии");
     }
 
     // --- инструкции ----------------------------------------------------------
 
     @Override
     public Void visitExprStmt(ExprStmt stmt, ExecutionContext context) {
-        eval(stmt.expr(), context);
+        valueOf(stmt.expr(), context);
         return null;
     }
 
@@ -79,7 +147,7 @@ public final class Interpreter
     @Override
     public Void visitAssign(AssignStmt stmt, ExecutionContext context) {
         Place place = resolvePlace(stmt.target(), context);
-        Value value = eval(stmt.value(), context);
+        Value value = valueOf(stmt.value(), context);
         if (stmt.op().isCompound()) {
             BinaryOp operation = stmt.op().base();
             value = Operations.binary(operation, place.read(), value, stmt.span());
@@ -89,12 +157,13 @@ public final class Interpreter
     }
 
     /**
-     * Блок — единственное, что создаёт область видимости.
+     * Блок создаёт область видимости — как и вызов функции ({@link UserFunction}),
+     * и по тому же самому правилу.
      * <p>
-     * Отсюда правило, которое стоит держать в голове, читая скрипт: имя, впервые
-     * присвоенное внутри блока, снаружи не существует, а присваивание уже известному
-     * имени уходит туда, где оно заведено (см. {@link VariablePlace#write}). Тело
-     * из одной инструкции без скобок своей области не заводит — там просто нет блока.
+     * Правило стоит держать в голове, читая скрипт: имя, впервые присвоенное внутри,
+     * снаружи не существует, а присваивание уже известному имени уходит туда, где оно
+     * заведено (см. {@link VariablePlace#write}). Тело из одной инструкции без скобок
+     * своей области не заводит — там просто нет блока.
      */
     @Override
     public Void visitBlock(BlockStmt stmt, ExecutionContext context) {
@@ -107,7 +176,7 @@ public final class Interpreter
 
     @Override
     public Void visitIf(IfStmt stmt, ExecutionContext context) {
-        if (eval(stmt.condition(), context).isTruthy()) {
+        if (valueOf(stmt.condition(), context).isTruthy()) {
             visit(stmt.thenBranch(), context);
         } else if (stmt.hasElse()) {
             visit(stmt.elseBranch(), context);
@@ -117,7 +186,7 @@ public final class Interpreter
 
     @Override
     public Void visitWhile(WhileStmt stmt, ExecutionContext context) {
-        while (eval(stmt.condition(), context).isTruthy()) {
+        while (valueOf(stmt.condition(), context).isTruthy()) {
             checkInterrupted(stmt.span());
             if (runLoopBody(stmt.body(), context)) {
                 break;
@@ -140,7 +209,7 @@ public final class Interpreter
         if (stmt.init() != null) {
             visit(stmt.init(), loop);
         }
-        while (stmt.condition() == null || eval(stmt.condition(), loop).isTruthy()) {
+        while (stmt.condition() == null || valueOf(stmt.condition(), loop).isTruthy()) {
             checkInterrupted(stmt.span());
             if (runLoopBody(stmt.body(), loop)) {
                 break;
@@ -168,7 +237,7 @@ public final class Interpreter
      */
     @Override
     public Void visitForEach(ForEachStmt stmt, ExecutionContext context) {
-        Value iterable = eval(stmt.iterable(), context);
+        Value iterable = valueOf(stmt.iterable(), context);
         switch (iterable) {
             case ArrayValue array -> {
                 int size = array.size();
@@ -202,12 +271,36 @@ public final class Interpreter
 
     @Override
     public Void visitBreak(BreakStmt stmt, ExecutionContext context) {
-        throw LoopSignal.Break.INSTANCE;
+        throw ControlSignal.Break.INSTANCE;
     }
 
     @Override
     public Void visitContinue(ContinueStmt stmt, ExecutionContext context) {
-        throw LoopSignal.Continue.INSTANCE;
+        throw ControlSignal.Continue.INSTANCE;
+    }
+
+    /**
+     * Объявление функции.
+     * <p>
+     * Имя <b>заводится</b> в текущей области, а не присваивается по цепочке наружу:
+     * объявление на то и объявление. Разница видна там, где одноимённая переменная
+     * есть снаружи, — {@code fun} внутри функции или блока не портит внешнее имя,
+     * в отличие от присваивания {@code имя = fun(...)}.
+     */
+    @Override
+    public Void visitFunDecl(FunDeclStmt stmt, ExecutionContext context) {
+        context.scope().define(stmt.name(), valueOf(stmt.function(), context));
+        return null;
+    }
+
+    /**
+     * Возврат из функции. Значение считается здесь, а до вызова его доносит сигнал —
+     * сквозь любую вложенность блоков и циклов, не требуя от них ни строчки кода.
+     */
+    @Override
+    public Void visitReturn(ReturnStmt stmt, ExecutionContext context) {
+        throw new ControlSignal.Return(
+                stmt.hasValue() ? valueOf(stmt.value(), context) : NullValue.NULL);
     }
 
     @Override
@@ -225,9 +318,9 @@ public final class Interpreter
     private boolean runLoopBody(Stmt body, ExecutionContext context) {
         try {
             visit(body, context);
-        } catch (LoopSignal.Break ignored) {
+        } catch (ControlSignal.Break ignored) {
             return true;
-        } catch (LoopSignal.Continue ignored) {
+        } catch (ControlSignal.Continue ignored) {
             // Проход закончен досрочно; остальное решает сам цикл.
         }
         return false;
@@ -277,7 +370,7 @@ public final class Interpreter
 
     @Override
     public Value visitUnary(UnaryExpr expr, ExecutionContext context) {
-        return Operations.unary(expr.op(), eval(expr.operand(), context), expr.span());
+        return Operations.unary(expr.op(), valueOf(expr.operand(), context), expr.span());
     }
 
     /**
@@ -292,22 +385,22 @@ public final class Interpreter
      */
     @Override
     public Value visitBinary(BinaryExpr expr, ExecutionContext context) {
-        Value left = eval(expr.left(), context);
+        Value left = valueOf(expr.left(), context);
         if (expr.op() == BinaryOp.AND) {
-            return left.isTruthy() ? eval(expr.right(), context) : left;
+            return left.isTruthy() ? valueOf(expr.right(), context) : left;
         }
         if (expr.op() == BinaryOp.OR) {
-            return left.isTruthy() ? left : eval(expr.right(), context);
+            return left.isTruthy() ? left : valueOf(expr.right(), context);
         }
-        Value right = eval(expr.right(), context);
+        Value right = valueOf(expr.right(), context);
         return Operations.binary(expr.op(), left, right, expr.span());
     }
 
     @Override
     public Value visitTernary(TernaryExpr expr, ExecutionContext context) {
-        return eval(expr.condition(), context).isTruthy()
-                ? eval(expr.ifTrue(), context)
-                : eval(expr.ifFalse(), context);
+        return valueOf(expr.condition(), context).isTruthy()
+                ? valueOf(expr.ifTrue(), context)
+                : valueOf(expr.ifFalse(), context);
     }
 
     /**
@@ -319,8 +412,8 @@ public final class Interpreter
      */
     @Override
     public Value visitAccess(AccessExpr expr, ExecutionContext context) {
-        Value target = eval(expr.target(), context);
-        Value key = eval(expr.key(), context);
+        Value target = valueOf(expr.target(), context);
+        Value key = valueOf(expr.key(), context);
         return read(target, key, expr.style(), expr.span());
     }
 
@@ -334,7 +427,7 @@ public final class Interpreter
      */
     @Override
     public Value visitCall(CallExpr expr, ExecutionContext context) {
-        Value callee = eval(expr.callee(), context);
+        Value callee = valueOf(expr.callee(), context);
         if (!(callee instanceof FunctionValue function)) {
             throw new WdlRuntimeError(expr.callee().span(),
                     "вызвать можно только функцию, а здесь " + callee.type().title() + " (" + callee + ")");
@@ -342,11 +435,11 @@ public final class Interpreter
 
         List<Value> arguments = new ArrayList<>(expr.arguments().size());
         for (Expr argument : expr.arguments()) {
-            arguments.add(eval(argument, context));
+            arguments.add(valueOf(argument, context));
         }
         if (!function.arity().accepts(arguments.size())) {
             throw new WdlRuntimeError(expr.span(), "функция '" + function.name() + "' принимает "
-                    + function.arity().describe() + " аргументов, а передано " + arguments.size());
+                    + function.arity().describeArguments() + ", а передано " + arguments.size());
         }
         return function.call(context, arguments, expr.span());
     }
@@ -355,7 +448,7 @@ public final class Interpreter
     public Value visitArray(ArrayExpr expr, ExecutionContext context) {
         List<Value> items = new ArrayList<>(expr.elements().size());
         for (Expr element : expr.elements()) {
-            items.add(eval(element, context));
+            items.add(valueOf(element, context));
         }
         return ArrayValue.of(items);
     }
@@ -364,9 +457,21 @@ public final class Interpreter
     public Value visitObject(ObjectExpr expr, ExecutionContext context) {
         ObjectValue object = new ObjectValue();
         for (ObjectExpr.Entry entry : expr.entries()) {
-            object.put(eval(entry.key(), context), eval(entry.value(), context));
+            object.put(valueOf(entry.key(), context), valueOf(entry.value(), context));
         }
         return object;
+    }
+
+    /**
+     * Литерал функции: дерево тела плюс текущая область видимости как замыкание.
+     * <p>
+     * Замыкается именно область, а не снимок её значений: две функции, объявленные
+     * рядом, видят одну и ту же переменную, и изменение из одной видно другой. Это
+     * и позволяет написать счётчик или накопитель поверх замыкания.
+     */
+    @Override
+    public Value visitFunction(FunctionExpr expr, ExecutionContext context) {
+        return new UserFunction(expr, context.scope(), this);
     }
 
     /**
@@ -434,8 +539,8 @@ public final class Interpreter
         return switch (target) {
             case VariableExpr variable -> new VariablePlace(context.scope(), variable.name(), variable.span());
             case AccessExpr access -> new ContainerPlace(
-                    eval(access.target(), context),
-                    eval(access.key(), context),
+                    valueOf(access.target(), context),
+                    valueOf(access.key(), context),
                     access.style(),
                     access.span());
             // Парсер других целей не пропускает: сюда можно попасть только из-за ошибки в движке.

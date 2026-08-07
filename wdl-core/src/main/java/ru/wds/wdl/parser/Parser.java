@@ -43,10 +43,12 @@ public final class Parser {
     /**
      * Сколько циклов вокруг разбираемой сейчас инструкции. Нужен ровно для одного:
      * поймать {@code break} и {@code continue} вне цикла при разборе, а не при выполнении
-     * той единственной ветки, куда до релиза никто не заглянул. Когда появятся функции,
-     * их тело обязано начинаться с нуля — из цикла нельзя выйти через границу функции.
+     * той единственной ветки, куда до релиза никто не заглянул. Тело функции начинается
+     * с нуля — из цикла нельзя выйти через границу функции.
      */
     private int loopDepth;
+    /** Сколько функций вокруг: то же самое для {@code return} вне функции. */
+    private int functionDepth;
 
     private Parser(List<Token> tokens, Diagnostics diagnostics) {
         this.tokens = Objects.requireNonNull(tokens, "tokens");
@@ -108,6 +110,10 @@ public final class Parser {
             case FOR -> forStatement();
             case BREAK -> breakStatement();
             case CONTINUE -> continueStatement();
+            case RETURN -> returnStatement();
+            // 'fun' с именем — объявление. 'fun(' — анонимная функция, то есть выражение:
+            // её разберёт simpleStatement и скажет, что такая инструкция ничего не делает.
+            case FUN -> peek(1).type() == TokenType.WORD ? funDeclaration() : simpleStatement();
             default -> simpleStatement();
         };
     }
@@ -159,13 +165,144 @@ public final class Parser {
             return new ErrorStmt(span);
         }
         if (target instanceof VariableExpr || target instanceof AccessExpr) {
-            return new AssignStmt(target, op, value, span);
+            return new AssignStmt(target, op, named(target, op, value), span);
         }
         if (!(target instanceof ErrorExpr)) {
             diagnostics.error(target.span(), "слева от '" + op.symbol()
                     + "' должно стоять имя переменной или обращение вида a.b или a[i]");
         }
         return new ErrorStmt(span);
+    }
+
+    /**
+     * Даёт анонимной функции имя переменной, в которую её кладут: {@code f = fun(a) => a}.
+     * <p>
+     * Только ради диагностики — «функция 'f' принимает ровно 1 аргумент» вместо
+     * «функция 'fun' ...». На поиск имени во время выполнения это не влияет никак:
+     * функция и без того лежит в переменной, а не ищется по имени.
+     */
+    private static Expr named(Expr target, AssignOp op, Expr value) {
+        if (op != AssignOp.ASSIGN || !(target instanceof VariableExpr variable)
+                || !(value instanceof FunctionExpr function) || function.name() != null) {
+            return value;
+        }
+        return new FunctionExpr(variable.name(), function.params(), function.body(),
+                function.style(), function.span());
+    }
+
+    // --- функции -------------------------------------------------------------
+
+    /** Объявление: {@code fun имя(a, b) тело}. Имя проверено в {@link #statement()}. */
+    private Stmt funDeclaration() {
+        Token keyword = advance(); // fun
+        Token name = advance();    // имя
+        FunctionExpr function = functionRest(keyword, name.text());
+        if (function.body() instanceof ReturnStmt returned && returned.value() instanceof ErrorExpr) {
+            // Тело после '=>' не разобралось, и об этом уже сказано. Дальше по строке
+            // разбирать нечего: пропускаем её целиком, иначе тот же токен вызовет ту же
+            // ошибку второй раз — уже от следующей инструкции.
+            synchronize();
+            return new ErrorStmt(function.span());
+        }
+        return new FunDeclStmt(function, function.span());
+    }
+
+    /** Анонимная функция в позиции выражения: {@code fun(a, b) => a + b}. */
+    private Expr functionExpr() {
+        Token keyword = advance(); // fun
+        return functionRest(keyword, null);
+    }
+
+    /**
+     * Параметры и тело — всё, что у объявления и анонимной функции общее, то есть всё,
+     * кроме имени.
+     * <p>
+     * Тело — отдельная территория для управляющих конструкций: {@code return} внутри
+     * разрешён, а {@code break} из цикла, объемлющего объявление, — нет. Поэтому
+     * {@link #loopDepth} на время разбора тела обнуляется, а не просто не растёт.
+     */
+    private FunctionExpr functionRest(Token keyword, String name) {
+        List<FunctionExpr.Param> params = parameters();
+
+        int outerLoops = loopDepth;
+        loopDepth = 0;
+        functionDepth++;
+        try {
+            if (match(TokenType.FATARROW)) {
+                // Стрелка — это return, только записанный короче. В дереве так и лежит:
+                // ReturnStmt, а сама форма записи остаётся в BodyStyle для форматтера.
+                Expr value = expression(0);
+                Stmt body = new ReturnStmt(value, value.span());
+                return new FunctionExpr(name, params, body, BodyStyle.ARROW,
+                        keyword.span().to(value.span()));
+            }
+            Stmt body = body(name != null ? "функции '" + name + "'" : "анонимной функции");
+            return new FunctionExpr(name, params, body, BodyStyle.STATEMENT,
+                    keyword.span().to(body.span()));
+        } finally {
+            functionDepth--;
+            loopDepth = outerLoops;
+        }
+    }
+
+    /** Список параметров. Запятая после последнего разрешена — как в массивах и аргументах. */
+    private List<FunctionExpr.Param> parameters() {
+        expect(TokenType.LPAREN, "открывающую скобку '(' после 'fun'");
+        List<FunctionExpr.Param> params = new ArrayList<>();
+        while (!check(TokenType.RPAREN) && !check(TokenType.EOF)) {
+            int before = index;
+            if (check(TokenType.WORD)) {
+                addParameter(params, advance());
+                if (match(TokenType.COMMA) || check(TokenType.RPAREN)) {
+                    continue;
+                }
+                diagnostics.error(peek().span(),
+                        "ожидалась ',' или ')' в списке параметров, найдено " + describe(peek()));
+            } else {
+                diagnostics.error(peek().span(),
+                        "ожидалось имя параметра, найдено " + describe(peek()));
+            }
+            ensureProgress(before);
+        }
+        expect(TokenType.RPAREN, "закрывающую скобку ')' после списка параметров");
+        return params;
+    }
+
+    /**
+     * Добавляет параметр, поймав одноимённый. Два параметра с одним именем — не спор
+     * о вкусе: второй молча перекрыл бы первый, и один из аргументов стал бы недоступен.
+     */
+    private void addParameter(List<FunctionExpr.Param> params, Token name) {
+        for (FunctionExpr.Param existing : params) {
+            if (existing.name().equals(name.text())) {
+                diagnostics.error(name.span(), "параметр '" + name.text() + "' уже объявлен");
+                return;
+            }
+        }
+        params.add(new FunctionExpr.Param(name.text(), name.span()));
+    }
+
+    /**
+     * Возврат из функции: {@code return выражение;} или {@code return;}.
+     * <p>
+     * Точка с запятой обязательна — почему именно так, разобрано в {@link ReturnStmt}.
+     * Здесь важно следствие для разбора: решение «есть значение или нет» принимается
+     * по одному текущему токену, без заглядывания вперёд и без оглядки на переносы строк.
+     */
+    private Stmt returnStatement() {
+        Token keyword = advance(); // return
+        if (functionDepth == 0) {
+            diagnostics.error(keyword.span(), "'return' допустим только внутри функции");
+        }
+        Expr value = check(TokenType.SEMICOLON) ? null : expression(0);
+        if (value instanceof ErrorExpr) {
+            // Возвращаемое выражение не разобралось — об этом уже сказано. Дальше по строке
+            // разбирать нечего: пропускаем её, чтобы не сыпать производными ошибками.
+            synchronize();
+            return new ErrorStmt(keyword.span().to(value.span()));
+        }
+        Token end = expect(TokenType.SEMICOLON, "точку с запятой ';' после 'return'");
+        return new ReturnStmt(value, keyword.span().to(end.span()));
     }
 
     // --- ветвления и циклы ---------------------------------------------------
@@ -457,6 +594,9 @@ public final class Parser {
             }
             case LBRACE -> {
                 return objectLiteral();
+            }
+            case FUN -> {
+                return functionExpr();
             }
             default -> {
                 diagnostics.error(token.span(), "ожидалось выражение, найдено " + describe(token));

@@ -45,8 +45,9 @@ import java.util.concurrent.Callable;
         mixinStandardHelpOptions = true,
         versionProvider = Main.VersionProvider.class,
         description = "wdl — встраиваемый скриптовый язык для JVM",
-        footer = "%nСкрипт — это присваивания и вызовы: println, print, typeof, len.%n"
-                + "Ветвления, циклы и свои функции появятся на следующих шагах."
+        footer = "%nСкрипт — это присваивания и вызовы (println, print, typeof, len),%n"
+                + "ветвления и циклы, свои функции: fun имя(a, b) => a + b.%n"
+                + "Классы и модули появятся на следующих шагах."
 )
 public final class Main implements Callable<Integer> {
 

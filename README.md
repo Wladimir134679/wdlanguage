@@ -45,6 +45,8 @@
 * [Инструкции](docs/statements.md) — присваивание, вызов, встроенные функции, вывод.
 * [Ветвления и циклы](docs/control-flow.md) — `if`, `while`, `for`, перебор `for ... in`,
   `break`/`continue`, области видимости.
+* [Функции](docs/functions.md) — объявление, `=>`, `return`, анонимные функции,
+  замыкания, области видимости вызова.
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
 
 ## Команды
@@ -56,6 +58,7 @@
 ./gradlew :wdl-cli:run --args="examples/hello.wdl"                # выполнить скрипт
 ./gradlew :wdl-cli:run --args="examples/expressions.wdl"          # шпаргалка по выражениям
 ./gradlew :wdl-cli:run --args="examples/control-flow.wdl"         # ветвления и циклы
+./gradlew :wdl-cli:run --args="examples/functions.wdl"            # функции и замыкания
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"          # показать дерево
 ./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl" # показать токены
 ./gradlew :wdl-cli:repl --console=plain     # REPL (нужен живой stdin)
@@ -80,9 +83,11 @@ $ wdl examples/hello.wdl
 (`ru.wds.wdl.value`), AST (`ru.wds.wdl.ast`), парсер (`ru.wds.wdl.parser`)
 и интерпретатор (`ru.wds.wdl.runtime`). Скрипт — это присваивания, вызовы
 (`println`, `print`, `typeof`, `len`), блоки, ветвления и циклы (`if`, `while`, `for`,
-`for ... in`, `break`, `continue`); своих функций, классов и модулей ещё нет.
+`for ... in`, `break`, `continue`) и свои функции (`fun`, `return`, тело-выражение `=>`,
+анонимные функции, замыкания); классов и модулей ещё нет.
 Подробности — в [docs/statements.md](docs/statements.md),
-[docs/control-flow.md](docs/control-flow.md) и [docs/expressions.md](docs/expressions.md).
+[docs/control-flow.md](docs/control-flow.md), [docs/functions.md](docs/functions.md)
+и [docs/expressions.md](docs/expressions.md).
 
 Решения парсера и интерпретатора, определяющие остальное:
 
@@ -94,6 +99,12 @@ $ wdl examples/hello.wdl
 * **Присваивание — инструкция**, а не выражение: `if (x = 5)` не разберётся вообще.
   Составное `+=` не разворачивается при разборе, поэтому `таблица[ключ()] += 1`
   вызывает `ключ()` один раз.
+* **Функция — значение с замыканием на область объявления.** Отсюда даром получаются
+  рекурсия, вложенные функции и замыкания над изменяемой переменной; объявления
+  верхнего уровня помечаются до выполнения, поэтому порядок функций в файле свободен.
+* **`break`, `continue` и `return` — сигналы**, а не проверяемый в каждом узле код
+  возврата: `return` из глубины циклов не требует от циклов ни строчки. Бесконечная
+  рекурсия при этом ошибка скрипта, а не `StackOverflowError` в чужом приложении.
 * **Ошибка не прерывает разбор**: дерево возвращается всегда, испорченная строка
   пропускается до следующей, а до интерпретатора такое дерево не доходит.
 * **Вывод — зависимость**, а не `System.out`: `println` пишет туда, куда указал
