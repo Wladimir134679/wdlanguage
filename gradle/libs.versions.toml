@@ -1,0 +1,13 @@
+# Единый каталог версий для всей сборки.
+# Правило проекта: сюда попадают только инструменты разработки (тесты, бенчмарки, тулинг).
+# Рантайм-зависимостей у wdl-core нет и не будет — это проверяется задачей checkNoRuntimeDependencies.
+
+[versions]
+java = "21"
+junit = "5.14.4"
+
+[libraries]
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+# Версии ниже приходят из BOM выше — намеренно не указаны.
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
