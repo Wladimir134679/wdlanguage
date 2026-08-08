@@ -114,6 +114,96 @@ class FunctionTest {
         assertTrue(errorOf("fun f(a, b) => a\nf(1)").getMessage().contains("ровно 2 аргумента"));
     }
 
+    // --- значения по умолчанию -----------------------------------------------
+
+    @Test
+    @DisplayName("непереданный аргумент берётся из значения по умолчанию")
+    void defaultValueIsSubstituted() {
+        assertEquals("привет, мир здравствуй, мир", printed("""
+                fun greet(name, greeting = "привет") => greeting + ", " + name
+                println(greet("мир"))
+                println(greet("мир", "здравствуй"))
+                """));
+    }
+
+    @Test
+    @DisplayName("значение по умолчанию видит параметры, связанные левее")
+    void defaultValueSeesEarlierParameters() {
+        // 120.0 и 240.0 вещественные: их посчитал дефолт с 0.2, а в третьем вызове
+        // налог передан целым нулём — тип результата виден в выводе.
+        assertEquals("120.0 240.0 200", printed("""
+                fun total(price, count = 1, tax = price * count * 0.2) => price * count + tax
+                println(total(100), " ", total(100, 2), " ", total(100, 2, 0))
+                """));
+    }
+
+    @Test
+    @DisplayName("значение по умолчанию считается при вызове, а не при объявлении")
+    void defaultValueIsEvaluatedAtCallTime() {
+        // Внешняя переменная менялась между объявлением и вызовом — берётся новое значение.
+        assertEquals("21", printed("""
+                step = 10
+                fun inc(x, by = step) => x + by
+                step = 20
+                println(inc(1))
+                """));
+    }
+
+    @Test
+    @DisplayName("на каждый вызов своё значение, а не одно общее — в отличие от Python")
+    void defaultValueIsFreshEachCall() {
+        assertEquals("1 2", printed("""
+                fun box(value, holder = {}) {
+                    holder.value = value
+                    return holder;
+                }
+                println(box(1).value, " ", box(2).value)
+                """));
+    }
+
+    @Test
+    @DisplayName("значение по умолчанию не вычисляется, если аргумент передали")
+    void defaultValueIsSkippedWhenArgumentIsGiven() {
+        assertEquals("5", printed("""
+                fun mark() {
+                    println("считаю")
+                    return 1;
+                }
+                fun f(a = mark()) => a
+                println(f(5))
+                """));
+        assertEquals("считаю 1", printed("""
+                fun mark() {
+                    println("считаю")
+                    return 1;
+                }
+                fun f(a = mark()) => a
+                println(f())
+                """));
+    }
+
+    @Test
+    @DisplayName("число аргументов стало отрезком, и проверка осталась там же")
+    void arityBecomesRange() {
+        String message = errorOf("fun greet(name, greeting = \"привет\") => greeting\ngreet(1, 2, 3)")
+                .getMessage();
+        assertTrue(message.contains("'greet'"), message);
+        assertTrue(message.contains("от 1 до 2 аргументов"), message);
+        assertTrue(message.contains("передано 3"), message);
+
+        assertTrue(errorOf("fun f(a, b = 1) => a\nf()").getMessage().contains("от 1 до 2 аргументов"));
+    }
+
+    @Test
+    @DisplayName("значение по умолчанию работает у анонимной функции и у встроенного значения в поле")
+    void defaultValueForAnonymousFunctions() {
+        assertEquals("42 21", printed("""
+                double = fun(x, by = 2) => x * by
+                handlers = {inc: fun(x, step = 1) => x + step}
+                println(double(21), " ", handlers.inc(20))
+                """));
+    }
+
     // --- объявления помечаются до выполнения ---------------------------------
 
     @Test

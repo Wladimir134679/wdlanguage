@@ -219,14 +219,24 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     /**
      * Функция печатается со списком параметров в одну строку, а тело — вложенным:
      * так видно и то, что относится к самой функции, и форму её тела.
+     * <p>
+     * Значение по умолчанию в заголовке помечается многоточием, а само идёт отдельным
+     * поддеревом: это выражение, и его форма — приоритеты операторов, вложенные вызовы —
+     * ровно то, ради чего дамп и смотрят.
      */
     @Override
     public Void visitFunction(FunctionExpr expr, Integer depth) {
         String parameters = expr.params().stream()
-                .map(FunctionExpr.Param::name)
+                .map(param -> param.hasDefault() ? param.name() + " = ..." : param.name())
                 .collect(Collectors.joining(", "));
         String arrow = expr.style() == BodyStyle.ARROW ? ", тело-выражение '=>'" : "";
         line(depth, "функция " + expr.title() + "(" + parameters + ")" + arrow, expr);
+        for (FunctionExpr.Param param : expr.params()) {
+            if (param.hasDefault()) {
+                line(depth + 1, "по умолчанию '" + param.name() + "'", param.span());
+                visit(param.defaultValue(), depth + 2);
+            }
+        }
         return visit(expr.body(), depth + 1);
     }
 

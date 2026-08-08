@@ -46,8 +46,10 @@
 * [Ветвления и циклы](docs/control-flow.md) — `if`, `while`, `for`, перебор `for ... in`,
   `break`/`continue`, области видимости.
 * [Функции](docs/functions.md) — объявление, `=>`, `return`, анонимные функции,
-  замыкания, области видимости вызова.
+  значения параметров по умолчанию, замыкания, области видимости вызова.
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
+* [Классы](docs/classes.md) — **проект, ещё не реализовано:** `class` и `trait`, `new`,
+  `this` и `super`, наследование, проверка `is`.
 
 ## Команды
 
@@ -59,6 +61,7 @@
 ./gradlew :wdl-cli:run --args="examples/expressions.wdl"          # шпаргалка по выражениям
 ./gradlew :wdl-cli:run --args="examples/control-flow.wdl"         # ветвления и циклы
 ./gradlew :wdl-cli:run --args="examples/functions.wdl"            # функции и замыкания
+.\gradlew :wdl-cli:run --args="examples/defaults.wdl"             # значения по умолчанию
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"          # показать дерево
 ./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl" # показать токены
 ./gradlew :wdl-cli:repl --console=plain     # REPL (нужен живой stdin)
@@ -84,7 +87,8 @@ $ wdl examples/hello.wdl
 и интерпретатор (`ru.wds.wdl.runtime`). Скрипт — это присваивания, вызовы
 (`println`, `print`, `typeof`, `len`), блоки, ветвления и циклы (`if`, `while`, `for`,
 `for ... in`, `break`, `continue`) и свои функции (`fun`, `return`, тело-выражение `=>`,
-анонимные функции, замыкания); классов и модулей ещё нет.
+анонимные функции, значения параметров по умолчанию, замыкания); именованных аргументов,
+классов и модулей ещё нет.
 Подробности — в [docs/statements.md](docs/statements.md),
 [docs/control-flow.md](docs/control-flow.md), [docs/functions.md](docs/functions.md)
 и [docs/expressions.md](docs/expressions.md).
@@ -102,6 +106,8 @@ $ wdl examples/hello.wdl
 * **Функция — значение с замыканием на область объявления.** Отсюда даром получаются
   рекурсия, вложенные функции и замыкания над изменяемой переменной; объявления
   верхнего уровня помечаются до выполнения, поэтому порядок функций в файле свободен.
+  Значение параметра по умолчанию считается **при каждом вызове**, а не один раз при
+  объявлении, — иначе один массив или объект стал бы общим для всех вызовов, как в Python.
 * **`break`, `continue` и `return` — сигналы**, а не проверяемый в каждом узле код
   возврата: `return` из глубины циклов не требует от циклов ни строчки. Бесконечная
   рекурсия при этом ошибка скрипта, а не `StackOverflowError` в чужом приложении.

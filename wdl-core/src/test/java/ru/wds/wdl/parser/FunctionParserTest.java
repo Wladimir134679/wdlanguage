@@ -111,6 +111,70 @@ class FunctionParserTest {
         assertInstanceOf(ReturnStmt.class, body.statements().get(1));
     }
 
+    // --- значения по умолчанию -----------------------------------------------
+
+    @Test
+    @DisplayName("значение по умолчанию попадает в дерево вместе с параметром")
+    void defaultValueIsPartOfParameter() {
+        FunctionExpr function = declaration("fun total(price, count = 1) => price * count");
+        assertEquals("(fun total price (count 1))", SExprPrinter.print(function));
+        assertFalse(function.params().get(0).hasDefault());
+        assertTrue(function.params().get(1).hasDefault());
+    }
+
+    @Test
+    @DisplayName("по умолчанию — выражение, а не литерал: приоритеты те же, запятая не рвёт список")
+    void defaultValueIsFullExpression() {
+        assertEquals("(fun f a (b (+ 1 (* 2 3))))",
+                SExprPrinter.print(declaration("fun f(a, b = 1 + 2 * 3) => a")));
+        assertEquals("(fun f (a (call now)) (b (array 1 2)))",
+                SExprPrinter.print(declaration("fun f(a = now(), b = [1, 2]) => a")));
+        assertEquals(2, declaration("fun f(a = 1, b = 2,) => a").params().size());
+    }
+
+    @Test
+    @DisplayName("значение по умолчанию видит параметры слева")
+    void defaultValueSeesEarlierParameters() {
+        assertEquals("(fun f a (b (* a 2)))",
+                SExprPrinter.print(declaration("fun f(a, b = a * 2) => b")));
+    }
+
+    @Test
+    @DisplayName("одинаково у объявления и у анонимной функции — узел-то один")
+    void defaultValueWorksForAnonymous() {
+        AssignStmt assign = assertInstanceOf(AssignStmt.class, single("double = fun(x, by = 2) => x * by"));
+        FunctionExpr function = assertInstanceOf(FunctionExpr.class, assign.value());
+        assertEquals("(fun double x (by 2))", SExprPrinter.print(function));
+    }
+
+    @Test
+    @DisplayName("обязательный параметр после необязательного — ошибка разбора")
+    void requiredCannotFollowOptional() {
+        String message = errorOf("fun f(a, b = 10, c) => a");
+        assertTrue(message.contains("параметр 'c' без значения по умолчанию"), message);
+        assertTrue(message.contains("после параметра со значением по умолчанию"), message);
+        // Обратный порядок законен, как и все параметры со значениями.
+        parse("fun f(a, b = 10, c = 20) => a");
+        parse("fun f(a = 1) => a");
+    }
+
+    @Test
+    @DisplayName("ссылка на параметр правее — ошибка: иначе молча взялась бы внешняя переменная")
+    void defaultValueCannotLookRight() {
+        assertTrue(errorOf("fun f(a = b, b = 1) => a").contains("связывается позже"));
+        assertTrue(errorOf("fun f(a, b = c * 2, c = 1) => b").contains("параметр 'c'"));
+        assertTrue(errorOf("fun f(a = a) => a").contains("ссылается на сам параметр"));
+        // Обращение спрятано глубоко в выражении — всё равно находится
+        assertTrue(errorOf("fun f(a = [1, {k: b}], b = 2) => a").contains("связывается позже"));
+    }
+
+    @Test
+    @DisplayName("одноимённый параметр внутри вложенной функции — свой и претензий не вызывает")
+    void nestedFunctionHasItsOwnNames() {
+        parse("fun f(a = fun(b) => b, b = 1) => a");
+        parse("fun f(a = fun(x) { return x; }, x = 1) => a");
+    }
+
     // --- анонимные функции ---------------------------------------------------
 
     @Test

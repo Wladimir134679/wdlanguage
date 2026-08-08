@@ -42,25 +42,41 @@ public record FunctionExpr(String name, List<Param> params, Stmt body, BodyStyle
     }
 
     /**
-     * Параметр функции.
+     * Параметр функции — имя и, если оно есть, значение по умолчанию.
      * <p>
      * Отдельный тип, а не просто строка, из-за места в исходнике: сообщение о дубликате
-     * должно указывать на второе вхождение, а не на всю функцию. Здесь же появится
-     * значение по умолчанию ({@code fun f(a, b = 10)}), когда до него дойдёт дело.
+     * должно указывать на второе вхождение, а не на всю функцию.
+     * <p>
+     * <b>Значение по умолчанию хранится деревом, а не вычисленным значением.</b> Считается
+     * оно при каждом вызове ({@code runtime.UserFunction}), и это отличие от Python
+     * намеренное: там дефолт вычисляется один раз при объявлении и живёт с функцией,
+     * отчего общий изменяемый список копит значения между вызовами. Массивы и объекты
+     * здесь тоже изменяемые, так что снимок значения принёс бы ту же ловушку — да ещё
+     * и в виде изменяемого состояния внутри узла дерева, который обязан оставаться данными.
      *
-     * @param name имя параметра
-     * @param span место имени в исходнике
+     * @param name         имя параметра
+     * @param defaultValue значение по умолчанию или {@code null}, если параметр обязателен
+     * @param span         место имени в исходнике
      */
-    public record Param(String name, Span span) {
+    public record Param(String name, Expr defaultValue, Span span) {
 
         public Param {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(span, "span");
         }
 
+        /** Обязательный параметр — без значения по умолчанию. */
+        public Param(String name, Span span) {
+            this(name, null, span);
+        }
+
+        public boolean hasDefault() {
+            return defaultValue != null;
+        }
+
         @Override
         public String toString() {
-            return name;
+            return defaultValue != null ? name + " = " + defaultValue : name;
         }
     }
 
@@ -72,6 +88,6 @@ public record FunctionExpr(String name, List<Param> params, Stmt body, BodyStyle
     @Override
     public String toString() {
         return "fun " + (name != null ? name : "")
-                + params.stream().map(Param::name).collect(Collectors.joining(", ", "(", ")"));
+                + params.stream().map(Param::toString).collect(Collectors.joining(", ", "(", ")"));
     }
 }

@@ -39,11 +39,27 @@ public final class UserFunction implements FunctionValue {
     private final Environment closure;
     /** Интерпретатор безсостоятельный, поэтому делить один экземпляр безопасно. */
     private final Interpreter interpreter;
+    private final Arity arity;
 
     UserFunction(FunctionExpr declaration, Environment closure, Interpreter interpreter) {
         this.declaration = Objects.requireNonNull(declaration, "declaration");
         this.closure = Objects.requireNonNull(closure, "closure");
         this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
+        this.arity = arityOf(declaration);
+    }
+
+    /**
+     * Обязательных параметров столько, сколько их до первого со значением по умолчанию:
+     * парсер не пропускает обязательный после необязательного, поэтому дальше идут
+     * только необязательные и арность остаётся отрезком.
+     */
+    private static Arity arityOf(FunctionExpr declaration) {
+        List<FunctionExpr.Param> params = declaration.params();
+        int required = 0;
+        while (required < params.size() && !params.get(required).hasDefault()) {
+            required++;
+        }
+        return Arity.between(required, params.size());
     }
 
     @Override
@@ -51,13 +67,9 @@ public final class UserFunction implements FunctionValue {
         return declaration.title();
     }
 
-    /**
-     * Пока — ровно столько аргументов, сколько параметров. Значения по умолчанию
-     * ({@code fun f(a, b = 10)}) превратят это в {@link Arity#between}.
-     */
     @Override
     public Arity arity() {
-        return Arity.exactly(declaration.params().size());
+        return arity;
     }
 
     @Override
@@ -69,15 +81,23 @@ public final class UserFunction implements FunctionValue {
         }
 
         Environment local = closure.child();
+        // Контекст создаётся до связывания: в нём же вычисляются значения по умолчанию,
+        // и оттого они видят параметры, связанные левее, — область у них одна и та же.
+        ExecutionContext inner = ExecutionContext.call(local, context);
         List<FunctionExpr.Param> params = declaration.params();
         for (int i = 0; i < params.size(); i++) {
             // Параметры — всегда локальные: одноимённая внешняя переменная остаётся
             // нетронутой, даже если функция параметру что-то присвоит.
-            local.define(params.get(i).name(), arguments.get(i));
+            local.define(params.get(i).name(), i < arguments.size()
+                    ? arguments.get(i)
+                    // Значение по умолчанию считается заново на каждом вызове: снимок,
+                    // сделанный при объявлении, сделал бы один массив или объект общим
+                    // для всех вызовов — известная ловушка Python.
+                    : interpreter.visit(params.get(i).defaultValue(), inner));
         }
 
         try {
-            interpreter.visit(declaration.body(), ExecutionContext.call(local, context));
+            interpreter.visit(declaration.body(), inner);
         } catch (ControlSignal.Return signal) {
             return signal.value();
         } catch (ControlSignal.Break | ControlSignal.Continue signal) {

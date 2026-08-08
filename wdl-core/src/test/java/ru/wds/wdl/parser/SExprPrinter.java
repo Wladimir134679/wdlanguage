@@ -80,12 +80,15 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
 
     /**
      * Тело не печатается: форму тела проверяет {@code AstDumper}, а здесь важно то,
-     * что относится к самой функции, — имя и параметры.
+     * что относится к самой функции, — имя и параметры. Параметр со значением
+     * по умолчанию печатается парой: {@code fun f(a, b = 10)} → {@code (fun f a (b 10))}.
      */
     @Override
     public String visitFunction(FunctionExpr expr, Void context) {
         StringBuilder sb = new StringBuilder("(fun ").append(expr.title());
-        expr.params().forEach(param -> sb.append(' ').append(param.name()));
+        expr.params().forEach(param -> sb.append(' ').append(param.hasDefault()
+                ? "(" + param.name() + " " + visit(param.defaultValue(), context) + ")"
+                : param.name()));
         return sb.append(')').toString();
     }
 

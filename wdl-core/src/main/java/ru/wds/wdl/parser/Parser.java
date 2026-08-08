@@ -245,14 +245,20 @@ public final class Parser {
         }
     }
 
-    /** Список параметров. Запятая после последнего разрешена — как в массивах и аргументах. */
+    /**
+     * Список параметров, возможно со значениями по умолчанию: {@code (a, b = 10)}.
+     * Запятая после последнего разрешена — как в массивах и аргументах.
+     */
     private List<FunctionExpr.Param> parameters() {
         expect(TokenType.LPAREN, "открывающую скобку '(' после 'fun'");
         List<FunctionExpr.Param> params = new ArrayList<>();
         while (!check(TokenType.RPAREN) && !check(TokenType.EOF)) {
             int before = index;
             if (check(TokenType.WORD)) {
-                addParameter(params, advance());
+                Token name = advance();
+                // Значение по умолчанию — обычное выражение, а не литерал: запятая
+                // оператором не является, поэтому список на нём не рвётся.
+                addParameter(params, name, match(TokenType.ASSIGN) ? expression(0) : null);
                 if (match(TokenType.COMMA) || check(TokenType.RPAREN)) {
                     continue;
                 }
@@ -265,21 +271,114 @@ public final class Parser {
             ensureProgress(before);
         }
         expect(TokenType.RPAREN, "закрывающую скобку ')' после списка параметров");
+        checkDefaultsLookLeft(params);
         return params;
     }
 
     /**
-     * Добавляет параметр, поймав одноимённый. Два параметра с одним именем — не спор
-     * о вкусе: второй молча перекрыл бы первый, и один из аргументов стал бы недоступен.
+     * Добавляет параметр, поймав одноимённый и обязательный после необязательного.
+     * <p>
+     * Два параметра с одним именем — не спор о вкусе: второй молча перекрыл бы первый,
+     * и один из аргументов стал бы недоступен.
+     * <p>
+     * <b>После параметра со значением по умолчанию обязательных быть не может.</b>
+     * Причина не эстетическая: пропуск в середине нечем записать, пока в языке нет
+     * именованных аргументов, а число аргументов проверяется одним отрезком
+     * ({@link ru.wds.wdl.value.Arity}) до входа в функцию.
      */
-    private void addParameter(List<FunctionExpr.Param> params, Token name) {
+    private void addParameter(List<FunctionExpr.Param> params, Token name, Expr defaultValue) {
         for (FunctionExpr.Param existing : params) {
             if (existing.name().equals(name.text())) {
                 diagnostics.error(name.span(), "параметр '" + name.text() + "' уже объявлен");
                 return;
             }
         }
-        params.add(new FunctionExpr.Param(name.text(), name.span()));
+        if (defaultValue == null && !params.isEmpty() && params.get(params.size() - 1).hasDefault()) {
+            diagnostics.error(name.span(), "параметр '" + name.text() + "' без значения по умолчанию"
+                    + " не может идти после параметра со значением по умолчанию");
+        }
+        params.add(new FunctionExpr.Param(name.text(), defaultValue, name.span()));
+    }
+
+    /**
+     * Значение по умолчанию видит параметры <b>слева</b> от себя и не видит остальных.
+     * <p>
+     * Считается оно при вызове, по порядку, поэтому {@code fun f(a, b = a * 2)} — законно
+     * и полезно, а {@code fun f(a = b, b = 1)} к моменту вычисления {@code a} нашло бы
+     * не параметр, а одноимённую переменную снаружи — и подставило бы её молча. Язык
+     * такие подмены не допускает нигде, поэтому это ошибка разбора.
+     * <p>
+     * Резолвер имён для проверки не нужен: достаточно посмотреть, какие имена вообще
+     * встречаются в выражении по умолчанию.
+     */
+    private void checkDefaultsLookLeft(List<FunctionExpr.Param> params) {
+        for (int i = 0; i < params.size(); i++) {
+            FunctionExpr.Param param = params.get(i);
+            if (!param.hasDefault()) {
+                continue;
+            }
+            List<String> unbound = new ArrayList<>();
+            for (int j = i; j < params.size(); j++) {
+                unbound.add(params.get(j).name());
+            }
+            VariableExpr use = findUse(param.defaultValue(), unbound);
+            if (use == null) {
+                continue;
+            }
+            diagnostics.error(use.span(), "значение по умолчанию параметра '" + param.name() + "' "
+                    + (use.name().equals(param.name())
+                            ? "ссылается на сам параметр"
+                            : "ссылается на параметр '" + use.name() + "', который связывается позже"));
+        }
+    }
+
+    /**
+     * Первое обращение к одному из имён в выражении — или {@code null}, если их там нет.
+     * <p>
+     * В тело вложенной функции обход не заходит намеренно: {@code fun f(a = fun(b) => b, b = 1)}
+     * — законно, {@code b} внутри лямбды своё собственное и к параметрам {@code f}
+     * отношения не имеет.
+     */
+    private static VariableExpr findUse(Expr expr, List<String> names) {
+        return switch (expr) {
+            case VariableExpr variable -> names.contains(variable.name()) ? variable : null;
+            case UnaryExpr unary -> findUse(unary.operand(), names);
+            case BinaryExpr binary -> firstUse(names, binary.left(), binary.right());
+            case TernaryExpr ternary ->
+                    firstUse(names, ternary.condition(), ternary.ifTrue(), ternary.ifFalse());
+            case AccessExpr access -> firstUse(names, access.target(), access.key());
+            case CallExpr call -> {
+                VariableExpr inCallee = findUse(call.callee(), names);
+                yield inCallee != null ? inCallee : firstUse(names, call.arguments());
+            }
+            case ArrayExpr array -> firstUse(names, array.elements());
+            case ObjectExpr object -> {
+                for (ObjectExpr.Entry entry : object.entries()) {
+                    VariableExpr use = firstUse(names, entry.key(), entry.value());
+                    if (use != null) {
+                        yield use;
+                    }
+                }
+                yield null;
+            }
+            case FunctionExpr ignored -> null;
+            case LiteralExpr ignored -> null;
+            case ErrorExpr ignored -> null;
+        };
+    }
+
+    private static VariableExpr firstUse(List<String> names, Expr... exprs) {
+        return firstUse(names, List.of(exprs));
+    }
+
+    private static VariableExpr firstUse(List<String> names, List<Expr> exprs) {
+        for (Expr expr : exprs) {
+            VariableExpr use = findUse(expr, names);
+            if (use != null) {
+                return use;
+            }
+        }
+        return null;
     }
 
     /**
