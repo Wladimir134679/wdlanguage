@@ -65,6 +65,14 @@ class LexerTest {
     }
 
     @Test
+    @DisplayName("слова классов — ключевые: trait, with, super, is")
+    void classKeywords() {
+        assertEquals(List.of(TokenType.CLASS, TokenType.TRAIT, TokenType.NEW, TokenType.THIS,
+                TokenType.SUPER, TokenType.WITH, TokenType.IS),
+                types("class trait new this super with is"));
+    }
+
+    @Test
     @DisplayName("println — обычное имя: печать это функция, а не синтаксис")
     void printIsNotKeyword() {
         assertEquals(List.of(TokenType.WORD, TokenType.LPAREN, TokenType.STRING, TokenType.RPAREN),

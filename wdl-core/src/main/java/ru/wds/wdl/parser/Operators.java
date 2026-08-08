@@ -85,6 +85,10 @@ final class Operators {
         put(infix, TokenType.GT, BinaryOp.GREATER, COMPARISON);
         put(infix, TokenType.GTEQ, BinaryOp.GREATER_EQUAL, COMPARISON);
 
+        // 'is' — тоже сравнение: 'фигура is Круг == истина' читается как сравнение
+        // ответа, а 'фигура is Круг && ...' не требует скобок.
+        put(infix, TokenType.IS, BinaryOp.IS, COMPARISON);
+
         put(infix, TokenType.SHL, BinaryOp.SHIFT_LEFT, SHIFT);
         put(infix, TokenType.SHR, BinaryOp.SHIFT_RIGHT, SHIFT);
         put(infix, TokenType.USHR, BinaryOp.SHIFT_RIGHT_UNSIGNED, SHIFT);

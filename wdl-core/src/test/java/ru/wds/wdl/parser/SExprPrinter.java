@@ -62,6 +62,14 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
         return sb.append(')').toString();
     }
 
+    /** {@code new Point(1, 2)} → {@code (new Point 1 2)}: видно, что это не вызов. */
+    @Override
+    public String visitNew(NewExpr expr, Void context) {
+        StringBuilder sb = new StringBuilder("(new ").append(visit(expr.callee(), context));
+        expr.arguments().forEach(argument -> sb.append(' ').append(visit(argument, context)));
+        return sb.append(')').toString();
+    }
+
     @Override
     public String visitArray(ArrayExpr expr, Void context) {
         String elements = expr.elements().stream()

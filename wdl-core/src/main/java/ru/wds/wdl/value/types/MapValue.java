@@ -12,6 +12,12 @@ import java.util.StringJoiner;
 /**
  * Объект: набор пар «ключ — значение» с сохранением порядка вставки.
  * <p>
+ * В языке этот тип называется {@code object} — так его показывает {@code typeof},
+ * так он описан в <a href="../../../../../../../../docs/types.md">типах данных</a>.
+ * Класс назван по устройству, а не по имени типа, потому что имён теперь два:
+ * карта и {@link InstanceObjectValue экземпляр класса} — один тип языка,
+ * две структуры данных.
+ * <p>
  * Ключ — любое значение, а не только строка. Из-за этого объект закрывает сразу
  * две привычные роли: запись с полями ({@code точка.x}) и словарь
  * ({@code счётчики["ошибки"]}). Обе записи — одно и то же обращение, см.
@@ -23,16 +29,27 @@ import java.util.StringJoiner;
  * <p>
  * Порядок вставки сохраняется намеренно: объект часто печатают и сериализуют,
  * и вывод не должен меняться от запуска к запуску.
+ * <p>
+ * <b>Здесь только карта.</b> Всё, что знает про классы, живёт в наследнике, и это
+ * не косметика: объектов в скрипте много, экземпляров меньше, а видов {@code super}
+ * — считанные разы, и платить за них полем в каждом объекте было бы неправильной
+ * сделкой. Наследование при этом оставляет {@code case MapValue} рабочим для обоих:
+ * что умеет объект, экземпляр умеет тоже.
  */
-public final class ObjectValue implements Value {
+public sealed class MapValue implements Value permits InstanceObjectValue {
 
-    private final Map<Value, Value> entries = new LinkedHashMap<>();
+    final Map<Value, Value> entries;
 
-    public ObjectValue() {
+    public MapValue() {
+        this(new LinkedHashMap<>());
     }
 
-    public static ObjectValue of(Map<Value, Value> entries) {
-        ObjectValue result = new ObjectValue();
+    MapValue(Map<Value, Value> entries) {
+        this.entries = entries;
+    }
+
+    public static MapValue of(Map<Value, Value> entries) {
+        MapValue result = new MapValue();
         entries.forEach(result::put);
         return result;
     }
@@ -54,6 +71,10 @@ public final class ObjectValue implements Value {
     /** Удобный доступ по имени поля: {@code obj.get("x")}. */
     public Value get(String key) {
         return get(StringValue.of(key));
+    }
+
+    public boolean has(String key) {
+        return has(StringValue.of(key));
     }
 
     public void put(String key, Value value) {
@@ -95,7 +116,16 @@ public final class ObjectValue implements Value {
 
     @Override
     public String display() {
-        StringJoiner joiner = new StringJoiner(", ", "{", "}");
+        return pairs(prefix() + "{");
+    }
+
+    /** Что стоит перед фигурной скобкой: у экземпляра — имя класса. */
+    String prefix() {
+        return "";
+    }
+
+    final String pairs(String opening) {
+        StringJoiner joiner = new StringJoiner(", ", opening, "}");
         entries.forEach((key, value) -> joiner.add(key + ": " + (value == this ? "{...}" : value.toString())));
         return joiner.toString();
     }

@@ -6,6 +6,7 @@ import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.ast.visitor.*;
 import ru.wds.wdl.source.Span;
 
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -130,6 +131,69 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         return visit(stmt.function(), depth + 1);
     }
 
+    /**
+     * Класс печатается заголовком в одну строку, а его части — вложенными.
+     * Порядок вложенного тот же, в каком собираются плоские таблицы: родитель,
+     * типажи, своё, — чтобы по дампу можно было проверить, кто кого перекрывает.
+     */
+    @Override
+    public Void visitClassDecl(ClassDeclStmt stmt, Integer depth) {
+        line(depth, "объявление класса " + stmt.name() + "(" + header(stmt.params()) + ")", stmt.span());
+        defaults(stmt.params(), depth + 1);
+        if (stmt.hasParent()) {
+            ClassDeclStmt.Superclass parent = stmt.parent();
+            line(depth + 1, "родитель " + parent.name() + ", аргументов: "
+                    + parent.arguments().size(), parent.span());
+            parent.arguments().forEach(argument -> visit(argument, depth + 2));
+        }
+        for (ClassDeclStmt.TraitRef trait : stmt.traits()) {
+            line(depth + 1, "типаж " + trait.name(), trait.span());
+        }
+        if (stmt.hasConstructor()) {
+            line(depth + 1, "конструктор", stmt.constructor().span());
+            visit(stmt.constructor().body(), depth + 2);
+        }
+        stmt.methods().forEach(method -> visit(method, depth + 1));
+        for (ClassDeclStmt.Factory factory : stmt.factories()) {
+            line(depth + 1, "фабрика " + factory.function().title(), factory.span());
+            visit(factory.function(), depth + 2);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitTraitDecl(TraitDeclStmt stmt, Integer depth) {
+        line(depth, "объявление типажа " + stmt.name() + "(" + header(stmt.params()) + ")", stmt.span());
+        defaults(stmt.params(), depth + 1);
+        for (FunctionExpr.Param param : stmt.params()) {
+            if (!param.hasDefault()) {
+                line(depth + 1, "требуется поле '" + param.name() + "'", param.span());
+            }
+        }
+        stmt.methods().forEach(method -> visit(method, depth + 1));
+        for (TraitDeclStmt.Requirement requirement : stmt.requirements()) {
+            line(depth + 1, "требуется метод " + requirement.name()
+                    + "(" + header(requirement.params()) + ")", requirement.span());
+        }
+        return null;
+    }
+
+    private static String header(List<FunctionExpr.Param> params) {
+        return params.stream()
+                .map(param -> param.hasDefault() ? param.name() + " = ..." : param.name())
+                .collect(Collectors.joining(", "));
+    }
+
+    /** Значения по умолчанию идут отдельными поддеревьями: это выражения, и их форма важна. */
+    private void defaults(List<FunctionExpr.Param> params, int depth) {
+        for (FunctionExpr.Param param : params) {
+            if (param.hasDefault()) {
+                line(depth, "по умолчанию '" + param.name() + "'", param.span());
+                visit(param.defaultValue(), depth + 1);
+            }
+        }
+    }
+
     @Override
     public Void visitReturn(ReturnStmt stmt, Integer depth) {
         line(depth, stmt.hasValue() ? "return" : "return без значения", stmt.span());
@@ -200,6 +264,14 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
+    public Void visitNew(NewExpr expr, Integer depth) {
+        line(depth, "создание, аргументов: " + expr.arguments().size(), expr);
+        visit(expr.callee(), depth + 1);
+        expr.arguments().forEach(argument -> visit(argument, depth + 1));
+        return null;
+    }
+
+    @Override
     public Void visitArray(ArrayExpr expr, Integer depth) {
         line(depth, "массив, элементов: " + expr.elements().size(), expr);
         expr.elements().forEach(element -> visit(element, depth + 1));
@@ -226,17 +298,9 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
      */
     @Override
     public Void visitFunction(FunctionExpr expr, Integer depth) {
-        String parameters = expr.params().stream()
-                .map(param -> param.hasDefault() ? param.name() + " = ..." : param.name())
-                .collect(Collectors.joining(", "));
         String arrow = expr.style() == BodyStyle.ARROW ? ", тело-выражение '=>'" : "";
-        line(depth, "функция " + expr.title() + "(" + parameters + ")" + arrow, expr);
-        for (FunctionExpr.Param param : expr.params()) {
-            if (param.hasDefault()) {
-                line(depth + 1, "по умолчанию '" + param.name() + "'", param.span());
-                visit(param.defaultValue(), depth + 2);
-            }
-        }
+        line(depth, "функция " + expr.title() + "(" + header(expr.params()) + ")" + arrow, expr);
+        defaults(expr.params(), depth + 1);
         return visit(expr.body(), depth + 1);
     }
 

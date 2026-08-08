@@ -3,12 +3,15 @@ package ru.wds.wdl.runtime;
 import ru.wds.wdl.ast.op.BinaryOp;
 import ru.wds.wdl.ast.op.UnaryOp;
 import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.BoolValue;
 import ru.wds.wdl.value.types.FloatValue;
+import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.types.StringValue;
+import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
 
 /**
@@ -48,6 +51,7 @@ public final class Operations {
             case EQUAL -> BoolValue.of(equal(left, right));
             case NOT_EQUAL -> BoolValue.of(!equal(left, right));
             case LESS, LESS_EQUAL, GREATER, GREATER_EQUAL -> compare(op, left, right, span);
+            case IS -> BoolValue.of(is(left, right, span));
 
             case BIT_AND, BIT_OR, BIT_XOR, SHIFT_LEFT, SHIFT_RIGHT, SHIFT_RIGHT_UNSIGNED ->
                     bitwise(op, left, right, span);
@@ -216,6 +220,29 @@ public final class Operations {
             case GREATER_EQUAL -> result >= 0;
             default -> throw new IllegalArgumentException("не операция сравнения: " + op);
         });
+    }
+
+    /**
+     * Проверка класса или типажа.
+     * <p>
+     * Слева — что угодно: для значения, которое не экземпляр, ответ {@code false},
+     * а не ошибка. Вопрос «этот ли это класс» осмыслен для чего угодно, и ошибку
+     * здесь пришлось бы обходить проверкой типа перед проверкой класса.
+     * <p>
+     * Справа — только класс или типаж, и {@code x is 5} это ошибка, а не {@code false}:
+     * спросить «является ли значение пятёркой» через {@code is} можно только
+     * по ошибке, и молчать о ней незачем.
+     * <p>
+     * Ответ спрашивается у класса экземпляра: цепочка предков и набор типажей
+     * заготовлены при объявлении, поэтому проверка не зависит от глубины наследования.
+     */
+    private static boolean is(Value left, Value right, Span span) {
+        if (!(right instanceof ClassValue) && !(right instanceof TraitValue)) {
+            throw new WdlRuntimeError(span, "справа от 'is' должен стоять класс или типаж, а здесь "
+                    + right.type().title() + " (" + right + ")");
+        }
+        // Обычный объект классу не принадлежит, поэтому и ответ на вопрос — false.
+        return left instanceof InstanceObjectValue instance && instance.owner().conformsTo(right);
     }
 
     // --- биты ----------------------------------------------------------------

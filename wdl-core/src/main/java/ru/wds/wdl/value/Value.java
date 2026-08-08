@@ -11,11 +11,22 @@ import ru.wds.wdl.value.types.*;
  * тип значения был {@code int}-константой — ошибиться было нечем, а компилятор
  * не помогал совсем.
  * <p>
- * Значения простых типов неизменяемы, {@link ArrayValue} и {@link ObjectValue} —
+ * Значения простых типов неизменяемы, {@link ArrayValue} и {@link MapValue} —
  * изменяемы и сравниваются по ссылке.
+ * <p>
+ * Тип {@code object} представлен двумя классами: {@link MapValue} — карта пар,
+ * {@link InstanceObjectValue} — экземпляр класса, её наследник. Для языка это
+ * один тип: {@code typeof} у обоих даёт {@code object}, и все операции над объектом
+ * работают с обоими.
+ * <p>
+ * {@link FunctionValue}, {@link ClassValue} и {@link TraitValue} — {@code non-sealed}:
+ * это единственные ветки, у которых реализация лежит в {@code runtime}, потому что
+ * тянет за собой дерево и область видимости. Список типов от этого не открывается —
+ * {@link ValueType} по-прежнему закрытый.
  */
 public sealed interface Value
-        permits NullValue, BoolValue, NumberValue, StringValue, ArrayValue, ObjectValue, FunctionValue {
+        permits NullValue, BoolValue, NumberValue, StringValue, ArrayValue, MapValue,
+                FunctionValue, ClassValue, TraitValue {
 
     ValueType type();
 

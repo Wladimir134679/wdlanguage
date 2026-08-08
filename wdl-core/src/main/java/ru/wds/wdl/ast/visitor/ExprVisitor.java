@@ -37,6 +37,9 @@ public interface ExprVisitor<R, C> {
 
     R visitCall(CallExpr expr, C context);
 
+    /** Создание экземпляра. Отдельно от вызова: {@code new} заводит новое состояние. */
+    R visitNew(NewExpr expr, C context);
+
     R visitArray(ArrayExpr expr, C context);
 
     R visitObject(ObjectExpr expr, C context);
@@ -61,6 +64,7 @@ public interface ExprVisitor<R, C> {
             case TernaryExpr e -> visitTernary(e, context);
             case AccessExpr e -> visitAccess(e, context);
             case CallExpr e -> visitCall(e, context);
+            case NewExpr e -> visitNew(e, context);
             case ArrayExpr e -> visitArray(e, context);
             case ObjectExpr e -> visitObject(e, context);
             case FunctionExpr e -> visitFunction(e, context);

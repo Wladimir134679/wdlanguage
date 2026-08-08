@@ -31,6 +31,18 @@ public final class Scope implements Environment {
         return new Scope(null);
     }
 
+    /**
+     * Область поверх произвольного окружения.
+     * <p>
+     * Нужна там, где внешним окружением служит не другая {@code Scope}, а
+     * {@link InstanceScope}: локальные имена вызова метода садятся сюда, а поля
+     * и методы находятся снаружи. Отсюда и «новое имя полем не становится» —
+     * {@code длина = x + y} внутри метода заводит имя здесь, а не в экземпляре.
+     */
+    static Scope under(Environment parent) {
+        return new Scope(Objects.requireNonNull(parent, "parent"));
+    }
+
     @Override
     public Value lookup(String name) {
         Objects.requireNonNull(name, "name");

@@ -160,6 +160,47 @@ class ParserTest {
         assertEquals("(+ (get a \"x\") (get b \"y\"))", tree("a.x + b.y"));
     }
 
+    // --- создание и проверка класса ------------------------------------------
+
+    @Test
+    @DisplayName("new — не вызов: в дереве это отдельный узел")
+    void newIsNotCall() {
+        assertEquals("(new Point 1 2)", tree("new Point(1, 2)"));
+        assertEquals("(new Point)", tree("new Point()"));
+    }
+
+    @Test
+    @DisplayName("new забирает одно обращение и один список аргументов, остальное — экземпляру")
+    void newTakesOneCall() {
+        // Создаётся Circle, и уже у него зовётся area — а не создаётся результат вызова
+        assertEquals("(call (get (new Circle 5) \"area\"))", tree("new Circle(5).area()"));
+        assertEquals("(get (new Point 1 2) \"x\")", tree("new Point(1, 2).x"));
+    }
+
+    @Test
+    @DisplayName("слева от скобок может стоять что угодно, что даёт класс")
+    void newOverExpression() {
+        assertEquals("(new (get kinds 0) 1 2)", tree("new kinds[0](1, 2)"));
+        assertEquals("(new (get factory \"point\") 1)", tree("new factory.point(1)"));
+    }
+
+    @Test
+    @DisplayName("is — обычный оператор с приоритетом сравнений")
+    void isBindsLikeComparison() {
+        assertEquals("(is figure Circle)", tree("figure is Circle"));
+        assertEquals("(== (is figure Circle) true)", tree("figure is Circle == true"));
+        assertEquals("(&& (is figure Circle) big)", tree("figure is Circle && big"));
+        // Справа — выражение, а не только имя: класс лежит в обычной переменной
+        assertEquals("(is figure (get kinds 0))", tree("figure is kinds[0]"));
+    }
+
+    @Test
+    @DisplayName("скобки после new обязательны, даже пустые")
+    void newRequiresArguments() {
+        assertTrue(diagnose("new Point").renderAll().contains("список аргументов в скобках"));
+        assertTrue(diagnose("new 5(1)").renderAll().contains("ожидалось имя класса"));
+    }
+
     // --- литералы ------------------------------------------------------------
 
     @Test

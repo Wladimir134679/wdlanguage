@@ -10,6 +10,8 @@ import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.parser.Parser;
+import ru.wds.wdl.resolve.Resolution;
+import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.runtime.ExecutionContext;
 import ru.wds.wdl.runtime.Interpreter;
 import ru.wds.wdl.runtime.Output;
@@ -149,10 +151,19 @@ public final class Main implements Callable<Integer> {
             return 0;
         }
 
+        // Резолвер связывает классы и типажи и ловит то, что видно до выполнения:
+        // невыполненное требование типажа, круг в наследовании, аргументы родителю.
+        Resolution resolution = Resolver.resolve(program, diagnostics);
+        showDiagnostics(diagnostics);
+        if (diagnostics.hasErrors()) {
+            System.err.println("Разбор не удался: ошибок — " + diagnostics.errorCount() + ".");
+            return EXIT_SCRIPT_ERROR;
+        }
+
         try {
             // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
             // а не ядра: встроенный движок по умолчанию не печатает никуда.
-            new Interpreter().run(program, ExecutionContext.fresh(Output.standard()));
+            new Interpreter().run(program, resolution, ExecutionContext.fresh(Output.standard()));
             return 0;
         } catch (WdlRuntimeError e) {
             // Ошибка выполнения показывается так же, как ошибка разбора: с местом в скрипте.
@@ -214,12 +225,17 @@ public final class Main implements Callable<Integer> {
 
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(tokens, diagnostics);
+        Resolution resolution = diagnostics.hasErrors()
+                ? Resolution.none()
+                : Resolver.resolve(program, diagnostics);
         showDiagnostics(diagnostics);
         if (diagnostics.hasErrors()) {
             return;
         }
         try {
-            interpreter.run(program, context);
+            // Каждая строка REPL — своя программа, поэтому и формы у неё свои:
+            // класс живёт в области сеанса, а наследоваться можно в пределах ввода.
+            interpreter.run(program, resolution, context);
         } catch (WdlRuntimeError e) {
             System.err.println(diagnostics.render(e.toDiagnostic()));
         }

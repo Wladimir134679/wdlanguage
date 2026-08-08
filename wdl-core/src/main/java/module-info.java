@@ -7,6 +7,7 @@ module ru.wds.wdl.core {
     exports ru.wds.wdl.diagnostic;
     exports ru.wds.wdl.lexer;
     exports ru.wds.wdl.parser;
+    exports ru.wds.wdl.resolve;
     exports ru.wds.wdl.runtime;
     exports ru.wds.wdl.source;
     exports ru.wds.wdl.value;

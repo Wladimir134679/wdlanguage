@@ -1,0 +1,160 @@
+package ru.wds.wdl.resolve;
+
+import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.ast.stmt.ClassDeclStmt;
+import ru.wds.wdl.value.Arity;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Форма класса: плоские таблицы полей и методов, собранные при объявлении.
+ * <p>
+ * Неизменяема и построена целиком, без фазы «сначала оболочка, потом дозаполним».
+ * Это возможно потому, что типажи ни от чего не зависят, а классы связывает обход
+ * в глубину по имени родителя ({@link Resolver}): цепочка предков заведомо готова
+ * раньше, чем понадобится.
+ * <p>
+ * <b>Порядок сборки — «родитель → типажи слева направо → сам класс».</b> Одинаковое
+ * имя не ошибка: побеждает последний, а позиция остаётся от первого вхождения.
+ * Порядок написан прямо в объявлении и читается без всяких правил линеаризации,
+ * а ошибка на конфликте вынуждала бы переопределять метод только ради выбора одного
+ * из двух — то есть писать код, ничего не решающий по существу.
+ */
+public final class ClassShape implements Shape {
+
+    private final ClassDeclStmt declaration;
+    private final ClassShape parent;
+    private final List<TraitShape> traits;
+    private final Map<String, FieldSlot> fields;
+    private final Map<String, MethodSlot> methods;
+    private final Arity arity;
+
+    ClassShape(ClassDeclStmt declaration, ClassShape parent, List<TraitShape> traits) {
+        this.declaration = Objects.requireNonNull(declaration, "declaration");
+        this.parent = parent;
+        this.traits = List.copyOf(traits);
+        this.arity = arityOf(declaration.params());
+
+        Map<String, FieldSlot> collectedFields = new LinkedHashMap<>();
+        Map<String, MethodSlot> collectedMethods = new LinkedHashMap<>();
+        if (parent != null) {
+            collectedFields.putAll(parent.fields);
+            collectedMethods.putAll(parent.methods);
+        }
+        for (TraitShape trait : traits) {
+            collectedFields.putAll(trait.fields());
+            collectedMethods.putAll(trait.methods());
+        }
+        List<FunctionExpr.Param> params = declaration.params();
+        for (int i = 0; i < params.size(); i++) {
+            String name = params.get(i).name();
+            collectedFields.put(name, new FieldSlot(name, this, i));
+        }
+        for (FunctionExpr method : declaration.methods()) {
+            collectedMethods.put(method.name(), new MethodSlot(method.name(), method, this));
+        }
+        this.fields = Collections.unmodifiableMap(collectedFields);
+        this.methods = Collections.unmodifiableMap(collectedMethods);
+    }
+
+    /**
+     * Сколько аргументов принимает {@code new}.
+     * <p>
+     * Обязательных столько, сколько их до первого со значением по умолчанию: парсер
+     * не пропускает обязательный после необязательного, поэтому арность остаётся отрезком.
+     * Правило то же, что у функции, — заголовок класса это тот же список параметров.
+     */
+    static Arity arityOf(List<FunctionExpr.Param> params) {
+        int required = 0;
+        while (required < params.size() && !params.get(required).hasDefault()) {
+            required++;
+        }
+        return Arity.between(required, params.size());
+    }
+
+    public ClassDeclStmt declaration() {
+        return declaration;
+    }
+
+    /** Родитель или {@code null}. Родитель ровно один — из-за конструктора. */
+    public ClassShape parent() {
+        return parent;
+    }
+
+    public List<TraitShape> traits() {
+        return traits;
+    }
+
+    /** Тело {@code fun Имя()} или {@code null}. В таблицу методов конструктор не попадает. */
+    public FunctionExpr constructor() {
+        return declaration.constructor();
+    }
+
+    public List<ClassDeclStmt.Factory> factories() {
+        return declaration.factories();
+    }
+
+    public Arity arity() {
+        return arity;
+    }
+
+    /**
+     * Цепочка от самого дальнего предка к этому классу.
+     * <p>
+     * В этом порядке выполняются конструкторы: к телу конструктора объект уже собран
+     * целиком, и родительская часть должна быть готова раньше своей.
+     */
+    public List<ClassShape> lineage() {
+        List<ClassShape> chain = new ArrayList<>();
+        for (ClassShape shape = this; shape != null; shape = shape.parent) {
+            chain.add(shape);
+        }
+        Collections.reverse(chain);
+        return chain;
+    }
+
+    /** Есть ли этот класс или типаж среди предков и примесей — ответ оператору {@code is}. */
+    public boolean conformsTo(Shape other) {
+        for (ClassShape ancestor = this; ancestor != null; ancestor = ancestor.parent) {
+            if (ancestor == other) {
+                return true;
+            }
+            for (TraitShape trait : ancestor.traits) {
+                if (trait == other) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public String name() {
+        return declaration.name();
+    }
+
+    @Override
+    public List<FunctionExpr.Param> params() {
+        return declaration.params();
+    }
+
+    @Override
+    public Map<String, FieldSlot> fields() {
+        return fields;
+    }
+
+    @Override
+    public Map<String, MethodSlot> methods() {
+        return methods;
+    }
+
+    @Override
+    public String toString() {
+        return "class " + name();
+    }
+}

@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.value.CallContext;
 
 import java.util.Objects;
@@ -41,11 +42,13 @@ public final class ExecutionContext implements CallContext {
     private final Environment scope;
     private final Output output;
     private final int callDepth;
+    private final Resolution resolution;
 
-    private ExecutionContext(Environment scope, Output output, int callDepth) {
+    private ExecutionContext(Environment scope, Output output, int callDepth, Resolution resolution) {
         this.scope = Objects.requireNonNull(scope, "scope");
         this.output = Objects.requireNonNull(output, "output");
         this.callDepth = callDepth;
+        this.resolution = Objects.requireNonNull(resolution, "resolution");
     }
 
     /**
@@ -61,16 +64,16 @@ public final class ExecutionContext implements CallContext {
 
     /** Контекст с чистым окружением, встроенными функциями и заданным выводом. */
     public static ExecutionContext fresh(Output output) {
-        return new ExecutionContext(Builtins.installTo(Scope.root()), output, 0);
+        return new ExecutionContext(Builtins.installTo(Scope.root()), output, 0, Resolution.none());
     }
 
     /** Контекст поверх готового окружения — встроенные функции туда кладёт вызывающий. */
     public static ExecutionContext of(Environment scope) {
-        return new ExecutionContext(scope, Output.discarding(), 0);
+        return new ExecutionContext(scope, Output.discarding(), 0, Resolution.none());
     }
 
     public static ExecutionContext of(Environment scope, Output output) {
-        return new ExecutionContext(scope, output, 0);
+        return new ExecutionContext(scope, output, 0, Resolution.none());
     }
 
     /**
@@ -82,11 +85,29 @@ public final class ExecutionContext implements CallContext {
      * движок, обязана печатать туда, где её вызвали.
      */
     static ExecutionContext call(Environment scope, CallContext caller) {
-        return new ExecutionContext(scope, caller::write, caller.callDepth() + 1);
+        // Формы классов достаются от вызывающего, если он их знает: функция, вызванная
+        // из скрипта с классами, обязана уметь объявить класс в своём теле.
+        Resolution known = caller instanceof ExecutionContext context ? context.resolution : Resolution.none();
+        return new ExecutionContext(scope, caller::write, caller.callDepth() + 1, known);
     }
 
     public Environment scope() {
         return scope;
+    }
+
+    /**
+     * Формы классов и типажей, собранные резолвером до выполнения.
+     * <p>
+     * Здесь, а не в интерпретаторе, потому что интерпретатор безсостоятельный
+     * и разделяется между запусками, а формы принадлежат конкретной программе.
+     */
+    public Resolution resolution() {
+        return resolution;
+    }
+
+    /** Тот же контекст, но знающий формы разобранной программы. */
+    public ExecutionContext withResolution(Resolution newResolution) {
+        return new ExecutionContext(scope, output, callDepth, newResolution);
     }
 
     public Output output() {
@@ -105,7 +126,7 @@ public final class ExecutionContext implements CallContext {
 
     /** Тот же контекст, но с другим окружением: вход в блок, функцию, итерацию. */
     public ExecutionContext withScope(Environment newScope) {
-        return new ExecutionContext(newScope, output, callDepth);
+        return new ExecutionContext(newScope, output, callDepth, resolution);
     }
 
     /** Контекст вложенной области видимости. */

@@ -4,7 +4,7 @@ import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
-import ru.wds.wdl.value.types.ObjectValue;
+import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
 
@@ -57,7 +57,7 @@ public final class Builtins {
             return switch (value) {
                 case StringValue string -> IntValue.of(string.length());
                 case ArrayValue array -> IntValue.of(array.size());
-                case ObjectValue object -> IntValue.of(object.size());
+                case MapValue object -> IntValue.of(object.size());
                 default -> throw new WdlRuntimeError(span,
                         "len() работает со строкой, массивом или объектом, а здесь " + value.type().title());
             };

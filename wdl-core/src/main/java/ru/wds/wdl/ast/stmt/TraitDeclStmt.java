@@ -1,0 +1,64 @@
+package ru.wds.wdl.ast.stmt;
+
+import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.source.Span;
+
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Объявление типажа: {@code trait Counted(count = 0, limit) { fun inc() { count += 1 } }}.
+ * <p>
+ * Типаж устроен как класс, у которого забрали конструктор: заголовок перечисляет поля,
+ * тело перечисляет методы. Отличие ровно одно, и оно определяет всё остальное —
+ * <b>и поле, и метод здесь бывают требованием</b>:
+ * <ul>
+ *   <li>{@code count = 0} в заголовке — поле с готовым значением, класс о нём не заботится;</li>
+ *   <li>{@code limit} в заголовке — требование: класс обязан объявить поле {@code limit} сам;</li>
+ *   <li>{@code fun full() => ...} — готовый метод;</li>
+ *   <li>{@code fun report()} — требование: класс обязан это уметь.</li>
+ * </ul>
+ * Одно правило на поля и на методы, потому что поле и метод в языке и так одно
+ * и то же обращение. Обязательное объявляется без значения, вспомогательное —
+ * со значением или с телом.
+ * <p>
+ * Требования проверяются <b>при объявлении класса</b>, а не при вызове и не при
+ * создании экземпляра: ради этого типажи и заведены — ошибка появляется там,
+ * где сделана.
+ * <p>
+ * Ни родителя, ни подмешанных типажей у типажа нет: он и есть то, что подмешивают.
+ * Значений полей, зависящих от параметров создания, тоже нет — {@code count = 0}
+ * вычисляется в области, где типаж объявлен, и заново на каждом создании.
+ * <p>
+ * Одно понятие вместо трёх: интерфейс — типаж из одних требований, абстрактный класс —
+ * типаж с реализациями и полями, примесь — типаж без требований. Отдельных слов
+ * {@code interface} и {@code abstract} в языке нет.
+ */
+public record TraitDeclStmt(
+        String name,
+        Span nameSpan,
+        List<FunctionExpr.Param> params,
+        List<FunctionExpr> methods,
+        List<Requirement> requirements,
+        Span span) implements Stmt {
+
+    public TraitDeclStmt {
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(params, "params");
+        Objects.requireNonNull(methods, "methods");
+        Objects.requireNonNull(requirements, "requirements");
+    }
+
+    /**
+     * Требуемый метод: {@code fun report()} — имя и список параметров без тела.
+     * <p>
+     * Отдельный вид, а не {@link FunctionExpr} с пустым телом: функции без тела
+     * в языке не существует, и заводить её ради одного места разбора значило бы
+     * пускать {@code null} во все посетители дерева.
+     * <p>
+     * Параметры нужны целиком, а не одним числом: у требования проверяется
+     * не только имя, но и то, сколько аргументов метод обязан принимать.
+     */
+    public record Requirement(String name, List<FunctionExpr.Param> params, Span span) {
+    }
+}

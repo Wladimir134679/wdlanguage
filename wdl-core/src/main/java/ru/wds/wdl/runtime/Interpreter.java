@@ -5,12 +5,17 @@ import ru.wds.wdl.ast.expr.*;
 import ru.wds.wdl.ast.op.*;
 import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.ast.visitor.*;
+import ru.wds.wdl.resolve.ClassShape;
+import ru.wds.wdl.resolve.Resolution;
+import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.NumberValue;
+import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.NullValue;
-import ru.wds.wdl.value.types.ObjectValue;
+import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
 
@@ -42,10 +47,23 @@ public final class Interpreter
      * видимости запуска — см. {@link #hoistDeclarations}.
      */
     public void run(Program program, ExecutionContext context) {
+        run(program, context.resolution(), context);
+    }
+
+    /**
+     * Выполняет скрипт, зная формы его классов и типажей.
+     * <p>
+     * Формы собирает {@code Resolver} — стадия между парсером и интерпретатором.
+     * Скрипту без классов она не нужна, поэтому есть и вариант без неё; встретив
+     * объявление класса без формы, интерпретатор скажет об этом прямо, а не
+     * попытается угадать.
+     */
+    public void run(Program program, Resolution resolution, ExecutionContext context) {
+        ExecutionContext running = context.withResolution(resolution);
         try {
-            hoistDeclarations(program, context);
+            hoistDeclarations(program, running);
             for (Stmt statement : program.statements()) {
-                visit(statement, context);
+                visit(statement, running);
             }
         } catch (ControlSignal signal) {
             // break, continue или return вне своей конструкции. Парсер такое не пропускает,
@@ -78,6 +96,19 @@ public final class Interpreter
         for (Stmt statement : program.statements()) {
             if (statement instanceof FunDeclStmt declaration) {
                 visitFunDecl(declaration, context);
+            }
+        }
+        // Типажи первыми: они ни от чего не зависят. Классы вторыми, и каждый по пути
+        // заводит своего родителя, если до него ещё не дошла очередь, — отсюда
+        // и свобода порядка объявлений.
+        for (Stmt statement : program.statements()) {
+            if (statement instanceof TraitDeclStmt declaration) {
+                visitTraitDecl(declaration, context);
+            }
+        }
+        for (Stmt statement : program.statements()) {
+            if (statement instanceof ClassDeclStmt declaration) {
+                visitClassDecl(declaration, context);
             }
         }
     }
@@ -255,7 +286,7 @@ public final class Interpreter
                     }
                 }
             }
-            case ObjectValue object -> {
+            case MapValue object -> {
                 for (Value key : List.copyOf(object.entries().keySet())) {
                     if (iteration(stmt, context, key)) {
                         return null;
@@ -291,6 +322,86 @@ public final class Interpreter
     public Void visitFunDecl(FunDeclStmt stmt, ExecutionContext context) {
         context.scope().define(stmt.name(), valueOf(stmt.function(), context));
         return null;
+    }
+
+    /**
+     * Объявление класса: имя заводится в текущей области, как и у функции.
+     * <p>
+     * Значение собирается из формы, которую резолвер приготовил до выполнения, и
+     * текущей области видимости — она станет замыканием методов. Поэтому класс,
+     * объявленный внутри функции, на каждом вызове даёт новое значение, но для
+     * {@code is} остаётся тем же классом: форма-то одна.
+     */
+    @Override
+    public Void visitClassDecl(ClassDeclStmt stmt, ExecutionContext context) {
+        ClassShape shape = context.resolution().classShape(stmt);
+        if (shape == null) {
+            throw notResolved(stmt.span(), "класс '" + stmt.name() + "'");
+        }
+        classOf(shape, context);
+        return null;
+    }
+
+    @Override
+    public Void visitTraitDecl(TraitDeclStmt stmt, ExecutionContext context) {
+        TraitShape shape = context.resolution().traitShape(stmt);
+        if (shape == null) {
+            throw notResolved(stmt.span(), "типаж '" + stmt.name() + "'");
+        }
+        traitOf(shape, context);
+        return null;
+    }
+
+    /**
+     * Значение класса — то, что уже лежит под этим именем, или новое.
+     * <p>
+     * Повторно объявлять нельзя не из экономии: помеченный до выполнения класс
+     * и класс, созданный заново на своей же инструкции, — два разных значения,
+     * и потомок держал бы ссылку на первое, а имя указывало бы на второе.
+     * Тогда {@code c is Shape} давало бы ложь при совершенно правильном скрипте.
+     */
+    private WdlClass classOf(ClassShape shape, ExecutionContext context) {
+        if (context.scope().lookup(shape.name()) instanceof WdlClass existing
+                && existing.shape() == shape) {
+            return existing;
+        }
+        WdlClass parent = shape.parent() == null ? null : classOf(shape.parent(), context);
+        List<WdlTrait> traits = new ArrayList<>(shape.traits().size());
+        for (TraitShape trait : shape.traits()) {
+            traits.add(traitOf(trait, context));
+        }
+
+        WdlClass declared = new WdlClass(shape, context.scope(), parent, traits);
+        installFactories(declared, context);
+        context.scope().define(shape.name(), declared);
+        return declared;
+    }
+
+    private WdlTrait traitOf(TraitShape shape, ExecutionContext context) {
+        if (context.scope().lookup(shape.name()) instanceof WdlTrait existing
+                && existing.shape() == shape) {
+            return existing;
+        }
+        WdlTrait declared = new WdlTrait(shape, context.scope());
+        context.scope().define(shape.name(), declared);
+        return declared;
+    }
+
+    /**
+     * Фабрики кладутся в сам класс: {@code fun User.of(...)} — это место записи,
+     * а не особый вид члена, и снаружи ровно то же самое делает присваивание
+     * {@code User.of = fun(...)}.
+     */
+    private void installFactories(WdlClass declared, ExecutionContext context) {
+        for (ClassDeclStmt.Factory factory : declared.shape().factories()) {
+            declared.statics().put(factory.name(),
+                    new UserFunction(factory.function(), declared.closure(), this));
+        }
+    }
+
+    private static WdlRuntimeError notResolved(Span span, String what) {
+        return new WdlRuntimeError(span, what + " не разобран резолвером: "
+                + "программу с классами нужно провести через Resolver до выполнения");
     }
 
     /**
@@ -444,6 +555,36 @@ public final class Interpreter
         return function.call(context, arguments, expr.span());
     }
 
+    /**
+     * Создание экземпляра.
+     * <p>
+     * Создаёт значение, а не имя: слева от скобок может стоять что угодно, что даёт
+     * класс. Число аргументов проверяется здесь, по заголовку и до входа в конструктор,
+     * — тем же правилом и тем же сообщением, что у функции.
+     */
+    @Override
+    public Value visitNew(NewExpr expr, ExecutionContext context) {
+        Value target = valueOf(expr.callee(), context);
+        if (target instanceof TraitValue trait) {
+            throw new WdlRuntimeError(expr.callee().span(),
+                    "'" + trait.name() + "' — типаж, экземпляр создаёт класс");
+        }
+        if (!(target instanceof WdlClass declared)) {
+            throw new WdlRuntimeError(expr.callee().span(), "создать экземпляр можно только классом, "
+                    + "а здесь " + target.type().title() + " (" + target + ")");
+        }
+
+        List<Value> arguments = new ArrayList<>(expr.arguments().size());
+        for (Expr argument : expr.arguments()) {
+            arguments.add(valueOf(argument, context));
+        }
+        if (!declared.arity().accepts(arguments.size())) {
+            throw new WdlRuntimeError(expr.span(), "класс '" + declared.name() + "' принимает "
+                    + declared.arity().describeArguments() + ", а передано " + arguments.size());
+        }
+        return declared.instantiate(arguments, context, expr.span(), this);
+    }
+
     @Override
     public Value visitArray(ArrayExpr expr, ExecutionContext context) {
         List<Value> items = new ArrayList<>(expr.elements().size());
@@ -455,7 +596,7 @@ public final class Interpreter
 
     @Override
     public Value visitObject(ObjectExpr expr, ExecutionContext context) {
-        ObjectValue object = new ObjectValue();
+        MapValue object = new MapValue();
         for (ObjectExpr.Entry entry : expr.entries()) {
             object.put(valueOf(entry.key(), context), valueOf(entry.value(), context));
         }
@@ -522,11 +663,16 @@ public final class Interpreter
         }
     }
 
-    private record ContainerPlace(Value container, Value key, AccessStyle style, Span span) implements Place {
+    /**
+     * Интерпретатор здесь нужен ровно затем, что чтение экземпляра умеет отдать
+     * связанный метод, а для этого нужен тот, кто умеет выполнять его тело.
+     */
+    private record ContainerPlace(Interpreter interpreter, Value container, Value key,
+                                  AccessStyle style, Span span) implements Place {
 
         @Override
         public Value read() {
-            return Interpreter.read(container, key, style, span);
+            return interpreter.read(container, key, style, span);
         }
 
         @Override
@@ -539,6 +685,7 @@ public final class Interpreter
         return switch (target) {
             case VariableExpr variable -> new VariablePlace(context.scope(), variable.name(), variable.span());
             case AccessExpr access -> new ContainerPlace(
+                    this,
                     valueOf(access.target(), context),
                     valueOf(access.key(), context),
                     access.style(),
@@ -550,10 +697,30 @@ public final class Interpreter
 
     // --- чтение и запись по ключу --------------------------------------------
 
-    private static Value read(Value container, Value key, AccessStyle style, Span span) {
+    /**
+     * У экземпляра сначала ищется поле, потом метод класса — и остановка на первом
+     * попадании.
+     * <p>
+     * <b>Поле перекрывает метод</b>, и это не случайность: {@code p.text = fun() => "иначе"}
+     * — законная подмена поведения у одного объекта, обычная в динамическом языке.
+     * А {@code null} в конце вместо ошибки — то же решение, что у объекта: проверка
+     * {@code if (p.print)} должна просто работать.
+     * <p>
+     * У класса читаются только его собственные поля — те, что положили записью по ключу,
+     * и фабрики. Методы через класс не читаются: без экземпляра они бесполезны,
+     * а до реализации родителя есть {@code super}.
+     */
+    private Value read(Value container, Value key, AccessStyle style, Span span) {
         return switch (container) {
             case ArrayValue array -> array.get(checkIndex(array.size(), key, "массива", span));
-            case ObjectValue object -> object.get(key);
+            case MapValue object -> {
+                if (object.has(key)) {
+                    yield object.get(key);
+                }
+                Value method = method(object, key);
+                yield method != null ? method : NullValue.NULL;
+            }
+            case WdlClass declared -> declared.statics().get(key);
             case StringValue string -> StringValue.of(String.valueOf(
                     string.value().charAt(checkIndex(string.length(), key, "строки", span))));
             default -> throw new WdlRuntimeError(span,
@@ -561,10 +728,27 @@ public final class Interpreter
         };
     }
 
+    /**
+     * Метод класса, связанный с этим экземпляром, или {@code null}.
+     * <p>
+     * У обычной карты методов нет и быть не может — искать их там незачем, поэтому
+     * и проверка на экземпляр стоит первой.
+     */
+    private Value method(MapValue object, Value key) {
+        if (object instanceof InstanceObjectValue instance
+                && instance.lookupFrom() instanceof WdlClass from
+                && key instanceof StringValue name) {
+            return from.bindMethod(instance, name.value(), this);
+        }
+        return null;
+    }
+
     private static void write(Value container, Value key, Value value, AccessStyle style, Span span) {
         switch (container) {
             case ArrayValue array -> array.set(checkIndex(array.size(), key, "массива", span), value);
-            case ObjectValue object -> object.put(key, value);
+            case MapValue object -> object.put(key, value);
+            // Запись в класс — «статическое поле»: обычная запись по ключу в значении.
+            case WdlClass declared -> declared.statics().put(key, value);
             // Строка неизменяема, и это не случайность реализации: строки лежат в ключах
             // объектов, и молчаливое изменение на месте испортило бы их.
             case StringValue ignored -> throw new WdlRuntimeError(span,

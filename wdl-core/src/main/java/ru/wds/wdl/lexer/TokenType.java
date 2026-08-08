@@ -38,8 +38,16 @@ public enum TokenType {
     MATCH("match"),
     CASE("case"),
     CLASS("class"),
+    /** Типаж: класс, у которого забрали конструктор. Заменяет и {@code interface}, и {@code abstract}. */
+    TRAIT("trait"),
     NEW("new"),
     THIS("this"),
+    /** Тот же экземпляр, но поиск методов начинается с родителя. */
+    SUPER("super"),
+    /** Подмешивание типажей: {@code class Basket(items) with Printable, Counted}. */
+    WITH("with"),
+    /** Проверка класса или типажа: {@code figure is Circle}. Обычный бинарный оператор. */
+    IS("is"),
     IMPORT("import"),
     AS("as"),
     TRUE("true"),
