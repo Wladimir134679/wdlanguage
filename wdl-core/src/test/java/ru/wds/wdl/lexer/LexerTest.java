@@ -73,6 +73,13 @@ class LexerTest {
     }
 
     @Test
+    @DisplayName("const — ключевое слово, а не обычное имя")
+    void constKeyword() {
+        assertEquals(List.of(TokenType.CONST, TokenType.WORD, TokenType.ASSIGN, TokenType.INT),
+                types("const LIMIT = 10"));
+    }
+
+    @Test
     @DisplayName("println — обычное имя: печать это функция, а не синтаксис")
     void printIsNotKeyword() {
         assertEquals(List.of(TokenType.WORD, TokenType.LPAREN, TokenType.STRING, TokenType.RPAREN),

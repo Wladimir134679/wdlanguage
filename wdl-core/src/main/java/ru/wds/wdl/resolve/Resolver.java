@@ -21,19 +21,19 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Резолвер: связывает объявления классов и типажей и проверяет то, что известно
+ * Резолвер: связывает объявления классов и трейтов и проверяет то, что известно
  * до выполнения.
  * <p>
  * Стадия между парсером и интерпретатором. Она нужна ровно из-за одного обещания
- * языка: невыполненное требование типажа — ошибка <b>при объявлении класса</b>,
+ * языка: невыполненное требование трейта — ошибка <b>при объявлении класса</b>,
  * а не при вызове и не при создании экземпляра. Это единственное, чего не даёт
- * утиная типизация, и ради этого типажи и заведены — ошибка появляется там,
+ * утиная типизация, и ради этого трейты и заведены — ошибка появляется там,
  * где сделана, а не через час работы скрипта в чужом приложении.
  * <p>
  * Здесь же ловятся круг в наследовании и неверное число аргументов родителю:
  * и то и другое написано в тексте и никакого выполнения не требует.
  * <p>
- * <b>Порядок сборки.</b> Сначала все типажи — они ни от чего не зависят, поэтому
+ * <b>Порядок сборки.</b> Сначала все трейты — они ни от чего не зависят, поэтому
  * порядок их объявления не значит ничего. Потом классы, обходом в глубину по имени
  * родителя: цепочка предков оказывается готовой раньше, чем понадобится, а круг
  * ловится самой структурой обхода, без отдельной проверки.
@@ -146,8 +146,8 @@ public final class Resolver {
             return null;
         }
         if (declared.declaration() instanceof TraitDeclStmt) {
-            diagnostics.error(parent.span(), "'" + parent.name() + "' — типаж, а не класс: "
-                    + "типаж подмешивается через 'with', наследуются от класса");
+            diagnostics.error(parent.span(), "'" + parent.name() + "' — трейт, а не класс: "
+                    + "трейт подмешивается через 'with', наследуются от класса");
             return null;
         }
         return classShape((ClassDeclStmt) declared.declaration(), declared.scope());
@@ -158,12 +158,12 @@ public final class Resolver {
         for (ClassDeclStmt.TraitRef reference : declaration.traits()) {
             Declared declared = scope.find(reference.name());
             if (declared == null) {
-                diagnostics.error(reference.span(), "неизвестный типаж '" + reference.name() + "'");
+                diagnostics.error(reference.span(), "неизвестный трейт '" + reference.name() + "'");
                 continue;
             }
             if (declared.declaration() instanceof ClassDeclStmt) {
-                diagnostics.error(reference.span(), "'" + reference.name() + "' — класс, а не типаж: "
-                        + "подмешать можно только типаж, у класса есть конструктор");
+                diagnostics.error(reference.span(), "'" + reference.name() + "' — класс, а не трейт: "
+                        + "подмешать можно только трейт, у класса есть конструктор");
                 continue;
             }
             traits.add(traitShape((TraitDeclStmt) declared.declaration()));
@@ -192,10 +192,10 @@ public final class Resolver {
     }
 
     /**
-     * Требования типажей.
+     * Требования трейтов.
      * <p>
      * Требование считается выполненным, если нужное поле или метод есть у самого
-     * класса, у его предка или у другого типажа: смотрим в уже собранные плоские
+     * класса, у его предка или у другого трейта: смотрим в уже собранные плоские
      * таблицы, поэтому порядок {@code with} на результат не влияет.
      * <p>
      * Поле закрывает только поле, метод — только метод: у поля нечего проверять
@@ -230,7 +230,7 @@ public final class Resolver {
     }
 
     private static String unmet(ClassShape shape, TraitShape trait) {
-        return "класс '" + shape.name() + "' не выполняет требование типажа '"
+        return "класс '" + shape.name() + "' не выполняет требование трейта '"
                 + trait.name() + "': ";
     }
 
@@ -287,6 +287,15 @@ public final class Resolver {
         public Void visitBlock(BlockStmt stmt, Types scope) {
             statements(stmt.statements(), new Types(scope));
             return null;
+        }
+
+        /**
+         * Значение константы обходится не для порядка: {@code const make = fun() { class Point(x) ... }}
+         * — законный скрипт, и форму этого класса собирает именно обход.
+         */
+        @Override
+        public Void visitConstDecl(ConstDeclStmt stmt, Types scope) {
+            return visit(stmt.value(), scope);
         }
 
         @Override
@@ -447,7 +456,7 @@ public final class Resolver {
     }
 
     /**
-     * Область имён классов и типажей.
+     * Область имён классов и трейтов.
      * <p>
      * Отдельная от области значений и существует только на время разбора: имена
      * классов резолвер обязан связать <b>до</b> первой инструкции, а значения

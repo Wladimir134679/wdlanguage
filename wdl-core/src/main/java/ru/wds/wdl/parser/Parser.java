@@ -66,10 +66,10 @@ public final class Parser {
     /** Допустимо ли здесь {@code super}: только в методе класса, у которого есть родитель. */
     private boolean superAllowed;
     /**
-     * Разбирается тело типажа, а не класса.
+     * Разбирается тело трейта, а не класса.
      * <p>
-     * Нужно ровно для {@code super}: у типажа родителя нет и быть не может, и отвечать
-     * на вопрос «что такое {@code super} в методе типажа, подмешанного в класс
+     * Нужно ровно для {@code super}: у трейта родителя нет и быть не может, и отвечать
+     * на вопрос «что такое {@code super} в методе трейта, подмешанного в класс
      * с предком» язык не берётся.
      */
     private boolean inTrait;
@@ -135,6 +135,7 @@ public final class Parser {
             case BREAK -> breakStatement();
             case CONTINUE -> continueStatement();
             case RETURN -> returnStatement();
+            case CONST -> constDeclaration();
             // 'fun' с именем — объявление. 'fun(' — анонимная функция, то есть выражение:
             // её разберёт simpleStatement и скажет, что такая инструкция ничего не делает.
             case FUN -> peek(1).type() == TokenType.WORD ? funDeclaration() : simpleStatement();
@@ -217,12 +218,64 @@ public final class Parser {
      * функция и без того лежит в переменной, а не ищется по имени.
      */
     private static Expr named(Expr target, AssignOp op, Expr value) {
-        if (op != AssignOp.ASSIGN || !(target instanceof VariableExpr variable)
-                || !(value instanceof FunctionExpr function) || function.name() != null) {
+        if (op != AssignOp.ASSIGN || !(target instanceof VariableExpr variable)) {
             return value;
         }
-        return new FunctionExpr(variable.name(), function.params(), function.body(),
+        return named(variable.name(), value);
+    }
+
+    /** То же для {@code const f = fun(a) => a}, где имя известно и без разбора цели. */
+    private static Expr named(String name, Expr value) {
+        if (!(value instanceof FunctionExpr function) || function.name() != null) {
+            return value;
+        }
+        return new FunctionExpr(name, function.params(), function.body(),
                 function.style(), function.span());
+    }
+
+    // --- константы -----------------------------------------------------------
+
+    /**
+     * Объявление константы: {@code const LIMIT = 10}.
+     * <p>
+     * Слева допустимо только имя: заморозить можно имя, а не ячейку внутри чужого
+     * значения, поэтому {@code const a.b = 1} — не «объявление поля», а ошибка.
+     * Справа обязателен именно {@code =}: {@code const A += 1} читается как недописанная
+     * строка, а не как объявление с операцией. Начальное значение обязательно, потому
+     * что второго присваивания у константы не будет.
+     */
+    private Stmt constDeclaration() {
+        Token keyword = advance(); // const
+        if (!check(TokenType.WORD)) {
+            diagnostics.error(peek().span(),
+                    "после 'const' ожидалось имя, найдено " + describe(peek()));
+            synchronize();
+            return new ErrorStmt(keyword.span());
+        }
+        Token name = advance();
+        if (check(TokenType.DOT) || check(TokenType.LBRACKET)) {
+            // Отдельное сообщение: советовать здесь 'const имя = выражение' значило бы
+            // предлагать не то — автор промахнулся не значением, а левой частью.
+            diagnostics.error(peek().span(), "слева от '=' в объявлении константы стоит имя: "
+                    + "заморозить можно имя, а не ячейку внутри чужого значения");
+            synchronize();
+            return new ErrorStmt(keyword.span().to(name.span()));
+        }
+        if (!check(TokenType.ASSIGN)) {
+            diagnostics.error(peek().span(), "константе нужно начальное значение: "
+                    + "const " + name.text() + " = выражение");
+            synchronize();
+            return new ErrorStmt(keyword.span().to(name.span()));
+        }
+        advance(); // =
+        Expr value = expression(0);
+        if (value instanceof ErrorExpr) {
+            // О невозможном выражении уже сказано; дальше по строке разбирать нечего.
+            synchronize();
+            return new ErrorStmt(keyword.span().to(value.span()));
+        }
+        return new ConstDeclStmt(name.text(), name.span(), named(name.text(), value),
+                keyword.span().to(value.span()));
     }
 
     // --- функции -------------------------------------------------------------
@@ -280,12 +333,12 @@ public final class Parser {
         }
     }
 
-    // --- классы и типажи -----------------------------------------------------
+    // --- классы и трейты -----------------------------------------------------
 
     /**
      * Объявление класса: {@code class Point(x = 0, y = 0) : Shape("точка") with Printable { ... }}.
      * <p>
-     * Порядок частей фиксирован — сначала родитель, потом типажи, — и он же порядок
+     * Порядок частей фиксирован — сначала родитель, потом трейты, — и он же порядок
      * сборки плоских таблиц: «сначала родитель, потом примеси, потом я сам».
      * Читать такое объявление можно слева направо, не зная никаких правил линеаризации.
      */
@@ -303,8 +356,8 @@ public final class Parser {
         ClassDeclStmt.Superclass parent = check(TokenType.COLON) ? superclass() : null;
         List<ClassDeclStmt.TraitRef> traits = traitList();
         if (check(TokenType.COLON)) {
-            diagnostics.error(peek().span(), "родитель указывается перед типажами: "
-                    + "class " + name.text() + "(...) : Родитель with Типаж");
+            diagnostics.error(peek().span(), "родитель указывается перед трейтами: "
+                    + "class " + name.text() + "(...) : Родитель with Трейт");
         }
 
         Members members = classBody(name.text(), parent != null);
@@ -314,27 +367,27 @@ public final class Parser {
     }
 
     /**
-     * Объявление типажа: {@code trait Counted(count = 0, limit) { ... }}.
+     * Объявление трейта: {@code trait Counted(count = 0, limit) { ... }}.
      * <p>
-     * Ни родителя, ни подмешанных типажей у типажа нет — он и есть то, что подмешивают.
-     * Отсюда и вся простота сборки: типаж ни от чего не зависит, поэтому порядок
+     * Ни родителя, ни подмешанных трейтов у трейта нет — он и есть то, что подмешивают.
+     * Отсюда и вся простота сборки: трейт ни от чего не зависит, поэтому порядок
      * объявлений для него не значит ничего.
      */
     private Stmt traitDeclaration() {
         Token keyword = advance(); // trait
-        Token name = expectTypeName("типажа");
+        Token name = expectTypeName("трейта");
         if (name == null) {
             synchronize();
             return new ErrorStmt(keyword.span());
         }
 
         List<FunctionExpr.Param> params = check(TokenType.LPAREN)
-                ? parameters("имени типажа '" + name.text() + "'", false)
+                ? parameters("имени трейта '" + name.text() + "'", false)
                 : List.of();
         checkTraitDefaults(params);
         if (check(TokenType.COLON) || check(TokenType.WITH)) {
-            diagnostics.error(peek().span(), "у типажа не бывает ни родителя, ни подмешанных типажей: "
-                    + "типаж — это то, что подмешивают");
+            diagnostics.error(peek().span(), "у трейта не бывает ни родителя, ни подмешанных трейтов: "
+                    + "трейт — это то, что подмешивают");
             synchronize();
         }
 
@@ -369,7 +422,7 @@ public final class Parser {
         return new ClassDeclStmt.Superclass(name.text(), arguments, colon.span().to(end));
     }
 
-    /** Подмешанные типажи: {@code with Printable, Counted}. Их может быть сколько угодно. */
+    /** Подмешанные трейты: {@code with Printable, Counted}. Их может быть сколько угодно. */
     private List<ClassDeclStmt.TraitRef> traitList() {
         if (!check(TokenType.WITH)) {
             return List.of();
@@ -379,13 +432,13 @@ public final class Parser {
         do {
             if (!check(TokenType.WORD)) {
                 diagnostics.error(peek().span(),
-                        "после 'with' ожидалось имя типажа, найдено " + describe(peek()));
+                        "после 'with' ожидалось имя трейта, найдено " + describe(peek()));
                 break;
             }
             Token name = advance();
             for (ClassDeclStmt.TraitRef existing : traits) {
                 if (existing.name().equals(name.text())) {
-                    diagnostics.error(name.span(), "типаж '" + name.text() + "' подмешан дважды");
+                    diagnostics.error(name.span(), "трейт '" + name.text() + "' подмешан дважды");
                 }
             }
             traits.add(new ClassDeclStmt.TraitRef(name.text(), name.span()));
@@ -394,7 +447,7 @@ public final class Parser {
     }
 
     /**
-     * Собранное тело класса или типажа.
+     * Собранное тело класса или трейта.
      * <p>
      * Разложено по видам сразу при разборе: дальше по конвейеру конструктор,
      * методы, фабрики и требования ведут себя по-разному, и раскладывать их
@@ -433,7 +486,7 @@ public final class Parser {
     }
 
     /**
-     * Тело класса или типажа: только объявления функций.
+     * Тело класса или трейта: только объявления функций.
      * <p>
      * Класс — это описание, а не код, который что-то делает в момент объявления,
      * поэтому любая другая инструкция здесь ошибка. Тела вовсе может не быть:
@@ -471,10 +524,10 @@ public final class Parser {
         return members;
     }
 
-    /** Один член: метод, конструктор, фабрика или — только в типаже — требование. */
+    /** Один член: метод, конструктор, фабрика или — только в трейте — требование. */
     private void member(Members members, boolean hasParent, boolean isClass) {
         if (!check(TokenType.FUN)) {
-            diagnostics.error(peek().span(), "в теле " + (isClass ? "класса" : "типажа")
+            diagnostics.error(peek().span(), "в теле " + (isClass ? "класса" : "трейта")
                     + " допустимы только объявления функций, а здесь " + describe(peek())
                     + ". Начальные значения полей задаются в заголовке");
             synchronize();
@@ -510,7 +563,7 @@ public final class Parser {
         if (body == null) {
             if (isClass) {
                 diagnostics.error(name.span(), "у метода '" + name.text() + "' нет тела; "
-                        + "требование без тела бывает только в типаже");
+                        + "требование без тела бывает только в трейте");
                 return;
             }
             if (members.taken(name.text())) {
@@ -549,7 +602,7 @@ public final class Parser {
     private void factory(Members members, Token keyword, Token owner, boolean isClass) {
         advance(); // .
         if (!isClass) {
-            diagnostics.error(owner.span(), "у типажа не бывает фабрик: "
+            diagnostics.error(owner.span(), "у трейта не бывает фабрик: "
                     + "экземпляр создаёт класс, ему они и принадлежат");
         } else if (!owner.text().equals(className)) {
             diagnostics.error(owner.span(), "фабрика объявляется на своём классе: "
@@ -587,11 +640,11 @@ public final class Parser {
      * Тело члена: блок или {@code => выражение}, и ничего третьего.
      * <p>
      * Тело одной инструкцией без скобок здесь запрещено, в отличие от {@code if}
-     * и циклов, и причина в требованиях типажа: у {@code fun report()} тела нет,
+     * и циклов, и причина в требованиях трейта: у {@code fun report()} тела нет,
      * а следующей строкой идёт {@code fun full() => ...}. Разреши мы инструкцию
      * без скобок — второе объявление молча стало бы телом первого.
      *
-     * @return {@code null}, если тела нет; для типажа это требование, для класса ошибка
+     * @return {@code null}, если тела нет; для трейта это требование, для класса ошибка
      */
     private Stmt memberBody() {
         int outerLoops = loopDepth;
@@ -619,9 +672,9 @@ public final class Parser {
     }
 
     /**
-     * Значение по умолчанию поля типажа вычисляется в области, где объявлен <b>типаж</b>,
+     * Значение по умолчанию поля трейта вычисляется в области, где объявлен <b>трейт</b>,
      * и на каждом создании заново. Других полей оно поэтому не видит — ни левее, ни
-     * правее: у типажа нет создания, в котором они связывались бы по порядку.
+     * правее: у трейта нет создания, в котором они связывались бы по порядку.
      */
     private void checkTraitDefaults(List<FunctionExpr.Param> params) {
         List<String> all = new ArrayList<>(params.size());
@@ -633,8 +686,8 @@ public final class Parser {
             VariableExpr use = findUse(param.defaultValue(), all);
             if (use != null) {
                 diagnostics.error(use.span(), "значение по умолчанию поля '" + param.name()
-                        + "' ссылается на поле '" + use.name() + "': значения полей типажа"
-                        + " вычисляются в области объявления типажа и друг друга не видят");
+                        + "' ссылается на поле '" + use.name() + "': значения полей трейта"
+                        + " вычисляются в области объявления трейта и друг друга не видят");
             }
         }
     }
@@ -644,7 +697,7 @@ public final class Parser {
      * Запятая после последнего разрешена — как в массивах и аргументах.
      *
      * @param callSignature задаёт ли список число аргументов вызова или создания.
-     *                      У заголовка типажа — нет: там параметр без значения это
+     *                      У заголовка трейта — нет: там параметр без значения это
      *                      не «обязательный аргумент», а требование к классу,
      *                      и порядок для него не значит ничего
      */
@@ -696,7 +749,7 @@ public final class Parser {
                 return;
             }
         }
-        // В заголовке типажа порядок не значит ничего: 'trait Counted(count = 0, limit)' —
+        // В заголовке трейта порядок не значит ничего: 'trait Counted(count = 0, limit)' —
         // это поле со значением и требование к классу, а не два аргумента создания.
         if (callSignature && defaultValue == null
                 && !params.isEmpty() && params.get(params.size() - 1).hasDefault()) {
@@ -992,7 +1045,8 @@ public final class Parser {
     /** Токен, дальше которого паническое восстановление не идёт. */
     private static boolean isStatementBoundary(TokenType type) {
         return switch (type) {
-            case RBRACE, IF, ELSE, WHILE, FOR, BREAK, CONTINUE, FUN, CLASS, TRAIT, RETURN -> true;
+            case RBRACE, IF, ELSE, WHILE, FOR, BREAK, CONTINUE, CONST, FUN, CLASS, TRAIT,
+                 RETURN -> true;
             default -> false;
         };
     }
@@ -1379,7 +1433,7 @@ public final class Parser {
         return peek(0);
     }
 
-    /** Место уже разобранного токена — им заканчивается объявление класса или типажа. */
+    /** Место уже разобранного токена — им заканчивается объявление класса или трейта. */
     private Span lastSpan() {
         return tokens.get(Math.max(0, index - 1)).span();
     }
@@ -1441,7 +1495,7 @@ public final class Parser {
             return "'super' допустим только внутри класса";
         }
         if (inTrait) {
-            return "у типажа нет родителя, 'super' здесь неприменим: типаж не знает,"
+            return "у трейта нет родителя, 'super' здесь неприменим: трейт не знает,"
                     + " в какой класс его подмешают";
         }
         return "у класса '" + className + "' нет родителя, обращаться через 'super' не к чему";

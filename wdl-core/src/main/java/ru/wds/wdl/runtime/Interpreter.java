@@ -52,7 +52,7 @@ public final class Interpreter
     }
 
     /**
-     * Выполняет скрипт, зная формы его классов и типажей.
+     * Выполняет скрипт, зная формы его классов и трейтов.
      * <p>
      * Формы собирает {@code Resolver} — стадия между парсером и интерпретатором.
      * Скрипту без классов она не нужна, поэтому есть и вариант без неё; встретив
@@ -92,6 +92,13 @@ public final class Interpreter
      * Замыкание помеченной функции — та же область, куда её положили, поэтому повторное
      * определение при выполнении самой инструкции даёт ровно то же значение. Гасить его
      * незачем.
+     * <p>
+     * Константы сюда не входят: у {@code const} есть выражение-инициализатор, и вычислять
+     * его здесь значило бы выполнять пользовательский код до первой инструкции скрипта.
+     * Побочный эффект повторного определения, безобидный для функций, оказывается
+     * полезным именно здесь: {@code const A = 1} выше по тексту и {@code fun A() {}} ниже
+     * дают ошибку на строке с {@code fun}, потому что помеченное объявление выполняется
+     * ещё раз — уже после того, как имя заморожено.
      */
     private void hoistDeclarations(Program program, ExecutionContext context) {
         for (Stmt statement : program.statements()) {
@@ -99,7 +106,7 @@ public final class Interpreter
                 visitFunDecl(declaration, context);
             }
         }
-        // Типажи первыми: они ни от чего не зависят. Классы вторыми, и каждый по пути
+        // Трейты первыми: они ни от чего не зависят. Классы вторыми, и каждый по пути
         // заводит своего родителя, если до него ещё не дошла очередь, — отсюда
         // и свобода порядка объявлений.
         for (Stmt statement : program.statements()) {
@@ -173,8 +180,11 @@ public final class Interpreter
      * разбора — операция берётся из {@link AssignStmt#op()} уже здесь.
      * <p>
      * Простое присваивание в имя, которого ещё нет, заводит переменную в текущей
-     * области видимости: отдельного объявления в языке нет. Существующее имя
-     * присваивается там, где оно объявлено, — вложенная область не создаёт себе копию.
+     * области видимости: объявлять её незачем. Существующее имя присваивается там,
+     * где оно объявлено, — вложенная область не создаёт себе копию.
+     * <p>
+     * Единственное имя, которому присваивание не проходит, — объявленное через
+     * {@code const} (см. {@link #visitConstDecl} и {@link VariablePlace#write}).
      */
     @Override
     public Void visitAssign(AssignStmt stmt, ExecutionContext context) {
@@ -321,8 +331,53 @@ public final class Interpreter
      */
     @Override
     public Void visitFunDecl(FunDeclStmt stmt, ExecutionContext context) {
+        checkNotConstant(stmt.name(), stmt.span(), context);
         context.scope().define(stmt.name(), valueOf(stmt.function(), context));
         return null;
+    }
+
+    /**
+     * Объявление константы: {@code const LIMIT = 10}.
+     * <p>
+     * Имя заводится в текущей области — как у {@code fun} и {@code class}, — но
+     * дополнительно замораживается: присваивание ему не пройдёт ни отсюда, ни из
+     * вложенной области, ни из замыкания. Заморожено при этом имя, а не значение:
+     * {@code const items = [1, 2]} запрещает {@code items = [3]}, но не {@code items[0] = 5}.
+     * <p>
+     * До выполнения константа не помечается, в отличие от функции: у неё есть
+     * выражение-инициализатор, и вычислять его до первой инструкции скрипта значило бы
+     * завести вторую, невидимую фазу выполнения — в неопределённом порядке относительно
+     * остальных констант. Поэтому функция, объявленная выше, константу увидит, но только
+     * если вызвана после её объявления.
+     */
+    @Override
+    public Void visitConstDecl(ConstDeclStmt stmt, ExecutionContext context) {
+        // Проверка до вычисления: выполнять инициализатор заведомо неверного объявления незачем.
+        checkNotConstant(stmt.name(), stmt.nameSpan(), context);
+        context.scope().defineConstant(stmt.name(), valueOf(stmt.value(), context));
+        return null;
+    }
+
+    /**
+     * Объявление не перекрывает константу: имя, замороженное в <b>этой</b> области,
+     * занято окончательно.
+     * <p>
+     * Иначе {@code const A = 1} и {@code fun A() {}} ниже разошлись бы молча, и что
+     * означает {@code A}, зависело бы от строки. Смотреть наружу нельзя: вложенная область
+     * вправе объявить своё имя, и это затенение, а не переопределение.
+     * <p>
+     * Обратный порядок ошибки не даёт — {@code const A = 1} после {@code fun A() {}}
+     * перекрывает функцию, ровно как это делает обычное {@code A = 1}. Асимметрия
+     * сознательная: объявление заводит имя поверх прежнего, а константа запрещает
+     * переопределение только после себя, — читатель скрипта видит то же, что и движок,
+     * сверху вниз.
+     */
+    private static void checkNotConstant(String name, Span span, ExecutionContext context) {
+        if (context.scope().isConstantHere(name)) {
+            throw new WdlRuntimeError(span, "'" + name + "' нельзя объявить: в этой области уже есть"
+                    + " константа с таким именем, а её значение задаётся один раз."
+                    + " Перекрыть константу можно только во вложенной области");
+        }
     }
 
     /**
@@ -347,7 +402,7 @@ public final class Interpreter
     public Void visitTraitDecl(TraitDeclStmt stmt, ExecutionContext context) {
         TraitShape shape = context.resolution().traitShape(stmt);
         if (shape == null) {
-            throw notResolved(stmt.span(), "типаж '" + stmt.name() + "'");
+            throw notResolved(stmt.span(), "трейт '" + stmt.name() + "'");
         }
         traitOf(shape, context);
         return null;
@@ -374,6 +429,7 @@ public final class Interpreter
 
         WdlClass declared = new WdlClass(shape, context.scope(), parent, traits, this);
         installFactories(declared, context);
+        checkNotConstant(shape.name(), shape.declaration().nameSpan(), context);
         context.scope().define(shape.name(), declared);
         return declared;
     }
@@ -384,6 +440,7 @@ public final class Interpreter
             return existing;
         }
         WdlTrait declared = new WdlTrait(shape, context.scope());
+        checkNotConstant(shape.name(), shape.declaration().nameSpan(), context);
         context.scope().define(shape.name(), declared);
         return declared;
     }
@@ -568,7 +625,7 @@ public final class Interpreter
         Value target = valueOf(expr.callee(), context);
         if (target instanceof TraitValue trait) {
             throw new WdlRuntimeError(expr.callee().span(),
-                    "'" + trait.name() + "' — типаж, экземпляр создаёт класс");
+                    "'" + trait.name() + "' — трейт, экземпляр создаёт класс");
         }
         if (!(target instanceof ClassValue declared)) {
             throw new WdlRuntimeError(expr.callee().span(), "создать экземпляр можно только классом, "
@@ -658,9 +715,13 @@ public final class Interpreter
 
         @Override
         public void write(Value value) {
-            // Существующее имя обновляется там, где объявлено; новое заводится здесь.
-            if (!scope.assign(name, value)) {
-                scope.define(name, value);
+            // Существующее имя обновляется там, где объявлено; новое заводится здесь;
+            // замороженное 'const' не меняется нигде — на то оно и константа.
+            switch (scope.assign(name, value)) {
+                case DONE -> { }
+                case ABSENT -> scope.define(name, value);
+                case CONSTANT -> throw new WdlRuntimeError(span, "'" + name + "' нельзя присвоить: "
+                        + "это константа, её значение задаётся один раз при объявлении");
             }
         }
     }

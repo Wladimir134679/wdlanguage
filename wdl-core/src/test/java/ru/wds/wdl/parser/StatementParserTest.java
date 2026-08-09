@@ -93,6 +93,73 @@ class StatementParserTest {
         assertTrue(diagnose("a + b = 1").renderAll().contains("слева от '='"));
     }
 
+    // --- константы -----------------------------------------------------------
+
+    @Test
+    @DisplayName("объявление константы: имя и начальное значение")
+    void constDeclaration() {
+        ConstDeclStmt stmt = assertInstanceOf(ConstDeclStmt.class, single("const LIMIT = 10"));
+
+        assertEquals("LIMIT", stmt.name());
+        assertEquals("10", SExprPrinter.print(stmt.value()));
+    }
+
+    @Test
+    @DisplayName("значение константы — обычное выражение")
+    void constValueIsAnExpression() {
+        ConstDeclStmt stmt = assertInstanceOf(ConstDeclStmt.class,
+                single("const TOTAL = price * count + 1"));
+
+        assertEquals("(+ (* price count) 1)", SExprPrinter.print(stmt.value()));
+    }
+
+    @Test
+    @DisplayName("после 'const' обязано стоять имя")
+    void constNeedsName() {
+        assertTrue(diagnose("const = 1").renderAll().contains("после 'const' ожидалось имя"));
+        assertTrue(diagnose("const 5 = 1").renderAll().contains("после 'const' ожидалось имя"));
+    }
+
+    @Test
+    @DisplayName("константа без начального значения — ошибка: второго присваивания не будет")
+    void constNeedsValue() {
+        assertTrue(diagnose("const LIMIT").renderAll().contains("нужно начальное значение"));
+        assertTrue(diagnose("const LIMIT += 1").renderAll().contains("нужно начальное значение"));
+    }
+
+    @Test
+    @DisplayName("слева от '=' в объявлении константы стоит имя, а не обращение")
+    void constTargetIsAName() {
+        assertTrue(diagnose("const item.price = 1").renderAll().contains("заморозить можно имя"));
+        assertTrue(diagnose("const items[0] = 1").renderAll().contains("заморозить можно имя"));
+    }
+
+    @Test
+    @DisplayName("анонимная функция получает имя константы — как и при присваивании")
+    void constNamesAnonymousFunction() {
+        ConstDeclStmt stmt = assertInstanceOf(ConstDeclStmt.class,
+                single("const add = fun(a, b) => a + b"));
+
+        assertEquals("add", assertInstanceOf(FunctionExpr.class, stmt.value()).name());
+    }
+
+    @Test
+    @DisplayName("испорченная строка не съедает следующее объявление константы")
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void constIsAStatementBoundary() {
+        Program program = parseWithErrors("a = = =\nconst LIMIT = 10");
+
+        assertEquals(2, program.statements().size());
+        assertInstanceOf(ErrorStmt.class, program.statements().get(0));
+        assertInstanceOf(ConstDeclStmt.class, program.statements().get(1));
+    }
+
+    @Test
+    @DisplayName("'const' остаётся допустимым ключом объекта и именем поля")
+    void constStaysUsableAsKey() {
+        assertEquals(2, parse("o = {const: 1}\nx = o.const").statements().size());
+    }
+
     // --- вызовы --------------------------------------------------------------
 
     @Test

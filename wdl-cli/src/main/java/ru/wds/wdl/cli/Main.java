@@ -48,9 +48,10 @@ import java.util.concurrent.Callable;
         mixinStandardHelpOptions = true,
         versionProvider = Main.VersionProvider.class,
         description = "wdl — встраиваемый скриптовый язык для JVM",
-        footer = "%nСкрипт — это присваивания и вызовы (println, print, typeof, len),%n"
-                + "ветвления и циклы, свои функции: fun имя(a, b) => a + b.%n"
-                + "Классы и модули появятся на следующих шагах."
+        footer = "%nСкрипт — это присваивания, константы (const LIMIT = 10)%n"
+                + "и вызовы (println, print, typeof, len), ветвления и циклы,%n"
+                + "свои функции: fun имя(a, b) => a + b, классы и трейты.%n"
+                + "Модули появятся на следующих шагах."
 )
 public final class Main implements Callable<Integer> {
 
@@ -152,8 +153,8 @@ public final class Main implements Callable<Integer> {
             return 0;
         }
 
-        // Резолвер связывает классы и типажи и ловит то, что видно до выполнения:
-        // невыполненное требование типажа, круг в наследовании, аргументы родителю.
+        // Резолвер связывает классы и трейты и ловит то, что видно до выполнения:
+        // невыполненное требование трейта, круг в наследовании, аргументы родителю.
         Resolution resolution = Resolver.resolve(program, diagnostics);
         showDiagnostics(diagnostics);
         if (diagnostics.hasErrors()) {

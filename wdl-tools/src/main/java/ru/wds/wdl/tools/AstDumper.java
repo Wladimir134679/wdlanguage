@@ -126,6 +126,12 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
+    public Void visitConstDecl(ConstDeclStmt stmt, Integer depth) {
+        line(depth, "объявление константы " + stmt.name(), stmt.span());
+        return visit(stmt.value(), depth + 1);
+    }
+
+    @Override
     public Void visitFunDecl(FunDeclStmt stmt, Integer depth) {
         line(depth, "объявление функции " + stmt.name(), stmt.span());
         return visit(stmt.function(), depth + 1);
@@ -134,7 +140,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     /**
      * Класс печатается заголовком в одну строку, а его части — вложенными.
      * Порядок вложенного тот же, в каком собираются плоские таблицы: родитель,
-     * типажи, своё, — чтобы по дампу можно было проверить, кто кого перекрывает.
+     * трейты, своё, — чтобы по дампу можно было проверить, кто кого перекрывает.
      */
     @Override
     public Void visitClassDecl(ClassDeclStmt stmt, Integer depth) {
@@ -147,7 +153,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
             parent.arguments().forEach(argument -> visit(argument, depth + 2));
         }
         for (ClassDeclStmt.TraitRef trait : stmt.traits()) {
-            line(depth + 1, "типаж " + trait.name(), trait.span());
+            line(depth + 1, "трейт " + trait.name(), trait.span());
         }
         if (stmt.hasConstructor()) {
             line(depth + 1, "конструктор", stmt.constructor().span());
@@ -163,7 +169,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
 
     @Override
     public Void visitTraitDecl(TraitDeclStmt stmt, Integer depth) {
-        line(depth, "объявление типажа " + stmt.name() + "(" + header(stmt.params()) + ")", stmt.span());
+        line(depth, "объявление трейта " + stmt.name() + "(" + header(stmt.params()) + ")", stmt.span());
         defaults(stmt.params(), depth + 1);
         for (FunctionExpr.Param param : stmt.params()) {
             if (!param.hasDefault()) {

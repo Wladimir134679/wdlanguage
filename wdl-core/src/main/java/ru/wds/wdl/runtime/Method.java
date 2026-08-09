@@ -14,8 +14,8 @@ import ru.wds.wdl.ast.expr.FunctionExpr;
  *                  метод видит глобальные имена того места, где он написан
  * @param superFrom класс, чей родитель служит стартом для {@code super} внутри метода.
  *                  {@code Shape.text()}, унаследованный кругом, обязан звать родителя
- *                  Shape, а не родителя круга. У метода из типажа — {@code null}:
- *                  типаж не знает, в какой класс его подмешают, и {@code super} там
+ *                  Shape, а не родителя круга. У метода из трейта — {@code null}:
+ *                  трейт не знает, в какой класс его подмешают, и {@code super} там
  *                  запрещён разбором
  */
 record Method(FunctionExpr declaration, Environment closure, WdlClass superFrom) {

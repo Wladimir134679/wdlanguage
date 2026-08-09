@@ -3,8 +3,10 @@ package ru.wds.wdl.runtime;
 import ru.wds.wdl.value.Value;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Область видимости: таблица имён плюс ссылка на внешнюю область.
@@ -21,6 +23,17 @@ public final class Scope implements Environment {
 
     private final Environment parent;
     private final Map<String, Value> values = new HashMap<>();
+
+    /**
+     * Имена, замороженные {@code const}. Отдельным множеством, а не признаком рядом
+     * со значением, потому что {@link #lookup} — самая горячая операция интерпретатора,
+     * и платить в ней за возможность, которой пользуется одна инструкция из ста, незачем.
+     * <p>
+     * Поле заводится лениво и остаётся {@code null}, пока констант нет: областей
+     * создаётся по одной на вызов функции, блок и итерацию перебора, и в подавляющем
+     * большинстве из них не объявляют ничего.
+     */
+    private Set<String> constants;
 
     private Scope(Environment parent) {
         this.parent = parent;
@@ -64,14 +77,32 @@ public final class Scope implements Environment {
     }
 
     @Override
-    public boolean assign(String name, Value value) {
+    public void defineConstant(String name, Value value) {
+        define(name, value);
+        if (constants == null) {
+            constants = new HashSet<>(4);
+        }
+        constants.add(name);
+    }
+
+    @Override
+    public boolean isConstantHere(String name) {
+        Objects.requireNonNull(name, "name");
+        return constants != null && constants.contains(name);
+    }
+
+    @Override
+    public Assignment assign(String name, Value value) {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
         if (values.containsKey(name)) {
+            if (isConstantHere(name)) {
+                return Assignment.CONSTANT;
+            }
             values.put(name, value);
-            return true;
+            return Assignment.DONE;
         }
-        return parent != null && parent.assign(name, value);
+        return parent != null ? parent.assign(name, value) : Assignment.ABSENT;
     }
 
     @Override

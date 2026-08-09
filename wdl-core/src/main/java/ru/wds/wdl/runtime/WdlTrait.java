@@ -11,13 +11,13 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Типаж во время выполнения: форма плюс область, где он объявлен.
+ * Трейт во время выполнения: форма плюс область, где он объявлен.
  * <p>
- * Значений у типажа своих нет — есть только заготовки: методы, которые достанутся
+ * Значений у трейта своих нет — есть только заготовки: методы, которые достанутся
  * классу, и значения по умолчанию полей, которые вычисляются в этой самой области
  * и заново на каждом создании экземпляра.
  * <p>
- * Экземпляр типажом не создаётся: {@code new Counted()} — ошибка. Типаж описывает,
+ * Экземпляр трейтом не создаётся: {@code new Counted()} — ошибка. Трейт описывает,
  * чего не хватает классу, а не самостоятельную вещь.
  */
 final class WdlTrait implements TraitValue {
@@ -32,7 +32,7 @@ final class WdlTrait implements TraitValue {
 
         Map<String, Method> table = new LinkedHashMap<>();
         for (MethodSlot slot : shape.methods().values()) {
-            // super внутри метода типажа запрещён разбором, поэтому его класса здесь нет.
+            // super внутри метода трейта запрещён разбором, поэтому его класса здесь нет.
             table.put(slot.name(), new Method(slot.declaration(), closure, null));
         }
         this.methods = Collections.unmodifiableMap(table);
@@ -50,7 +50,7 @@ final class WdlTrait implements TraitValue {
         return methods;
     }
 
-    /** Значение по умолчанию поля типажа — дерево, вычисляемое на каждом создании. */
+    /** Значение по умолчанию поля трейта — дерево, вычисляемое на каждом создании. */
     FunctionExpr.Param param(int index) {
         return shape.params().get(index);
     }

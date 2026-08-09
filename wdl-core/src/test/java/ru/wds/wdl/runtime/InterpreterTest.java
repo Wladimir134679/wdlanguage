@@ -307,6 +307,25 @@ class InterpreterTest {
     }
 
     @Test
+    @DisplayName("окружение отвечает, что случилось с присваиванием: записано, имени нет, константа")
+    void environmentReportsWhyAssignmentFailed() {
+        Scope root = Scope.root();
+        root.define("x", IntValue.of(1));
+        root.defineConstant("LIMIT", IntValue.of(10));
+
+        assertEquals(Assignment.DONE, root.assign("x", IntValue.of(2)));
+        assertEquals(Assignment.ABSENT, root.assign("нет", IntValue.of(2)));
+        assertEquals(Assignment.CONSTANT, root.assign("LIMIT", IntValue.of(2)));
+
+        // Тот же ответ приходит и снизу: исход находит поиск по цепочке, а не сама область.
+        Environment inner = root.child();
+        assertEquals(Assignment.DONE, inner.assign("x", IntValue.of(3)));
+        assertEquals(Assignment.ABSENT, inner.assign("нет", IntValue.of(3)));
+        assertEquals(Assignment.CONSTANT, inner.assign("LIMIT", IntValue.of(3)));
+        assertFalse(inner.isConstantHere("LIMIT"), "константа объявлена снаружи, а не здесь");
+    }
+
+    @Test
     @DisplayName("один интерпретатор обслуживает независимые окружения")
     void interpreterIsStateless() {
         Interpreter interpreter = new Interpreter();

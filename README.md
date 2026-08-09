@@ -54,7 +54,7 @@
   значения параметров по умолчанию, замыкания, области видимости вызова.
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
 * [Классы](docs/classes.md) — `class` и `trait`, `new`, `this` и `super`, наследование,
-  требования типажей, проверка `is`.
+  требования трейтов, проверка `is`.
 * [Встраивание](docs/embedding.md) — как приложение добавляет в язык свои функции,
   классы и библиотеки, и почему скрипт не видит разницы.
 
@@ -69,6 +69,7 @@
 ./gradlew :wdl-cli:run --args="examples/control-flow.wdl"         # ветвления и циклы
 ./gradlew :wdl-cli:run --args="examples/functions.wdl"            # функции и замыкания
 .\gradlew :wdl-cli:run --args="examples/defaults.wdl"             # значения по умолчанию
+./gradlew :wdl-cli:run --args="examples/const.wdl"                # константы
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"          # показать дерево
 ./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl" # показать токены
 ./gradlew :wdl-cli:repl --console=plain     # REPL (нужен живой stdin)
@@ -92,7 +93,8 @@ $ wdl examples/hello.wdl
 Готовы лексер (`ru.wds.wdl.lexer`), диагностика (`ru.wds.wdl.diagnostic`), значения
 (`ru.wds.wdl.value`), AST (`ru.wds.wdl.ast`), парсер (`ru.wds.wdl.parser`), резолвер
 (`ru.wds.wdl.resolve`) и интерпретатор (`ru.wds.wdl.runtime`). Скрипт — это присваивания,
-вызовы (`println`, `print`, `typeof`, `len`), блоки, ветвления и циклы (`if`, `while`,
+объявления констант (`const`), вызовы (`println`, `print`, `typeof`, `len`),
+блоки, ветвления и циклы (`if`, `while`,
 `for`, `for ... in`, `break`, `continue`), свои функции (`fun`, `return`,
 тело-выражение `=>`, анонимные функции, значения параметров по умолчанию, замыкания)
 и классы (`class`, `trait`, `new`, `this`, `super`, `with`, `is`, фабрики

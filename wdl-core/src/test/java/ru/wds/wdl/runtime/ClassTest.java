@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Поведение классов и типажей: поля, методы, создание, наследование, {@code is}. */
+/** Поведение классов и трейтов: поля, методы, создание, наследование, {@code is}. */
 @Timeout(value = 30, unit = TimeUnit.SECONDS)
 class ClassTest {
 
@@ -218,6 +218,29 @@ class ClassTest {
                 """));
     }
 
+    @Test
+    @DisplayName("объявление класса не перекрывает константу с тем же именем")
+    void constantBlocksClassWithSameName() {
+        assertTrue(errorOf("const Point = 1\nclass Point(x)")
+                .getMessage().contains("уже есть константа"));
+        assertTrue(errorOf("const Printable = 1\ntrait Printable")
+                .getMessage().contains("уже есть константа"));
+    }
+
+    @Test
+    @DisplayName("поле экземпляра ближе внешней константы: запись в имя поля разрешена")
+    void fieldWinsOverOuterConstant() {
+        assertEquals("2 0", printed("""
+                const count = 0
+                class Counter(count) {
+                    fun bump() { count += 1 }
+                }
+                c = new Counter(1)
+                c.bump()
+                println(c.count, " ", count)
+                """));
+    }
+
     // --- создание ------------------------------------------------------------
 
     @Test
@@ -292,11 +315,11 @@ class ClassTest {
         assertTrue(errorOf("class Point(x)\nprintln(len(Point))")
                 .getMessage().contains("а здесь класс"));
         assertTrue(errorOf("trait T {}\nprintln(T.x)")
-                .getMessage().contains("к значению типа типаж нельзя обратиться"));
+                .getMessage().contains("к значению типа трейт нельзя обратиться"));
     }
 
     @Test
-    @DisplayName("типаж — тоже значение со своим типом")
+    @DisplayName("трейт — тоже значение со своим типом")
     void traitIsAValue() {
         assertEquals("trait Counted trait", printed("""
                 trait Counted(count = 0) { fun inc() { count += 1 } }
@@ -439,13 +462,13 @@ class ClassTest {
         assertTrue(declarationError("class Circle(r) : Missing()")
                 .contains("неизвестный класс 'Missing'"));
         assertTrue(declarationError("trait T {}\nclass A(x) : T()")
-                .contains("типаж, а не класс"));
+                .contains("трейт, а не класс"));
     }
 
-    // --- типажи --------------------------------------------------------------
+    // --- трейты --------------------------------------------------------------
 
     @Test
-    @DisplayName("типаж даёт классу поля и методы, и они работают вместе")
+    @DisplayName("трейт даёт классу поля и методы, и они работают вместе")
     void traits() {
         assertEquals("* 2 шт. из 10 Basket{\"count\": 2, \"items\": [\"болт\", \"гайка\"], \"limit\": 10}"
                 + " false true true", printed("""
@@ -470,13 +493,13 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("невыполненное требование типажа — ошибка при объявлении класса")
+    @DisplayName("невыполненное требование трейта — ошибка при объявлении класса")
     void unmetRequirements() {
         String noField = declarationError("""
                 trait Counted(count = 0, limit) { fun inc() { count += 1 } }
                 class Bag(items) with Counted
                 """);
-        assertTrue(noField.contains("не выполняет требование типажа 'Counted'"), noField);
+        assertTrue(noField.contains("не выполняет требование трейта 'Counted'"), noField);
         assertTrue(noField.contains("нет поля 'limit'"), noField);
 
         assertTrue(declarationError("""
@@ -491,7 +514,7 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("требование закрывается предком или другим типажом")
+    @DisplayName("требование закрывается предком или другим трейтом")
     void requirementsMetElsewhere() {
         assertEquals("есть есть", printed("""
                 trait Printable { fun text() }
@@ -504,7 +527,7 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("побеждает последний: родитель, потом типажи слева направо, потом класс")
+    @DisplayName("побеждает последний: родитель, потом трейты слева направо, потом класс")
     void lastWins() {
         assertEquals("тихо ГРОМКО по-своему", printed("""
                 trait Loud  { fun voice() => "ГРОМКО" }
@@ -517,7 +540,7 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("значение поля типажа считается на каждом создании заново")
+    @DisplayName("значение поля трейта считается на каждом создании заново")
     void traitDefaultsAreFresh() {
         assertEquals("[1] [2]", printed("""
                 trait Log(entries = []) { fun add(x) { entries += [x] } }
@@ -531,16 +554,16 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("типажом экземпляр не создать")
+    @DisplayName("трейтом экземпляр не создать")
     void traitIsNotCreatable() {
         assertTrue(errorOf("trait Counted(count = 0)\nnew Counted()")
-                .getMessage().contains("типаж, экземпляр создаёт класс"));
+                .getMessage().contains("трейт, экземпляр создаёт класс"));
     }
 
     // --- is ------------------------------------------------------------------
 
     @Test
-    @DisplayName("is отвечает про класс, предка и типаж, а для не-экземпляра — false")
+    @DisplayName("is отвечает про класс, предка и трейт, а для не-экземпляра — false")
     void isOperator() {
         assertEquals("true true true false false false", printed("""
                 trait Printable { fun print() => 1 }
@@ -565,10 +588,10 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("справа от is должен стоять класс или типаж")
+    @DisplayName("справа от is должен стоять класс или трейт")
     void isNeedsClassOnRight() {
         assertTrue(errorOf("class A(x)\nprintln(new A(1) is 5)")
-                .getMessage().contains("справа от 'is' должен стоять класс или типаж"));
+                .getMessage().contains("справа от 'is' должен стоять класс или трейт"));
     }
 
     // --- класс как значение --------------------------------------------------

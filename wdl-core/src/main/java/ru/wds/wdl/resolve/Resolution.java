@@ -8,7 +8,7 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 
 /**
- * Что резолвер узнал о программе: форма каждого объявления класса и типажа.
+ * Что резолвер узнал о программе: форма каждого объявления класса и трейта.
  * <p>
  * Ключ — сам узел дерева, и сравнивается он по ссылке, а не по равенству: два
  * одинаковых с виду объявления в разных местах файла — это два разных класса.
@@ -44,7 +44,7 @@ public final class Resolution {
         return shapes.get(declaration) instanceof ClassShape shape ? shape : null;
     }
 
-    /** Форма типажа или {@code null}. */
+    /** Форма трейта или {@code null}. */
     public TraitShape traitShape(TraitDeclStmt declaration) {
         return shapes.get(declaration) instanceof TraitShape shape ? shape : null;
     }

@@ -104,7 +104,7 @@ for (figure in figures) println(figure.text())
 
 println(figures[0].name)            // круг — поле досталось от родителя
 
-// --- типажи: заголовок — поля, тело — методы, и то и другое бывает требованием
+// --- трейты: заголовок — поля, тело — методы, и то и другое бывает требованием
 
 trait Printable {
     fun text()                              // требование к классу
@@ -122,7 +122,7 @@ class Basket(items, limit = 10) with Printable, Counted {
 
     fun add(item) {
         items += [item]
-        inc()                       // метод типажа работает с полем типажа
+        inc()                       // метод трейта работает с полем трейта
     }
 
     fun text() => len(items) + " шт. из " + limit
@@ -170,5 +170,5 @@ println(build(Point, 3, 4).text())
 
 // class Broken(x) { x = 1 }        // в теле класса — только объявления функций
 // class Bag(items) with Counted    // не выполнено требование: нет поля 'limit'
-// new Printable()                  // типаж, экземпляр создаёт класс
+// new Printable()                  // трейт, экземпляр создаёт класс
 // this.x = 1                       // 'this' вне класса

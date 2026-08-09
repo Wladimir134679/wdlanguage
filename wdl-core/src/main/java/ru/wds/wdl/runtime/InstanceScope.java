@@ -76,12 +76,30 @@ final class InstanceScope implements Environment {
         throw new IllegalStateException("в экземпляре нельзя завести имя напрямую: " + name);
     }
 
+    /** Как и {@link #define}: имена экземпляра заводит класс, а не инструкция в теле метода. */
     @Override
-    public boolean assign(String name, Value value) {
+    public void defineConstant(String name, Value value) {
+        throw new IllegalStateException("в экземпляре нельзя завести имя напрямую: " + name);
+    }
+
+    /** Полей-констант не бывает: {@code const} в тело класса парсер не пропускает. */
+    @Override
+    public boolean isConstantHere(String name) {
+        return false;
+    }
+
+    /**
+     * Поле ближе внешней константы. Если снаружи есть {@code const count}, а у экземпляра
+     * поле с тем же именем, то {@code count = 5} внутри метода пишет в поле и внешнюю
+     * константу не трогает — это то же правило «имя экземпляра ближе», по которому
+     * {@code имя} внутри метода означает {@code this.имя}.
+     */
+    @Override
+    public Assignment assign(String name, Value value) {
         Objects.requireNonNull(name, "name");
         if (instance.has(name)) {
             instance.put(name, Objects.requireNonNull(value, "value"));
-            return true;
+            return Assignment.DONE;
         }
         return method.closure().assign(name, value);
     }

@@ -116,6 +116,94 @@ class ProgramTest {
         assertTrue(errorOf("новая += 1").getMessage().contains("не определена"));
     }
 
+    // --- константы -----------------------------------------------------------
+
+    @Test
+    @DisplayName("константа читается как обычная переменная")
+    void constantIsReadLikeAVariable() {
+        assertEquals("30", lines("const LIMIT = 10\nprintln(LIMIT * 3)")[0]);
+    }
+
+    @Test
+    @DisplayName("константе нельзя присвоить заново")
+    void constantCannotBeReassigned() {
+        assertTrue(errorOf("const LIMIT = 10\nLIMIT = 20").getMessage().contains("это константа"));
+    }
+
+    @Test
+    @DisplayName("составное присваивание константе запрещено так же, как простое")
+    void constantRejectsCompoundAssignment() {
+        assertTrue(errorOf("const LIMIT = 10\nLIMIT += 1").getMessage().contains("это константа"));
+    }
+
+    @Test
+    @DisplayName("константа замораживает имя, а не содержимое")
+    void constantFreezesNameNotValue() {
+        assertEquals("[5, 2]", lines("const items = [1, 2]\nitems[0] = 5\nprintln(items)")[0]);
+        assertTrue(errorOf("const items = [1, 2]\nitems = [3]").getMessage().contains("это константа"));
+    }
+
+    @Test
+    @DisplayName("присваивание из вложенной области до константы тоже не доходит")
+    void constantIsProtectedFromNestedScope() {
+        assertTrue(errorOf("const LIMIT = 1\n{ LIMIT = 2 }").getMessage().contains("это константа"));
+        assertTrue(errorOf("const LIMIT = 1\nfun bump() { LIMIT = 2 }\nbump()")
+                .getMessage().contains("это константа"));
+    }
+
+    @Test
+    @DisplayName("вложенная область заводит свою константу, внешняя не страдает")
+    void constantCanBeShadowed() {
+        String[] printed = lines("""
+                const rate = 1
+                {
+                    const rate = 2
+                    println(rate)
+                }
+                println(rate)
+                """);
+
+        assertEquals("2", printed[0]);
+        assertEquals("1", printed[1]);
+    }
+
+    @Test
+    @DisplayName("две константы с одним именем в одной области — ошибка")
+    void constantCannotBeDeclaredTwiceHere() {
+        assertTrue(errorOf("const LIMIT = 1\nconst LIMIT = 2")
+                .getMessage().contains("уже есть константа"));
+    }
+
+    @Test
+    @DisplayName("объявление функции не перекрывает константу, даже помеченное до выполнения")
+    void functionDeclarationDoesNotOverrideConstant() {
+        assertTrue(errorOf("const total = 1\nfun total() => 2")
+                .getMessage().contains("уже есть константа"));
+    }
+
+    @Test
+    @DisplayName("константа не помечается до выполнения: выше объявления её ещё нет")
+    void constantIsNotHoisted() {
+        assertTrue(errorOf("fun show() => LIMIT\nprintln(show())\nconst LIMIT = 7")
+                .getMessage().contains("не определена"));
+    }
+
+    @Test
+    @DisplayName("функция видит константу ниже по тексту, если вызвана после объявления")
+    void functionSeesConstantDeclaredBelow() {
+        assertEquals("7", lines("fun show() => LIMIT\nconst LIMIT = 7\nprintln(show())")[0]);
+    }
+
+    @Test
+    @DisplayName("константа живёт в области, а не в запуске: второй скрипт её не перепишет")
+    void constantSurvivesBetweenRuns() {
+        ExecutionContext context = ExecutionContext.of((Scope) Builtins.installTo(Scope.root()));
+        run("const LIMIT = 1", context);
+
+        WdlRuntimeError error = assertThrows(WdlRuntimeError.class, () -> run("LIMIT = 2", context));
+        assertTrue(error.getMessage().contains("это константа"), error.getMessage());
+    }
+
     // --- запись в контейнеры -------------------------------------------------
 
     @Test

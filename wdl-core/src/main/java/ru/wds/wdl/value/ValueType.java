@@ -21,7 +21,7 @@ public enum ValueType {
     OBJECT("object", "объект"),
     FUNCTION("function", "функция"),
     CLASS("class", "класс"),
-    TRAIT("trait", "типаж");
+    TRAIT("trait", "трейт");
 
     private final String id;
     private final String title;

@@ -69,7 +69,7 @@ public record ClassDeclStmt(
     public record Superclass(String name, List<Expr> arguments, Span span) {
     }
 
-    /** Подмешанный типаж. Здесь тоже имя, и по той же причине, что у родителя. */
+    /** Подмешанный трейт. Здесь тоже имя, и по той же причине, что у родителя. */
     public record TraitRef(String name, Span span) {
     }
 

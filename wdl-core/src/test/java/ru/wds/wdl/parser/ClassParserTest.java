@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Разбор классов и типажей: форма заголовка, что допустимо в теле и где допустимы
+ * Разбор классов и трейтов: форма заголовка, что допустимо в теле и где допустимы
  * {@code this} и {@code super}.
  */
 @Timeout(value = 10, unit = TimeUnit.SECONDS)
@@ -84,7 +84,7 @@ class ClassParserTest {
     }
 
     @Test
-    @DisplayName("родитель и типажи: сначала ':', потом 'with'")
+    @DisplayName("родитель и трейты: сначала ':', потом 'with'")
     void parentThenTraits() {
         ClassDeclStmt basket = classOf(
                 "class Basket(items, limit = 10) : Store(\"склад\") with Printable, Counted");
@@ -113,19 +113,19 @@ class ClassParserTest {
     @Test
     @DisplayName("порядок частей заголовка фиксирован")
     void headerOrderIsFixed() {
-        assertTrue(errorOf("class A(x) with Loud : Shape()").contains("родитель указывается перед типажами"));
+        assertTrue(errorOf("class A(x) with Loud : Shape()").contains("родитель указывается перед трейтами"));
     }
 
     @Test
-    @DisplayName("один типаж дважды — ошибка, а не молчаливое ничего")
+    @DisplayName("один трейт дважды — ошибка, а не молчаливое ничего")
     void traitTwice() {
         assertTrue(errorOf("class A(x) with Loud, Loud").contains("подмешан дважды"));
     }
 
-    // --- заголовок типажа ----------------------------------------------------
+    // --- заголовок трейта ----------------------------------------------------
 
     @Test
-    @DisplayName("в заголовке типажа поле без значения — требование, а не обязательный параметр")
+    @DisplayName("в заголовке трейта поле без значения — требование, а не обязательный параметр")
     void traitRequirementAfterDefault() {
         TraitDeclStmt counted = traitOf("trait Counted(count = 0, limit)");
 
@@ -142,17 +142,17 @@ class ClassParserTest {
     }
 
     @Test
-    @DisplayName("значения полей типажа друг друга не видят: они считаются в области типажа")
+    @DisplayName("значения полей трейта друг друга не видят: они считаются в области трейта")
     void traitDefaultsSeeNothing() {
         assertTrue(errorOf("trait Counted(count = 0, limit = count)")
-                .contains("вычисляются в области объявления типажа"));
+                .contains("вычисляются в области объявления трейта"));
     }
 
     @Test
-    @DisplayName("у типажа нет ни родителя, ни типажей")
+    @DisplayName("у трейта нет ни родителя, ни трейтов")
     void traitHasNoDependencies() {
-        assertTrue(errorOf("trait Loud : Quiet()").contains("у типажа не бывает"));
-        assertTrue(errorOf("trait Loud with Quiet").contains("у типажа не бывает"));
+        assertTrue(errorOf("trait Loud : Quiet()").contains("у трейта не бывает"));
+        assertTrue(errorOf("trait Loud with Quiet").contains("у трейта не бывает"));
     }
 
     // --- тело ----------------------------------------------------------------
@@ -192,7 +192,7 @@ class ClassParserTest {
         assertTrue(errorOf("class User(name) { fun User.of() => this.name }")
                 .contains("'this' недопустим внутри фабрики"));
         assertTrue(errorOf("trait Printable { fun Printable.of() => 1 }")
-                .contains("у типажа не бывает фабрик"));
+                .contains("у трейта не бывает фабрик"));
     }
 
     @Test
@@ -215,7 +215,7 @@ class ClassParserTest {
     }
 
     @Test
-    @DisplayName("метод без тела в классе — ошибка: требования бывают только в типаже")
+    @DisplayName("метод без тела в классе — ошибка: требования бывают только в трейте")
     void classMethodNeedsBody() {
         assertTrue(errorOf("class A(x) { fun report() }").contains("нет тела"));
     }
@@ -254,7 +254,7 @@ class ClassParserTest {
         assertTrue(errorOf("class A(x) { fun text() => super.text() }")
                 .contains("нет родителя"));
         assertTrue(errorOf("trait T { fun text() => super.text() }")
-                .contains("у типажа нет родителя"));
+                .contains("у трейта нет родителя"));
         assertTrue(errorOf("super.text()").contains("'super' допустим только внутри класса"));
     }
 
@@ -297,11 +297,11 @@ class ClassParserTest {
     @DisplayName("имя класса обязательно")
     void nameIsRequired() {
         assertTrue(errorOf("class (x)").contains("ожидалось имя класса"));
-        assertTrue(errorOf("trait { }").contains("ожидалось имя типажа"));
+        assertTrue(errorOf("trait { }").contains("ожидалось имя трейта"));
     }
 
     @Test
-    @DisplayName("класс без родителя и без типажей ничего лишнего в дерево не кладёт")
+    @DisplayName("класс без родителя и без трейтов ничего лишнего в дерево не кладёт")
     void emptyPartsStayEmpty() {
         ClassDeclStmt point = classOf("class Point(x = 0, y = 0) { fun text() => x }");
         assertNull(point.parent());

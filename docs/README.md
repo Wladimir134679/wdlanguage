@@ -15,7 +15,7 @@
 | [Ветвления и циклы](control-flow.md) | `if`, `while`, `for`, перебор `for ... in`, `break`/`continue`, области видимости |
 | [Функции](functions.md) | объявление, `=>`, `return`, анонимные, замыкания, области видимости вызова |
 | [Единое обращение](access.md) | почему `a.b` и `a["b"]` — одна операция, и что из этого следует |
-| [Классы](classes.md) | `class` и `trait`, `new`, `this` и `super`, наследование, требования типажей, `is` |
+| [Классы](classes.md) | `class` и `trait`, `new`, `this` и `super`, наследование, требования трейтов, `is` |
 | [Встраивание](embedding.md) | как приложение добавляет в язык свои функции, классы и библиотеки |
 
 Черновые заметки автора о том, каким язык хочется видеть, лежат отдельно —
@@ -37,8 +37,9 @@
 wdl examples/hello.wdl                      # программа: переменные и вывод
 wdl examples/expressions.wdl                # шпаргалка по выражениям
 wdl examples/control-flow.wdl               # ветвления и циклы
+wdl examples/const.wdl                      # константы: const NAME = value
 wdl examples/functions.wdl                  # функции, замыкания, области видимости
-wdl examples/classes.wdl                    # классы, типажи, наследование
+wdl examples/classes.wdl                    # классы, трейты, наследование
 wdl examples/stdlib.wdl                     # стандартная библиотека: pow, File, Random
 wdl --ast examples/hello.wdl                # дерево программы
 wdl --tokens examples/lexer-check.wdl       # поток токенов
