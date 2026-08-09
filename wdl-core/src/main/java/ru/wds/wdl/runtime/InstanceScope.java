@@ -36,13 +36,11 @@ final class InstanceScope implements Environment {
     /** Класс экземпляра: поиск метода по голому имени идёт по нему, то есть виртуально. */
     private final WdlClass owner;
     private final Method method;
-    private final Interpreter interpreter;
 
-    InstanceScope(InstanceObjectValue instance, WdlClass owner, Method method, Interpreter interpreter) {
+    InstanceScope(InstanceObjectValue instance, WdlClass owner, Method method) {
         this.instance = Objects.requireNonNull(instance, "instance");
         this.owner = Objects.requireNonNull(owner, "owner");
         this.method = Objects.requireNonNull(method, "method");
-        this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
     }
 
     @Override
@@ -59,7 +57,7 @@ final class InstanceScope implements Environment {
             // неизвестное имя внутри метода стало бы полем, отрезав println и len.
             return instance.get(name);
         }
-        Value bound = owner.bindMethod(instance, name, interpreter);
+        Value bound = owner.method(instance, name);
         return bound != null ? bound : method.closure().lookup(name);
     }
 

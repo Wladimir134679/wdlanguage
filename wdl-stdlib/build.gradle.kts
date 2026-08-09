@@ -3,7 +3,7 @@ plugins {
     `java-library`
 }
 
-description = "Стандартная библиотека языка: math, string, array, io и прочие модули."
+description = "Стандартная библиотека std: математика, File, Random. Заодно пример встраивания."
 
 dependencies {
     // api, а не implementation: тот, кто пишет свой модуль стандартной библиотеки,

@@ -9,6 +9,7 @@ import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.FunctionValue;
@@ -371,7 +372,7 @@ public final class Interpreter
             traits.add(traitOf(trait, context));
         }
 
-        WdlClass declared = new WdlClass(shape, context.scope(), parent, traits);
+        WdlClass declared = new WdlClass(shape, context.scope(), parent, traits, this);
         installFactories(declared, context);
         context.scope().define(shape.name(), declared);
         return declared;
@@ -569,7 +570,7 @@ public final class Interpreter
             throw new WdlRuntimeError(expr.callee().span(),
                     "'" + trait.name() + "' — типаж, экземпляр создаёт класс");
         }
-        if (!(target instanceof WdlClass declared)) {
+        if (!(target instanceof ClassValue declared)) {
             throw new WdlRuntimeError(expr.callee().span(), "создать экземпляр можно только классом, "
                     + "а здесь " + target.type().title() + " (" + target + ")");
         }
@@ -582,7 +583,8 @@ public final class Interpreter
             throw new WdlRuntimeError(expr.span(), "класс '" + declared.name() + "' принимает "
                     + declared.arity().describeArguments() + ", а передано " + arguments.size());
         }
-        return declared.instantiate(arguments, context, expr.span(), this);
+        // Класс, написанный на wdl, и класс, встроенный приложением, здесь неразличимы.
+        return declared.instantiate(arguments, context, expr.span());
     }
 
     @Override
@@ -720,7 +722,7 @@ public final class Interpreter
                 Value method = method(object, key);
                 yield method != null ? method : NullValue.NULL;
             }
-            case WdlClass declared -> declared.statics().get(key);
+            case ClassValue declared -> declared.statics().get(key);
             case StringValue string -> StringValue.of(String.valueOf(
                     string.value().charAt(checkIndex(string.length(), key, "строки", span))));
             default -> throw new WdlRuntimeError(span,
@@ -735,10 +737,8 @@ public final class Interpreter
      * и проверка на экземпляр стоит первой.
      */
     private Value method(MapValue object, Value key) {
-        if (object instanceof InstanceObjectValue instance
-                && instance.lookupFrom() instanceof WdlClass from
-                && key instanceof StringValue name) {
-            return from.bindMethod(instance, name.value(), this);
+        if (object instanceof InstanceObjectValue instance && key instanceof StringValue name) {
+            return instance.lookupFrom().method(instance, name.value());
         }
         return null;
     }
@@ -748,7 +748,7 @@ public final class Interpreter
             case ArrayValue array -> array.set(checkIndex(array.size(), key, "массива", span), value);
             case MapValue object -> object.put(key, value);
             // Запись в класс — «статическое поле»: обычная запись по ключу в значении.
-            case WdlClass declared -> declared.statics().put(key, value);
+            case ClassValue declared -> declared.statics().put(key, value);
             // Строка неизменяема, и это не случайность реализации: строки лежат в ключах
             // объектов, и молчаливое изменение на месте испортило бы их.
             case StringValue ignored -> throw new WdlRuntimeError(span,

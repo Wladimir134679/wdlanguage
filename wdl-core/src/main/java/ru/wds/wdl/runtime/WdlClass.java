@@ -53,12 +53,21 @@ final class WdlClass implements ClassValue {
      * формой {@code fun User.of(...)}: это место записи, а не особый вид члена.
      */
     private final MapValue statics = new MapValue();
+    /**
+     * Интерпретатор нужен, чтобы выполнить тело метода и значения по умолчанию.
+     * Он безсостоятельный, поэтому держать на него ссылку безопасно, а альтернатива —
+     * протаскивать его аргументом через {@link ClassValue}, у второй реализации
+     * которого ({@code embed.NativeClass}) никакого интерпретатора нет и не будет.
+     */
+    private final Interpreter interpreter;
 
-    WdlClass(ClassShape shape, Environment closure, WdlClass parent, List<WdlTrait> traits) {
+    WdlClass(ClassShape shape, Environment closure, WdlClass parent, List<WdlTrait> traits,
+             Interpreter interpreter) {
         this.shape = Objects.requireNonNull(shape, "shape");
         this.closure = Objects.requireNonNull(closure, "closure");
         this.parent = parent;
         this.traits = List.copyOf(traits);
+        this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
 
         Map<String, Method> table = new LinkedHashMap<>();
         if (parent != null) {
@@ -87,12 +96,9 @@ final class WdlClass implements ClassValue {
         return parent;
     }
 
-    MapValue statics() {
+    @Override
+    public MapValue statics() {
         return statics;
-    }
-
-    Method method(String name) {
-        return methods.get(name);
     }
 
     /**
@@ -107,9 +113,10 @@ final class WdlClass implements ClassValue {
      * два разных значения. Для языка это ничего не меняет: функции и без того
      * сравниваются по ссылке.
      */
-    FunctionValue bindMethod(InstanceObjectValue container, String name, Interpreter interpreter) {
+    @Override
+    public FunctionValue method(InstanceObjectValue instance, String name) {
         Method method = methods.get(name);
-        return method == null ? null : bind(container, method, interpreter);
+        return method == null ? null : bind(instance, method);
     }
 
     /**
@@ -120,10 +127,10 @@ final class WdlClass implements ClassValue {
      * метода обязан быть настоящим объектом. Класс для виртуального поиска голых имён
      * тоже берётся у объекта, а не у того класса, в чьей таблице метод нашёлся.
      */
-    static FunctionValue bind(InstanceObjectValue container, Method method, Interpreter interpreter) {
+    private FunctionValue bind(InstanceObjectValue container, Method method) {
         InstanceObjectValue self = container.identity();
         return new UserFunction(method.declaration(),
-                new InstanceScope(self, (WdlClass) self.owner(), method, interpreter), interpreter);
+                new InstanceScope(self, (WdlClass) self.owner(), method), interpreter);
     }
 
     /**
@@ -142,8 +149,8 @@ final class WdlClass implements ClassValue {
      * Поэтому в конструкторе можно посчитать производное поле, проверить инвариант
      * целиком и отдать объект наружу.
      */
-    InstanceObjectValue instantiate(List<Value> arguments, CallContext caller, Span span,
-                            Interpreter interpreter) {
+    @Override
+    public Value instantiate(List<Value> arguments, CallContext caller, Span span) {
         if (caller.callDepth() >= ExecutionContext.MAX_CALL_DEPTH) {
             // Создание считается вызовом: 'class Node(next = new Node())' обязано
             // давать ошибку скрипта, а не StackOverflowError в чужом приложении.
@@ -151,12 +158,12 @@ final class WdlClass implements ClassValue {
                     + ExecutionContext.MAX_CALL_DEPTH + ". Проверьте создание '" + name() + "'");
         }
 
-        Map<Shape, Value[]> bound = bindLineage(arguments, caller, interpreter);
+        Map<Shape, Value[]> bound = bindLineage(arguments, caller);
         InstanceObjectValue instance = InstanceObjectValue.of(this);
         for (FieldSlot slot : shape.fields().values()) {
-            instance.put(slot.name(), fieldValue(slot, bound, caller, interpreter));
+            instance.put(slot.name(), fieldValue(slot, bound, caller));
         }
-        construct(instance, caller, span, interpreter);
+        construct(instance, caller, span);
         return instance;
     }
 
@@ -171,8 +178,7 @@ final class WdlClass implements ClassValue {
      * та же область поверх экземпляра, тот же {@code return}, та же защита от рекурсии.
      * В таблицу методов он при этом не попадает — {@code p.Point()} вызвать нельзя.
      */
-    private void construct(InstanceObjectValue instance, CallContext caller, Span span,
-                           Interpreter interpreter) {
+    private void construct(InstanceObjectValue instance, CallContext caller, Span span) {
         List<WdlClass> lineage = new ArrayList<>();
         for (WdlClass klass = this; klass != null; klass = klass.parent) {
             lineage.add(klass);
@@ -182,7 +188,7 @@ final class WdlClass implements ClassValue {
         for (WdlClass klass : lineage) {
             FunctionExpr constructor = klass.shape.constructor();
             if (constructor != null) {
-                bind(instance, new Method(constructor, klass.closure, klass), interpreter)
+                bind(instance, new Method(constructor, klass.closure, klass))
                         .call(caller, List.of(), span);
             }
         }
@@ -197,17 +203,16 @@ final class WdlClass implements ClassValue {
      * параметром: это список аргументов, а не источник поля, и побочный эффект
      * в нём не должен зависеть от того, какие имена завёл потомок.
      */
-    private Map<Shape, Value[]> bindLineage(List<Value> arguments, CallContext caller,
-                                            Interpreter interpreter) {
+    private Map<Shape, Value[]> bindLineage(List<Value> arguments, CallContext caller) {
         Map<Shape, Value[]> bound = new IdentityHashMap<>();
         List<Value> level = arguments;
         for (WdlClass klass = this; klass != null; klass = klass.parent) {
             Environment local = Scope.under(klass.closure);
             ExecutionContext inner = ExecutionContext.call(local, caller);
-            bound.put(klass.shape, bindParams(klass.shape.params(), level, local, inner, interpreter));
+            bound.put(klass.shape, bindParams(klass.shape.params(), level, local, inner));
 
             ClassDeclStmt.Superclass reference = klass.shape.declaration().parent();
-            level = reference == null ? List.of() : evaluate(reference.arguments(), inner, interpreter);
+            level = reference == null ? List.of() : evaluate(reference.arguments(), inner);
         }
         return bound;
     }
@@ -218,9 +223,8 @@ final class WdlClass implements ClassValue {
      * Имена связываются по мере вычисления, поэтому значение по умолчанию видит
      * параметры левее себя — то же правило, что у функции, и тот же список параметров.
      */
-    private static Value[] bindParams(List<FunctionExpr.Param> params, List<Value> arguments,
-                                      Environment local, ExecutionContext inner,
-                                      Interpreter interpreter) {
+    private Value[] bindParams(List<FunctionExpr.Param> params, List<Value> arguments,
+                               Environment local, ExecutionContext inner) {
         Value[] values = new Value[params.size()];
         for (int i = 0; i < params.size(); i++) {
             FunctionExpr.Param param = params.get(i);
@@ -232,8 +236,7 @@ final class WdlClass implements ClassValue {
         return values;
     }
 
-    private static List<Value> evaluate(List<ru.wds.wdl.ast.expr.Expr> expressions,
-                                        ExecutionContext context, Interpreter interpreter) {
+    private List<Value> evaluate(List<ru.wds.wdl.ast.expr.Expr> expressions, ExecutionContext context) {
         List<Value> values = new ArrayList<>(expressions.size());
         expressions.forEach(expression -> values.add(interpreter.visit(expression, context)));
         return values;
@@ -247,8 +250,7 @@ final class WdlClass implements ClassValue {
      * не должно. Область вычисления при этом всегда область объявления типажа:
      * полей класса такое значение не видит и видеть не может.
      */
-    private Value fieldValue(FieldSlot slot, Map<Shape, Value[]> bound, CallContext caller,
-                             Interpreter interpreter) {
+    private Value fieldValue(FieldSlot slot, Map<Shape, Value[]> bound, CallContext caller) {
         if (slot.owner() instanceof ClassShape owner) {
             return bound.get(owner)[slot.paramIndex()];
         }

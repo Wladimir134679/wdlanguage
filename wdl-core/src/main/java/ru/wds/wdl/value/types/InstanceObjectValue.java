@@ -22,7 +22,7 @@ import java.util.Objects;
  * после них: порядок пар у объекта это порядок вставки, отдельного правила
  * для экземпляра нет.
  */
-public final class InstanceObjectValue extends MapValue {
+public non-sealed class InstanceObjectValue extends MapValue {
 
     private final ClassValue owner;
 
@@ -38,6 +38,17 @@ public final class InstanceObjectValue extends MapValue {
         this.owner = Objects.requireNonNull(owner, "owner");
         this.lookupFrom = lookupFrom != null ? lookupFrom : owner;
         this.root = root;
+    }
+
+    /**
+     * Экземпляр класса, встроенного приложением.
+     * <p>
+     * Открыто для наследования ровно затем, чтобы такой экземпляр мог носить
+     * Java-состояние — открытый поток, соединение, генератор, — которое значениями
+     * языка не выражается. Всё, что выразимо, лежит обычными полями.
+     */
+    protected InstanceObjectValue(ClassValue owner) {
+        this(new LinkedHashMap<>(), owner, null, null);
     }
 
     /** Пустой экземпляр класса: поля в него запишет создание. */

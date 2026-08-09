@@ -9,6 +9,9 @@ description = "Консольный запуск скриптов и REPL."
 dependencies {
     implementation(project(":wdl-api"))
     implementation(project(":wdl-tools"))
+    // Стандартная библиотека подключается консольным запуском явно: что положить
+    // скрипту в область видимости — решение того, кто запускает, а не ядра.
+    implementation(project(":wdl-stdlib"))
     implementation("info.picocli:picocli:4.7.6")
 }
 

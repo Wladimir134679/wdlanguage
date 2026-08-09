@@ -17,6 +17,7 @@ import ru.wds.wdl.runtime.Interpreter;
 import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Source;
+import ru.wds.wdl.stdlib.Std;
 import ru.wds.wdl.tools.AstDumper;
 import ru.wds.wdl.tools.TokenDumper;
 import ru.wds.wdl.value.types.NullValue;
@@ -163,7 +164,7 @@ public final class Main implements Callable<Integer> {
         try {
             // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
             // а не ядра: встроенный движок по умолчанию не печатает никуда.
-            new Interpreter().run(program, resolution, ExecutionContext.fresh(Output.standard()));
+            new Interpreter().run(program, resolution, standardContext());
             return 0;
         } catch (WdlRuntimeError e) {
             // Ошибка выполнения показывается так же, как ошибка разбора: с местом в скрипте.
@@ -178,7 +179,7 @@ public final class Main implements Callable<Integer> {
     private static int repl() {
         System.out.println("wdl " + version() + " — интерактивный режим. Выход: :q или Ctrl+D.");
         Interpreter interpreter = new Interpreter();
-        ExecutionContext context = ExecutionContext.fresh(Output.standard());
+        ExecutionContext context = standardContext();
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, outputCharset()));
         while (true) {
@@ -239,6 +240,21 @@ public final class Main implements Callable<Integer> {
         } catch (WdlRuntimeError e) {
             System.err.println(diagnostics.render(e.toDiagnostic()));
         }
+    }
+
+    /**
+     * Контекст консольного запуска: вывод в консоль процесса и подключённая
+     * стандартная библиотека.
+     * <p>
+     * Оба решения принимает запуск, а не ядро. Встроенный в чужое приложение движок
+     * по умолчанию не печатает никуда и не получает ни одного имени сверх встроенных:
+     * что положить скрипту в область видимости — дело приложения, и {@code std}
+     * тут ничем не привилегированнее любой другой библиотеки.
+     */
+    private static ExecutionContext standardContext() {
+        ExecutionContext context = ExecutionContext.fresh(Output.standard());
+        Std.install(context.scope());
+        return context;
     }
 
     private static void showDiagnostics(Diagnostics diagnostics) {

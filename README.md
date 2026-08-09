@@ -55,6 +55,8 @@
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
 * [Классы](docs/classes.md) — `class` и `trait`, `new`, `this` и `super`, наследование,
   требования типажей, проверка `is`.
+* [Встраивание](docs/embedding.md) — как приложение добавляет в язык свои функции,
+  классы и библиотеки, и почему скрипт не видит разницы.
 
 ## Команды
 
@@ -94,7 +96,9 @@ $ wdl examples/hello.wdl
 `for`, `for ... in`, `break`, `continue`), свои функции (`fun`, `return`,
 тело-выражение `=>`, анонимные функции, значения параметров по умолчанию, замыкания)
 и классы (`class`, `trait`, `new`, `this`, `super`, `with`, `is`, фабрики
-`fun Имя.член(...)`); именованных аргументов и модулей ещё нет.
+`fun Имя.член(...)`). Стандартная библиотека (`wdl-stdlib`) даёт `pow`, `sqrt`, `abs`,
+классы `File` и `Random` и заодно служит примером
+[встраивания](docs/embedding.md); именованных аргументов и модулей ещё нет.
 Подробности — в [docs/statements.md](docs/statements.md),
 [docs/control-flow.md](docs/control-flow.md), [docs/functions.md](docs/functions.md),
 [docs/classes.md](docs/classes.md) и [docs/expressions.md](docs/expressions.md).

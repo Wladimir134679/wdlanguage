@@ -104,6 +104,10 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   (`Interpreter`, `AstDumper`, тестовый `SExprPrinter`).
 * **Встроенная функция**: одна запись в `Builtins.installTo` — имя, `Arity`, лямбда.
   Всё нужное от среды приходит через `CallContext`.
+* **Класс от приложения**: построитель `embed/NativeClass` — поля заголовка, методы,
+  фабрики, константы; состояние, не выразимое значением, — в `NativeInstance.state()`.
+  Для интерпретатора это тот же `ClassValue`, что и класс на wdl. См. `docs/embedding.md`
+  и `wdl-stdlib/.../Std.java` как пример.
 
 ## Тесты
 

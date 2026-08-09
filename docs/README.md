@@ -16,6 +16,7 @@
 | [Функции](functions.md) | объявление, `=>`, `return`, анонимные, замыкания, области видимости вызова |
 | [Единое обращение](access.md) | почему `a.b` и `a["b"]` — одна операция, и что из этого следует |
 | [Классы](classes.md) | `class` и `trait`, `new`, `this` и `super`, наследование, требования типажей, `is` |
+| [Встраивание](embedding.md) | как приложение добавляет в язык свои функции, классы и библиотеки |
 
 Черновые заметки автора о том, каким язык хочется видеть, лежат отдельно —
 в `Основные идеи.md` в корне репозитория. Это источник желаний, а не описание
@@ -38,6 +39,7 @@ wdl examples/expressions.wdl                # шпаргалка по выраж
 wdl examples/control-flow.wdl               # ветвления и циклы
 wdl examples/functions.wdl                  # функции, замыкания, области видимости
 wdl examples/classes.wdl                    # классы, типажи, наследование
+wdl examples/stdlib.wdl                     # стандартная библиотека: pow, File, Random
 wdl --ast examples/hello.wdl                # дерево программы
 wdl --tokens examples/lexer-check.wdl       # поток токенов
 ./gradlew :wdl-cli:repl --console=plain     # построчно, интерактивно
