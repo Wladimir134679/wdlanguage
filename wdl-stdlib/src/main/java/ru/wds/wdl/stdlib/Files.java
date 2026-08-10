@@ -103,8 +103,17 @@ final class Files {
 
     /** Путь из поля {@code path}: поле обычное, значит и прочитать его можно обычно. */
     private static Path path(NativeInstance self, Span span) {
+        return pathOf(self.get("path"), span);
+    }
+
+    /**
+     * Путь из значения языка. Отдельно от поля, потому что тем же путём ходят
+     * функции модуля {@code sys.io}: {@code io.read("data.txt")} — тот же путь,
+     * та же проверка и то же сообщение.
+     */
+    static Path pathOf(Value value, Span span) {
         try {
-            return Path.of(Std.text(self.get("path"), span, "путь к файлу"));
+            return Path.of(Std.text(value, span, "путь к файлу"));
         } catch (java.nio.file.InvalidPathException e) {
             throw new WdlRuntimeError(span, "недопустимый путь к файлу: " + e.getReason());
         }
@@ -117,7 +126,7 @@ final class Files {
      * ему пользы не принесёт: нужна ошибка с местом в исходнике, которую движок
      * покажет так же, как деление на ноль.
      */
-    private static <T> T io(Span span, IoAction<T> action) {
+    static <T> T io(Span span, IoAction<T> action) {
         try {
             return action.run();
         } catch (IOException | UncheckedIOException e) {
@@ -126,7 +135,7 @@ final class Files {
         }
     }
 
-    private static void io(Span span, IoRun action) {
+    static void io(Span span, IoRun action) {
         io(span, () -> {
             action.run();
             return null;
@@ -134,12 +143,12 @@ final class Files {
     }
 
     @FunctionalInterface
-    private interface IoAction<T> {
+    interface IoAction<T> {
         T run() throws IOException;
     }
 
     @FunctionalInterface
-    private interface IoRun {
+    interface IoRun {
         void run() throws IOException;
     }
 }

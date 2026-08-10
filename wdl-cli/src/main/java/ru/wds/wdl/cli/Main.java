@@ -21,6 +21,7 @@ import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.stdlib.Std;
+import ru.wds.wdl.stdlib.Sys;
 import ru.wds.wdl.tools.AstDumper;
 import ru.wds.wdl.tools.TokenDumper;
 import ru.wds.wdl.value.types.NullValue;
@@ -55,7 +56,8 @@ import java.util.concurrent.Callable;
                 + "и вызовы (println, print, typeof, len), ветвления и циклы,%n"
                 + "свои функции: fun имя(a, b) => a + b, классы и трейты.%n"
                 + "Модули подключаются через import lib.math или import lib.math as m;%n"
-                + "путь считается от каталога файла, где написан import."
+                + "путь считается от каталога файла, где написан import.%n"
+                + "Встроенные модули: sys.io (файлы), sys.json, sys.net.http, std."
 )
 public final class Main implements Callable<Integer> {
 
@@ -173,10 +175,10 @@ public final class Main implements Callable<Integer> {
             return EXIT_SCRIPT_ERROR;
         }
 
+        // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
+        // а не ядра: встроенный движок по умолчанию не печатает никуда.
+        ExecutionContext context = standardContext().withModules(modules);
         try {
-            // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
-            // а не ядра: встроенный движок по умолчанию не печатает никуда.
-            ExecutionContext context = standardContext().withModules(modules);
             new Interpreter().run(Unit.of(source, program, resolution), context);
             return 0;
         } catch (WdlRuntimeError e) {
@@ -186,6 +188,10 @@ public final class Main implements Callable<Integer> {
             Source failed = e.source() != null ? e.source() : source;
             System.err.println(new Diagnostics(failed).render(e.toDiagnostic()));
             return EXIT_SCRIPT_ERROR;
+        } finally {
+            // Встроенные модули могли завести живое — клиента, соединение, поток.
+            // Закрывает их хозяин запуска, и здесь это мы, чем бы скрипт ни кончился.
+            context.shutdownModules();
         }
     }
 
@@ -216,10 +222,12 @@ public final class Main implements Callable<Integer> {
                 line = reader.readLine();
             } catch (IOException e) {
                 System.err.println("Не удалось прочитать ввод: " + e.getMessage());
+                context.shutdownModules();
                 return EXIT_USAGE_ERROR;
             }
             if (line == null || line.trim().equals(":q")) {
                 System.out.println();
+                context.shutdownModules();
                 return 0;
             }
             if (line.isBlank()) {
@@ -281,7 +289,10 @@ public final class Main implements Callable<Integer> {
     private static ExecutionContext standardContext() {
         ExecutionContext context = ExecutionContext.fresh(Output.standard());
         Std.install(context.scope());
-        return context;
+        // Встроенные модули (sys.io, sys.json, sys.net.http) даёт тот же запуск и тем же
+        // способом: набором, а не флагом. Приложение, встраивающее движок, собирает свой —
+        // и скрипту доступно ровно то, что в нём есть.
+        return context.withNativeModules(Sys.modules());
     }
 
     private static void showDiagnostics(Diagnostics diagnostics) {

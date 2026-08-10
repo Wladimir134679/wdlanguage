@@ -51,8 +51,11 @@ public final class ModuleUnits {
      * @param unit    разобранный модуль или {@code null}
      * @param problem готовое сообщение, почему модуля нет; {@code null} вместе
      *                с {@code unit == null} означает круг — это не ошибка
+     * @param missing источник такого модуля не знает — в отличие от «модуль есть,
+     *                но в нём ошибки». Разница нужна тому, кто спрашивал: только
+     *                к «не найден» уместно добавить, где ещё искали
      */
-    public record Loaded(Unit unit, String problem) {
+    public record Loaded(Unit unit, String problem, boolean missing) {
 
         public boolean ok() {
             return unit != null;
@@ -63,15 +66,15 @@ public final class ModuleUnits {
     public Loaded load(String key) {
         Unit ready = loaded.get(key);
         if (ready != null) {
-            return new Loaded(ready, null);
+            return new Loaded(ready, null, false);
         }
         if (loading.contains(key)) {
-            return new Loaded(null, null);
+            return new Loaded(null, null, false);
         }
 
         Source moduleSource = source.find(key);
         if (moduleSource == null) {
-            return new Loaded(null, "модуль '" + key + "' не найден");
+            return new Loaded(null, "модуль '" + key + "' не найден", true);
         }
 
         loading.addLast(key);
@@ -94,12 +97,12 @@ public final class ModuleUnits {
         }
         if (diagnostics.hasErrors()) {
             return new Loaded(null, "в модуле '" + key + "' есть ошибки:"
-                    + System.lineSeparator() + diagnostics.renderAll());
+                    + System.lineSeparator() + diagnostics.renderAll(), false);
         }
 
         Unit unit = new Unit(moduleSource, program, resolution, key);
         loaded.put(key, unit);
-        return new Loaded(unit, null);
+        return new Loaded(unit, null, false);
     }
 
 }

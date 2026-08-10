@@ -50,6 +50,35 @@ public final class ModuleKey {
         return String.join("/", segments);
     }
 
+    /**
+     * Имя, под которым модуль ищется среди встроенных: путь как написан, без
+     * расширения и с {@code /} вместо {@code \}.
+     * <p>
+     * Каталог импортирующего файла здесь не участвует, и это главное отличие
+     * встроенного модуля от файла: у {@link NativeModules встроенного} каталога нет,
+     * поэтому {@code import sys.json} обязан означать одно и то же в любом файле.
+     */
+    public static String name(String path) {
+        String cleaned = path.replace('\\', '/');
+        return cleaned.endsWith(EXTENSION)
+                ? cleaned.substring(0, cleaned.length() - EXTENSION.length())
+                : cleaned;
+    }
+
+    /**
+     * Написан ли путь так, что речь заведомо о файле.
+     * <p>
+     * Ведущий {@code /} — «от корня запуска», ведущие {@code ./} и {@code ../} —
+     * «от каталога этого файла». Всё это указания на место в дереве файлов, а у
+     * встроенного модуля места нет. Отсюда и способ дотянуться до файла, имя которого
+     * занято встроенным модулем: {@code import "./sys/json"}.
+     */
+    public static boolean isExplicitPath(String path) {
+        String cleaned = path.replace('\\', '/');
+        return cleaned.startsWith("/") || cleaned.equals(".") || cleaned.equals("..")
+                || cleaned.startsWith("./") || cleaned.startsWith("../");
+    }
+
     /** Каталог модуля: от него считаются пути его собственных импортов. */
     public static String homeOf(String key) {
         if (key == null) {

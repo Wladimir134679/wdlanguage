@@ -10,7 +10,7 @@
 | Модуль | Назначение | Зависимости |
 |---|---|---|
 | `wdl-core` | лексер, парсер, AST, значения, интерпретатор | **нет, и не будет** |
-| `wdl-stdlib` | стандартная библиотека: math, string, array, io | `core` |
+| `wdl-stdlib` | стандартная библиотека `std` и встроенные модули `sys.io`, `sys.json`, `sys.net.http` | `core` |
 | `wdl-api` | фасад для встраивания: `WdlEngine`, компиляция, биндинг Java | `core`, `stdlib` |
 | `wdl-tools` | линтер, форматтер, дамп AST, позже LSP | `core` |
 | `wdl-cli` | запуск скриптов из консоли, REPL | `api`, `tools` |
@@ -101,10 +101,13 @@ $ wdl examples/hello.wdl
 `fun Имя.член(...)`) и модули (`import lib.math`, `import lib.math as m`,
 наследование и трейты через файлы). Модуль читается тогда, когда выполняется его
 `import`, — поэтому импортировать можно файл, которого при запуске ещё не было.
+Модулем бывает и библиотека на Java: консольный запуск даёт `sys.io` (файлы),
+`sys.json` и `sys.net.http`, а приложение — свой набор, потому что состав
+встроенных модулей задаёт запуск, а не язык.
 Стандартная библиотека (`wdl-stdlib`) даёт `pow`, `sqrt`, `abs`,
 классы `File` и `Random` и заодно служит примером
 [встраивания](docs/embedding.md); именованных аргументов и выборочного импорта
-отдельных имён ещё нет.
+отдельных имён ещё нет, наследоваться от класса встроенного модуля пока нельзя.
 Подробности — в [docs/statements.md](docs/statements.md),
 [docs/control-flow.md](docs/control-flow.md), [docs/functions.md](docs/functions.md),
 [docs/classes.md](docs/classes.md), [docs/modules.md](docs/modules.md)

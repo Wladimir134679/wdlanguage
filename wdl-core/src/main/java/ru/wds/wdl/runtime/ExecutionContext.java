@@ -2,6 +2,7 @@ package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
+import ru.wds.wdl.module.NativeModules;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.resolve.Resolution;
@@ -94,7 +95,8 @@ public final class ExecutionContext implements CallContext {
 
     public static ExecutionContext of(Environment scope, Output output) {
         return new ExecutionContext(scope, output, 0, Unit.none(),
-                new Modules(new ModuleUnits(ModuleSource.none()), scope), new Linker());
+                new Modules(new ModuleUnits(ModuleSource.none()), NativeModules.none(), scope),
+                new Linker());
     }
 
     /**
@@ -109,7 +111,38 @@ public final class ExecutionContext implements CallContext {
      * локальных имён того, кто их импортирует.
      */
     public ExecutionContext withModules(ModuleUnits units) {
-        return new ExecutionContext(scope, output, callDepth, unit, new Modules(units, scope), linker);
+        return new ExecutionContext(scope, output, callDepth, unit,
+                new Modules(units, modules.natives(), scope), linker);
+    }
+
+    /**
+     * Тот же контекст, но со встроенными модулями: {@code import sys.json} начинает
+     * находить библиотеку на Java.
+     * <p>
+     * По умолчанию их нет вовсе — как нет и источника файлов. Что дать скрипту:
+     * файлы, сеть, ничего, — решает приложение, и решает набором, а не флагами:
+     * не положил {@code sys/net/http} в реестр — модуля не существует.
+     * <p>
+     * Ставится до запуска, вместе с {@link #withModules}: реестр выполненного
+     * принадлежит запуску, и менять его состав посреди работы значило бы,
+     * что одно и то же имя в двух местах скрипта означает разное.
+     */
+    public ExecutionContext withNativeModules(NativeModules natives) {
+        return new ExecutionContext(scope, output, callDepth, unit,
+                new Modules(modules.units(), natives, scope), linker);
+    }
+
+    /**
+     * Закрывает библиотеки встроенных модулей: соединения, клиенты, всё живое,
+     * что они завели.
+     * <p>
+     * Зовёт хозяин запуска, когда запуск кончился, — консольный интерпретатор
+     * в {@code finally}, встраивающее приложение из своего {@code close()}. Само
+     * ядро момента «конец запуска» не знает: контекст неизменяем и копируется,
+     * а вот реестр модулей у копий общий — потому закрывать и можно отсюда.
+     */
+    public void shutdownModules() {
+        modules.shutdown();
     }
 
     /**
@@ -141,7 +174,7 @@ public final class ExecutionContext implements CallContext {
         boolean inRun = caller instanceof ExecutionContext;
         Modules known = inRun
                 ? ((ExecutionContext) caller).modules
-                : new Modules(new ModuleUnits(ModuleSource.none()), scope);
+                : new Modules(new ModuleUnits(ModuleSource.none()), NativeModules.none(), scope);
         Linker shapes = inRun ? ((ExecutionContext) caller).linker : new Linker();
         return new ExecutionContext(scope, caller::write, caller.callDepth() + 1, unit, known, shapes);
     }

@@ -5,7 +5,6 @@ import ru.wds.wdl.ast.expr.*;
 import ru.wds.wdl.ast.op.*;
 import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.ast.visitor.*;
-import ru.wds.wdl.module.ModuleKey;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.LinkError;
@@ -591,11 +590,16 @@ public final class Interpreter
      * импорт не помечается до выполнения ({@link #hoistDeclarations}) — он не объявление
      * верхнего уровня, а инструкция, у которой есть побочный эффект: выполнение
      * чужого файла. Поднимать её значило бы выполнять чужой код до первой строки скрипта.
+     * <p>
+     * Откуда взялся модуль — из файла или из библиотеки на Java, — здесь не видно
+     * и видно быть не должно: значение у обоих одно, {@code ModuleValue}.
      */
     @Override
     public Void visitImport(ImportStmt stmt, ExecutionContext context) {
-        String key = ModuleKey.resolve(stmt.path(), context.unit().home());
-        ModuleValue module = context.modules().load(key, stmt.pathSpan(), context, this);
+        // Разрешением пути занимается реестр: видов модулей два — файл и встроенный, —
+        // и различаются они именно тем, как из записи получается ключ.
+        ModuleValue module = context.modules()
+                .load(stmt.path(), context.unit().home(), stmt.pathSpan(), context, this);
         if (stmt.hasAlias()) {
             checkNotConstant(stmt.alias(), stmt.aliasSpan(), context);
             context.scope().define(stmt.alias(), module);

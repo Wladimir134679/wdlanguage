@@ -60,7 +60,7 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 | Модуль | Содержимое | Зависит от |
 |---|---|---|
 | `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source` | ничего |
-| `wdl-stdlib` | math, string, array, io (пока заготовка) | core |
+| `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, реестр `Sys` | core |
 | `wdl-api` | фасад для встраивания `WdlEngine` (пока заготовка) | core, stdlib |
 | `wdl-tools` | `AstDumper`, `TokenDumper`, позже линтер/форматтер/LSP | core |
 | `wdl-cli` | picocli-точка входа, REPL | api, tools |
@@ -105,6 +105,9 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   (`Interpreter`, `AstDumper`, тестовый `SExprPrinter`).
 * **Встроенная функция**: одна запись в `Builtins.installTo` — имя, `Arity`, лямбда.
   Всё нужное от среды приходит через `CallContext`.
+* **Встроенный модуль** (`import sys.что-то`): класс с `implements Library` в `wdl-stdlib`,
+  фабрика `library()`, строка в `Sys.registry()`. Имена кладутся теми же `define`,
+  что и в корень; живое, если оно есть, отпускается в `close()`. Ключ — имя, а не путь.
 * **Класс от приложения**: построитель `embed/NativeClass` — поля заголовка, методы,
   фабрики, константы; состояние, не выразимое значением, — в `NativeInstance.state()`.
   Для интерпретатора это тот же `ClassValue`, что и класс на wdl. См. `docs/embedding.md`
