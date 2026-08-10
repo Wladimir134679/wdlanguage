@@ -56,21 +56,36 @@ public record ClassDeclStmt(
     }
 
     /**
-     * Родитель и аргументы его заголовка: {@code : Shape("круг")}.
+     * Родитель и аргументы его заголовка: {@code : Shape("круг")}, {@code : m.Shape()}.
      * <p>
      * После двоеточия стоит <b>имя</b>, а не произвольное выражение, — ради этого
      * и разрешено наследоваться от класса, объявленного ниже по тексту: имена можно
      * связать заранее, а вычисление выражения до первой инструкции скрипта было бы
      * выполнением в момент, когда скрипт ещё не начался.
      * <p>
+     * Имя бывает квалифицированным — {@code m.Shape}, где {@code m} пришло
+     * из {@code import ... as m}. Это не обращение по ключу, хотя и выглядит так же:
+     * слева от точки здесь имя импорта, известное до выполнения, а не значение.
+     * <p>
      * Аргументы — обычные выражения, и вычисляются они там, где параметры потомка
      * уже связаны: {@code class Square(side) : Shape("сторона " + side)}.
+     *
+     * @param alias имя именованного импорта или {@code null}, если имя простое
      */
-    public record Superclass(String name, List<Expr> arguments, Span span) {
+    public record Superclass(String alias, String name, List<Expr> arguments, Span span) {
+
+        /** Имя так, как оно написано: {@code Shape} или {@code m.Shape}. */
+        public String title() {
+            return alias == null ? name : alias + "." + name;
+        }
     }
 
     /** Подмешанный трейт. Здесь тоже имя, и по той же причине, что у родителя. */
-    public record TraitRef(String name, Span span) {
+    public record TraitRef(String alias, String name, Span span) {
+
+        public String title() {
+            return alias == null ? name : alias + "." + name;
+        }
     }
 
     /**

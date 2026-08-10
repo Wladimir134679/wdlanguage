@@ -126,6 +126,12 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
+    public Void visitImport(ImportStmt stmt, Integer depth) {
+        return line(depth, "импорт \"" + stmt.path() + "\""
+                + (stmt.hasAlias() ? " как " + stmt.alias() : " развёрнутый"), stmt.span());
+    }
+
+    @Override
     public Void visitConstDecl(ConstDeclStmt stmt, Integer depth) {
         line(depth, "объявление константы " + stmt.name(), stmt.span());
         return visit(stmt.value(), depth + 1);
@@ -148,12 +154,12 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         defaults(stmt.params(), depth + 1);
         if (stmt.hasParent()) {
             ClassDeclStmt.Superclass parent = stmt.parent();
-            line(depth + 1, "родитель " + parent.name() + ", аргументов: "
+            line(depth + 1, "родитель " + parent.title() + ", аргументов: "
                     + parent.arguments().size(), parent.span());
             parent.arguments().forEach(argument -> visit(argument, depth + 2));
         }
         for (ClassDeclStmt.TraitRef trait : stmt.traits()) {
-            line(depth + 1, "трейт " + trait.name(), trait.span());
+            line(depth + 1, "трейт " + trait.title(), trait.span());
         }
         if (stmt.hasConstructor()) {
             line(depth + 1, "конструктор", stmt.constructor().span());

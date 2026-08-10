@@ -1,6 +1,7 @@
 package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.MethodSlot;
 import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.value.TraitValue;
@@ -24,16 +25,19 @@ final class WdlTrait implements TraitValue {
 
     private final TraitShape shape;
     private final Environment closure;
+    /** Файл, где трейт объявлен: в нём выполняются его методы и значения по умолчанию. */
+    private final Unit unit;
     private final Map<String, Method> methods;
 
-    WdlTrait(TraitShape shape, Environment closure) {
+    WdlTrait(TraitShape shape, Environment closure, Unit unit) {
         this.shape = Objects.requireNonNull(shape, "shape");
         this.closure = Objects.requireNonNull(closure, "closure");
+        this.unit = Objects.requireNonNull(unit, "unit");
 
         Map<String, Method> table = new LinkedHashMap<>();
         for (MethodSlot slot : shape.methods().values()) {
             // super внутри метода трейта запрещён разбором, поэтому его класса здесь нет.
-            table.put(slot.name(), new Method(slot.declaration(), closure, null));
+            table.put(slot.name(), new Method(slot.declaration(), closure, unit, null));
         }
         this.methods = Collections.unmodifiableMap(table);
     }
@@ -44,6 +48,10 @@ final class WdlTrait implements TraitValue {
 
     Environment closure() {
         return closure;
+    }
+
+    Unit unit() {
+        return unit;
     }
 
     Map<String, Method> methods() {

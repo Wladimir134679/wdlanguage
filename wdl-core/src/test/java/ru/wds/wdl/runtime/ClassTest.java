@@ -453,16 +453,27 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("круг в наследовании и лишние аргументы родителю — ошибки до выполнения")
-    void declarationErrors() {
+    @DisplayName("круг в наследовании — ошибка до выполнения: такого порядка объявлений нет")
+    void inheritanceCycle() {
+        // Единственное, что о наследовании видно из текста: расставить объявления так,
+        // чтобы родитель выполнялся раньше потомка, в этом случае невозможно.
         assertTrue(declarationError("class A(x) : B(1)\nclass B(y) : A(1)")
                 .contains("циклическое наследование"));
-        assertTrue(declarationError("class Shape(name)\nclass Circle(r) : Shape(1, 2)")
-                .contains("принимает ровно 1 аргумент"));
-        assertTrue(declarationError("class Circle(r) : Missing()")
-                .contains("неизвестный класс 'Missing'"));
-        assertTrue(declarationError("trait T {}\nclass A(x) : T()")
-                .contains("трейт, а не класс"));
+    }
+
+    @Test
+    @DisplayName("родитель и трейты проверяются при выполнении объявления класса")
+    void linkErrors() {
+        assertTrue(errorOf("class Shape(name)\nclass Circle(r) : Shape(1, 2)")
+                .getMessage().contains("принимает ровно 1 аргумент"));
+        assertTrue(errorOf("class Circle(r) : Missing()")
+                .getMessage().contains("неизвестный класс 'Missing'"));
+        assertTrue(errorOf("trait T {}\nclass A(x) : T()")
+                .getMessage().contains("трейт, а не класс"));
+        assertTrue(errorOf("class C(x)\nclass A(x) with C")
+                .getMessage().contains("класс, а не трейт"));
+        assertTrue(errorOf("Shape = 5\nclass Circle(r) : Shape(1)")
+                .getMessage().contains("наследоваться можно только от класса"));
     }
 
     // --- трейты --------------------------------------------------------------
@@ -495,22 +506,43 @@ class ClassTest {
     @Test
     @DisplayName("невыполненное требование трейта — ошибка при объявлении класса")
     void unmetRequirements() {
-        String noField = declarationError("""
+        // Именно при объявлении, а не при создании экземпляра: класс объявлен —
+        // значит, он уже проверен, и до 'new' ошибке ждать незачем.
+        String noField = errorOf("""
                 trait Counted(count = 0, limit) { fun inc() { count += 1 } }
                 class Bag(items) with Counted
-                """);
+                """).getMessage();
         assertTrue(noField.contains("не выполняет требование трейта 'Counted'"), noField);
         assertTrue(noField.contains("нет поля 'limit'"), noField);
 
-        assertTrue(declarationError("""
+        assertTrue(errorOf("""
                 trait Printable { fun text() }
                 class Bag(items) with Printable
-                """).contains("нет метода 'text'"));
+                """).getMessage().contains("нет метода 'text'"));
 
-        assertTrue(declarationError("""
+        assertTrue(errorOf("""
                 trait Printable { fun text() }
                 class Bag(items) with Printable { fun text(extra) => extra }
-                """).contains("должен принимать"));
+                """).getMessage().contains("должен принимать"));
+    }
+
+    @Test
+    @DisplayName("требование трейта проверено до создания экземпляра, а не при нём")
+    void requirementsCheckedBeforeInstance() {
+        // Разница с abc.ABCMeta в Python, где такой класс объявляется молча и падает
+        // на 'new': здесь до строки с созданием дело не доходит вовсе.
+        StringBuilder output = new StringBuilder();
+        assertThrows(WdlRuntimeError.class, () -> run("""
+                trait Printable { fun text() }
+                fun make() {
+                    class Bag(items) with Printable
+                    println("класс объявлен")
+                    return new Bag([]);
+                }
+                make()
+                """, output::append));
+
+        assertEquals("", output.toString());
     }
 
     @Test

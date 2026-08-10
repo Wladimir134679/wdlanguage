@@ -1,6 +1,7 @@
 package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
@@ -32,18 +33,25 @@ import java.util.Objects;
  * Тело функции выполняется в <b>вложенной</b> области: имя, впервые присвоенное внутри,
  * наружу не попадает, а присваивание уже известному имени уходит туда, где оно заведено.
  * Правило то же, что у блока, — функция не заводит для него исключений.
+ * <p>
+ * Вместе с замыканием функция запоминает и {@link Unit юнит} — файл, где она написана.
+ * Замыкание отвечает на вопрос «какие имена видно», юнит — «в каком файле мы находимся»:
+ * функция из модуля, вызванная из главного скрипта, объявляет классы по формам своего
+ * файла и сообщает об ошибках его строками.
  */
 public final class UserFunction implements FunctionValue {
 
     private final FunctionExpr declaration;
     private final Environment closure;
+    private final Unit unit;
     /** Интерпретатор безсостоятельный, поэтому делить один экземпляр безопасно. */
     private final Interpreter interpreter;
     private final Arity arity;
 
-    UserFunction(FunctionExpr declaration, Environment closure, Interpreter interpreter) {
+    UserFunction(FunctionExpr declaration, Environment closure, Unit unit, Interpreter interpreter) {
         this.declaration = Objects.requireNonNull(declaration, "declaration");
         this.closure = Objects.requireNonNull(closure, "closure");
+        this.unit = Objects.requireNonNull(unit, "unit");
         this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
         this.arity = arityOf(declaration);
     }
@@ -83,7 +91,7 @@ public final class UserFunction implements FunctionValue {
         Environment local = closure.child();
         // Контекст создаётся до связывания: в нём же вычисляются значения по умолчанию,
         // и оттого они видят параметры, связанные левее, — область у них одна и та же.
-        ExecutionContext inner = ExecutionContext.call(local, context);
+        ExecutionContext inner = ExecutionContext.call(local, context, unit);
         List<FunctionExpr.Param> params = declaration.params();
         for (int i = 0; i < params.size(); i++) {
             // Параметры — всегда локальные: одноимённая внешняя переменная остаётся
@@ -100,6 +108,10 @@ public final class UserFunction implements FunctionValue {
             interpreter.visit(declaration.body(), inner);
         } catch (ControlSignal.Return signal) {
             return signal.value();
+        } catch (WdlRuntimeError error) {
+            // Место в исходнике у ошибки уже есть, а вот какому файлу оно принадлежит,
+            // знает только тело функции — здесь и последняя возможность это сказать.
+            throw error.inSource(unit.source());
         } catch (ControlSignal.Break | ControlSignal.Continue signal) {
             // Парсер обнуляет счётчик циклов на границе функции, поэтому сюда можно
             // попасть только с деревом, собранным в обход разбора.

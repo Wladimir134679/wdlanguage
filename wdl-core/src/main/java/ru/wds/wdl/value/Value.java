@@ -23,10 +23,15 @@ import ru.wds.wdl.value.types.*;
  * это единственные ветки, у которых реализация лежит в {@code runtime}, потому что
  * тянет за собой дерево и область видимости. Список типов от этого не открывается —
  * {@link ValueType} по-прежнему закрытый.
+ * <p>
+ * {@link ModuleValue} стоит отдельно от {@link MapValue}, хотя устроен похоже:
+ * набор имён модуля задан его файлом, и обращаться с ним как со словарём — дописывать
+ * ключи, спрашивать несуществующее и получать {@code null} — значит терять ошибки,
+ * которые язык умеет назвать сразу.
  */
 public sealed interface Value
         permits NullValue, BoolValue, NumberValue, StringValue, ArrayValue, MapValue,
-                FunctionValue, ClassValue, TraitValue {
+                ModuleValue, FunctionValue, ClassValue, TraitValue {
 
     ValueType type();
 

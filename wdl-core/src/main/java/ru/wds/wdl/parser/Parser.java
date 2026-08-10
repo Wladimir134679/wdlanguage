@@ -141,6 +141,7 @@ public final class Parser {
             case FUN -> peek(1).type() == TokenType.WORD ? funDeclaration() : simpleStatement();
             case CLASS -> classDeclaration();
             case TRAIT -> traitDeclaration();
+            case IMPORT -> importStatement();
             default -> simpleStatement();
         };
     }
@@ -278,6 +279,71 @@ public final class Parser {
                 keyword.span().to(value.span()));
     }
 
+    // --- импорт --------------------------------------------------------------
+
+    /**
+     * Импорт модуля: {@code import lib.math} или {@code import lib.math as m}.
+     * <p>
+     * Путь пишется двумя способами, и второй нужен потому, что первый не всё выражает.
+     * Через имена — {@code import lib.math} — читается как обращение и не требует
+     * кавычек; точка здесь означает вложенность каталога, а не поле, потому что
+     * никакого значения тут ещё нет. Через строку — {@code import "lib/math.wdl"} —
+     * годится для любого имени файла, включая те, что именами в языке быть не могут.
+     * <p>
+     * Ключевое слово после точки не принимается, в отличие от обращения {@code a.class}:
+     * там слева уже есть значение и путаницы нет, а здесь {@code import lib.class}
+     * читалось бы как начало объявления. Совет в такой ошибке один — записать строкой.
+     */
+    private Stmt importStatement() {
+        Token keyword = advance(); // import
+        Token first = peek();
+        String path;
+        Span pathSpan;
+        if (first.type() == TokenType.STRING) {
+            advance();
+            path = first.text();
+            pathSpan = first.span();
+        } else if (first.type() == TokenType.WORD) {
+            advance();
+            StringBuilder segments = new StringBuilder(first.text());
+            Span last = first.span();
+            while (check(TokenType.DOT)) {
+                advance();
+                if (!check(TokenType.WORD)) {
+                    diagnostics.error(peek().span(), "после точки в пути модуля ожидалось имя,"
+                            + " найдено " + describe(peek()) + ". Путь с такими символами"
+                            + " записывается строкой: import \"lib/имя-модуля\"");
+                    synchronize();
+                    return new ErrorStmt(keyword.span().to(last));
+                }
+                Token segment = advance();
+                last = segment.span();
+                segments.append('/').append(segment.text());
+            }
+            path = segments.toString();
+            pathSpan = first.span().to(last);
+        } else {
+            diagnostics.error(first.span(), "после 'import' ожидался путь модуля, найдено "
+                    + describe(first) + ". Путь пишется именами через точку (import lib.math)"
+                    + " или строкой (import \"lib/math\")");
+            synchronize();
+            return new ErrorStmt(keyword.span());
+        }
+
+        if (!match(TokenType.AS)) {
+            return new ImportStmt(path, pathSpan, null, Span.NONE, keyword.span().to(pathSpan));
+        }
+        if (!check(TokenType.WORD)) {
+            diagnostics.error(peek().span(), "после 'as' ожидалось имя, под которым модуль"
+                    + " ляжет в переменную, найдено " + describe(peek()));
+            synchronize();
+            return new ErrorStmt(keyword.span().to(pathSpan));
+        }
+        Token alias = advance();
+        return new ImportStmt(path, pathSpan, alias.text(), alias.span(),
+                keyword.span().to(alias.span()));
+    }
+
     // --- функции -------------------------------------------------------------
 
     /** Объявление: {@code fun имя(a, b) тело}. Имя проверено в {@link #statement()}. */
@@ -405,24 +471,66 @@ public final class Parser {
         return null;
     }
 
-    /** Родитель и аргументы его заголовка: {@code : Shape("круг")}. Скобки необязательны. */
-    private ClassDeclStmt.Superclass superclass() {
-        Token colon = advance(); // :
+    /**
+     * Имя типа в заголовке класса: {@code Shape} или {@code m.Shape}, где {@code m} —
+     * имя именованного импорта.
+     * <p>
+     * Больше одной точки не принимается, и это не экономия: слева от точки здесь
+     * стоит имя импорта, известное до выполнения, а не значение, из которого можно
+     * доставать содержимое дальше. Модуль модуля не бывает — импорт разворачивает
+     * файл целиком.
+     *
+     * @return {@code null}, если имени нет; об ошибке уже сказано
+     */
+    private TypeName typeName(String what) {
         if (!check(TokenType.WORD)) {
-            diagnostics.error(peek().span(),
-                    "после ':' ожидалось имя класса-родителя, найдено " + describe(peek()));
+            diagnostics.error(peek().span(), "ожидалось имя " + what + ", найдено " + describe(peek()));
+            return null;
+        }
+        Token first = advance();
+        if (!check(TokenType.DOT)) {
+            return new TypeName(null, first.text(), first.span());
+        }
+        advance(); // .
+        if (!check(TokenType.WORD)) {
+            diagnostics.error(peek().span(), "после '" + first.text() + ".' ожидалось имя "
+                    + what + ", найдено " + describe(peek()));
             return null;
         }
         Token name = advance();
+        if (check(TokenType.DOT)) {
+            diagnostics.error(peek().span(), "слева от точки здесь стоит имя импорта, "
+                    + "а не значение: '" + first.text() + "." + name.text() + "' — уже полное имя");
+            return null;
+        }
+        return new TypeName(first.text(), name.text(), first.span().to(name.span()));
+    }
+
+    /** Имя типа так, как оно написано в заголовке. */
+    private record TypeName(String alias, String name, Span span) {
+
+        String title() {
+            return alias == null ? name : alias + "." + name;
+        }
+    }
+
+    /** Родитель и аргументы его заголовка: {@code : Shape("круг")}. Скобки необязательны. */
+    private ClassDeclStmt.Superclass superclass() {
+        Token colon = advance(); // :
+        TypeName parent = typeName("класса-родителя");
+        if (parent == null) {
+            return null;
+        }
         List<Expr> arguments = new ArrayList<>();
-        Span end = name.span();
+        Span end = parent.span();
         if (check(TokenType.LPAREN)) {
             end = argumentList(arguments).span();
         }
-        return new ClassDeclStmt.Superclass(name.text(), arguments, colon.span().to(end));
+        return new ClassDeclStmt.Superclass(parent.alias(), parent.name(), arguments,
+                colon.span().to(end));
     }
 
-    /** Подмешанные трейты: {@code with Printable, Counted}. Их может быть сколько угодно. */
+    /** Подмешанные трейты: {@code with Printable, m.Counted}. Их может быть сколько угодно. */
     private List<ClassDeclStmt.TraitRef> traitList() {
         if (!check(TokenType.WITH)) {
             return List.of();
@@ -430,18 +538,16 @@ public final class Parser {
         advance(); // with
         List<ClassDeclStmt.TraitRef> traits = new ArrayList<>();
         do {
-            if (!check(TokenType.WORD)) {
-                diagnostics.error(peek().span(),
-                        "после 'with' ожидалось имя трейта, найдено " + describe(peek()));
+            TypeName trait = typeName("трейта");
+            if (trait == null) {
                 break;
             }
-            Token name = advance();
             for (ClassDeclStmt.TraitRef existing : traits) {
-                if (existing.name().equals(name.text())) {
-                    diagnostics.error(name.span(), "трейт '" + name.text() + "' подмешан дважды");
+                if (existing.title().equals(trait.title())) {
+                    diagnostics.error(trait.span(), "трейт '" + trait.title() + "' подмешан дважды");
                 }
             }
-            traits.add(new ClassDeclStmt.TraitRef(name.text(), name.span()));
+            traits.add(new ClassDeclStmt.TraitRef(trait.alias(), trait.name(), trait.span()));
         } while (match(TokenType.COMMA));
         return traits;
     }
@@ -1046,7 +1152,7 @@ public final class Parser {
     private static boolean isStatementBoundary(TokenType type) {
         return switch (type) {
             case RBRACE, IF, ELSE, WHILE, FOR, BREAK, CONTINUE, CONST, FUN, CLASS, TRAIT,
-                 RETURN -> true;
+                 IMPORT, RETURN -> true;
             default -> false;
         };
     }

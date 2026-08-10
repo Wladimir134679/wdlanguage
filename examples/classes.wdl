@@ -1,4 +1,7 @@
 // Классы: заголовок — поля, тело — методы. Описание — в docs/classes.md.
+//
+// Наследование лежит в examples/inheritance.wdl, трейты — в examples/traits.wdl,
+// классы из других файлов — в examples/modules/inherit.wdl.
 
 // --- класс без тела: структура данных с именем -------------------------------
 
@@ -13,6 +16,11 @@ field = "price"
 println(item[field], " ", item["name"])
 for (name in item) println("  ", name, " = ", item[name])
 
+// Поля обычные: их можно менять и добавлять снаружи
+item.count += 5
+item.color = "оцинкованный"
+println(item.count, " ", item.color)
+
 // --- методы: поле видно по имени, без this ------------------------------------
 
 class Point(x = 0, y = 0) {
@@ -22,18 +30,29 @@ class Point(x = 0, y = 0) {
         y += dy
     }
 
+    fun length() => sqrt(x * x + y * y)
+
     fun text() => "(" + x + ", " + y + ")"
 }
 
 p = new Point(20, 30)
 p.move(10, -5)
-println(p.text())                   // (30, 25)
+println(p.text(), " длина ", p.length())    // (30, 25) длина 39.05124837953327
 
 // Метод — обычное значение и помнит свой объект
 handler = p.text
 println(handler())                  // (30, 25)
 
-// this нужен там, где имя перекрыто параметром
+// Метод зовёт метод по голому имени — это тот же объект
+class Rect(w, h) {
+    fun area() => w * h
+    fun report() => "площадь " + area() + ", периметр " + perimeter()
+    fun perimeter() => 2 * (w + h)
+}
+println(new Rect(3, 4).report())    // площадь 12, периметр 14
+
+// --- this нужен там, где имя перекрыто параметром -----------------------------
+
 class User(name, hash, age = null) {
 
     fun rename(name) {              // параметр перекрыл поле...
@@ -76,84 +95,14 @@ println(u1.age, " ", u2.age)        // null 33
 class Account(login, hash) {
 
     fun Account.of(login, password) => new Account(login, password + ":хеш")
+    fun Account.guest() => new Account("guest", "")
 
     fun text() => login + " (" + hash + ")"
 }
 
 a = Account.of("wdeath", "секрет")  // видно, каким способом создан объект
 println(a.text())                   // wdeath (секрет:хеш)
-
-// --- наследование ------------------------------------------------------------
-
-class Shape(name) {
-    fun area() => 0
-    fun text() => name + " площадью " + area()      // area() ≡ this.area()
-}
-
-class Circle(radius) : Shape("круг") {
-    fun area() => 3.14159 * radius * radius
-    fun text() => super.text() + " (радиус " + radius + ")"
-}
-
-class Square(side) : Shape("квадрат") {
-    fun area() => side * side
-}
-
-figures = [new Circle(5), new Square(4)]
-for (figure in figures) println(figure.text())
-
-println(figures[0].name)            // круг — поле досталось от родителя
-
-// --- трейты: заголовок — поля, тело — методы, и то и другое бывает требованием
-
-trait Printable {
-    fun text()                              // требование к классу
-    fun print() => println("* ", text())    // готовая реализация
-}
-
-// count = 0 — поле с готовым значением, класс о нём не заботится
-// limit    — требование: класс обязан объявить это поле сам
-trait Counted(count = 0, limit) {
-    fun inc() { count += 1 }
-    fun full() => count >= limit
-}
-
-class Basket(items, limit = 10) with Printable, Counted {
-
-    fun add(item) {
-        items += [item]
-        inc()                       // метод трейта работает с полем трейта
-    }
-
-    fun text() => len(items) + " шт. из " + limit
-}
-
-b = new Basket([])
-b.add("болт")
-b.add("гайка")
-b.print()                           // * 2 шт. из 10
-println(b)                          // Basket{"count": 2, "items": [...], "limit": 10}
-println(b.full(), " ", b is Counted, " ", b is Printable)
-
-// --- одинаковые имена: побеждает последний в ':' и 'with' ---------------------
-
-trait Loud  { fun voice() => "ГРОМКО" }
-trait Quiet { fun voice() => "тихо" }
-
-class A(x) with Loud, Quiet
-class B(x) with Quiet, Loud
-class C(x) with Loud, Quiet { fun voice() => "по-своему" }
-
-println(new A(1).voice(), " ", new B(1).voice(), " ", new C(1).voice())
-// тихо ГРОМКО по-своему
-
-// --- проверка класса ---------------------------------------------------------
-
-c = new Circle(5)
-println(c is Circle, " ", c is Shape, " ", c is Point)      // true true false
-println(b is Basket, " ", b is Printable, " ", b is Counted)    // true true true
-println(42 is Shape)                // false, а не ошибка
-println(typeof(b), " ", typeof(Basket), " ", typeof(Counted))   // object class trait
+println(Account.guest().text())     // guest ()
 
 // --- класс — обычное значение ------------------------------------------------
 
@@ -166,9 +115,28 @@ println(new kinds[0](1, 2).text())  // new берёт обращение и од
 fun build(cls, a, b) => new cls(a, b)
 println(build(Point, 3, 4).text())
 
-// --- что не разберётся -------------------------------------------------------
+println(typeof(Point), " ", typeof(new Point()), " ", new Point(1, 1) is Point)
+// class object true
+
+// --- класс, объявленный внутри функции ---------------------------------------
+
+// Он замыкает свой вызов: у двух вызовов разные значения класса, но для 'is'
+// это один и тот же класс — объявлен-то он в одном и том же месте текста.
+fun priced(rate) {
+    class Priced(amount) {
+        fun total() => amount * rate
+    }
+    return Priced;
+}
+
+ten = priced(10)
+twenty = priced(20)
+println(new ten(2).total(), " ", new twenty(2).total())     // 20 40
+println(new ten(1) is twenty)                               // true
+
+// --- что не разберётся или упадёт --------------------------------------------
 
 // class Broken(x) { x = 1 }        // в теле класса — только объявления функций
-// class Bag(items) with Counted    // не выполнено требование: нет поля 'limit'
-// new Printable()                  // трейт, экземпляр создаёт класс
 // this.x = 1                       // 'this' вне класса
+// new Point(1, 2, 3)               // класс 'Point' принимает от 0 до 2 аргументов
+// Point.zero.text                  // это значение метода, вызов — со скобками

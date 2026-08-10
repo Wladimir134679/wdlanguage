@@ -1,6 +1,7 @@
 package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.module.Unit;
 
 /**
  * Метод в плоской таблице класса: объявление плюс то, что нужно его вызвать.
@@ -12,11 +13,14 @@ import ru.wds.wdl.ast.expr.FunctionExpr;
  * @param closure   область, где объявлен <b>класс с этим методом</b>. У метода,
  *                  доставшегося от родителя, это область родителя, а не потомка:
  *                  метод видит глобальные имена того места, где он написан
+ * @param unit      файл, где метод написан, — по той же причине, что и область:
+ *                  метод, унаследованный от класса из другого файла, выполняется
+ *                  с формами и исходником своего файла
  * @param superFrom класс, чей родитель служит стартом для {@code super} внутри метода.
  *                  {@code Shape.text()}, унаследованный кругом, обязан звать родителя
  *                  Shape, а не родителя круга. У метода из трейта — {@code null}:
  *                  трейт не знает, в какой класс его подмешают, и {@code super} там
  *                  запрещён разбором
  */
-record Method(FunctionExpr declaration, Environment closure, WdlClass superFrom) {
+record Method(FunctionExpr declaration, Environment closure, Unit unit, WdlClass superFrom) {
 }

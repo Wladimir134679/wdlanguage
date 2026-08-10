@@ -61,6 +61,13 @@ final class InstanceScope implements Environment {
         return bound != null ? bound : method.closure().lookup(name);
     }
 
+    /** Своё у экземпляра — поля: методы принадлежат классу, а не объекту. */
+    @Override
+    public Value lookupHere(String name) {
+        Objects.requireNonNull(name, "name");
+        return instance.has(name) ? instance.get(name) : null;
+    }
+
     @Override
     public boolean isDefined(String name) {
         return lookup(name) != null;

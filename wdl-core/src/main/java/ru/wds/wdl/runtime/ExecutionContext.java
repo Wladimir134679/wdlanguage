@@ -1,5 +1,9 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.module.ModuleSource;
+import ru.wds.wdl.module.ModuleUnits;
+import ru.wds.wdl.module.Unit;
+import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.value.CallContext;
 
@@ -42,13 +46,29 @@ public final class ExecutionContext implements CallContext {
     private final Environment scope;
     private final Output output;
     private final int callDepth;
-    private final Resolution resolution;
+    private final Unit unit;
+    /**
+     * Реестр модулей — изменяемое, что несёт контекст, и это не оговорка:
+     * «модуль выполняется один раз за запуск» — свойство запуска, а не области видимости,
+     * поэтому вложенный контекст обязан делить реестр с внешним, а не заводить свой.
+     */
+    private final Modules modules;
+    /**
+     * Собранные формы классов — по той же причине общие на весь запуск. Объявление
+     * класса внутри функции выполняется на каждый вызов, и если бы вложенный контекст
+     * заводил свой {@link Linker}, каждый вызов давал бы новую форму, а {@code is}
+     * переставал бы узнавать свои же экземпляры.
+     */
+    private final Linker linker;
 
-    private ExecutionContext(Environment scope, Output output, int callDepth, Resolution resolution) {
+    private ExecutionContext(Environment scope, Output output, int callDepth, Unit unit,
+                             Modules modules, Linker linker) {
         this.scope = Objects.requireNonNull(scope, "scope");
         this.output = Objects.requireNonNull(output, "output");
         this.callDepth = callDepth;
-        this.resolution = Objects.requireNonNull(resolution, "resolution");
+        this.unit = Objects.requireNonNull(unit, "unit");
+        this.modules = Objects.requireNonNull(modules, "modules");
+        this.linker = Objects.requireNonNull(linker, "linker");
     }
 
     /**
@@ -64,16 +84,42 @@ public final class ExecutionContext implements CallContext {
 
     /** Контекст с чистым окружением, встроенными функциями и заданным выводом. */
     public static ExecutionContext fresh(Output output) {
-        return new ExecutionContext(Builtins.installTo(Scope.root()), output, 0, Resolution.none());
+        return of(Builtins.installTo(Scope.root()), output);
     }
 
     /** Контекст поверх готового окружения — встроенные функции туда кладёт вызывающий. */
     public static ExecutionContext of(Environment scope) {
-        return new ExecutionContext(scope, Output.discarding(), 0, Resolution.none());
+        return of(scope, Output.discarding());
     }
 
     public static ExecutionContext of(Environment scope, Output output) {
-        return new ExecutionContext(scope, output, 0, Resolution.none());
+        return new ExecutionContext(scope, output, 0, Unit.none(),
+                new Modules(new ModuleUnits(ModuleSource.none()), scope), new Linker());
+    }
+
+    /**
+     * Тот же контекст, но с доступом к модулям: {@code import} начинает работать,
+     * а разобранные модули будут браться отсюда.
+     * <p>
+     * Реестр один на запуск — иначе один и тот же файл разобрался бы дважды, и класс,
+     * полученный из первого разбора, не был бы тем же классом, что из второго.
+     * <p>
+     * Текущая область видимости запоминается как корневая для всех модулей — они
+     * увидят встроенные функции и библиотеки, положенные до этого вызова, и не увидят
+     * локальных имён того, кто их импортирует.
+     */
+    public ExecutionContext withModules(ModuleUnits units) {
+        return new ExecutionContext(scope, output, callDepth, unit, new Modules(units, scope), linker);
+    }
+
+    /**
+     * То же самое, когда приложение задаёт только источник исходников.
+     * <p>
+     * По умолчанию источника нет вовсе и {@code import} отвечает ошибкой: встроенный
+     * в приложение движок не должен читать чужие файлы, пока его об этом не попросили.
+     */
+    public ExecutionContext withModules(ModuleSource source) {
+        return withModules(new ModuleUnits(source));
     }
 
     /**
@@ -83,31 +129,62 @@ public final class ExecutionContext implements CallContext {
      * Вывод берётся у вызывающего, а не у места объявления функции: куда печатает
      * {@code println}, решает тот, кто запустил скрипт, и функция, переданная в другой
      * движок, обязана печатать туда, где её вызвали.
+     * <p>
+     * Юнит, наоборот, берётся у самой функции, а не у вызывающего: тело выполняется
+     * в том файле, где оно написано, — со своими формами классов и своим исходником
+     * для сообщений об ошибках.
      */
-    static ExecutionContext call(Environment scope, CallContext caller) {
-        // Формы классов достаются от вызывающего, если он их знает: функция, вызванная
-        // из скрипта с классами, обязана уметь объявить класс в своём теле.
-        Resolution known = caller instanceof ExecutionContext context ? context.resolution : Resolution.none();
-        return new ExecutionContext(scope, caller::write, caller.callDepth() + 1, known);
+    static ExecutionContext call(Environment scope, CallContext caller, Unit unit) {
+        // Реестр модулей и собранные формы принадлежат запуску, а не файлу: функция,
+        // вызванная из чужого движка, к его модулям отношения не имеет — там начинается
+        // свой запуск.
+        boolean inRun = caller instanceof ExecutionContext;
+        Modules known = inRun
+                ? ((ExecutionContext) caller).modules
+                : new Modules(new ModuleUnits(ModuleSource.none()), scope);
+        Linker shapes = inRun ? ((ExecutionContext) caller).linker : new Linker();
+        return new ExecutionContext(scope, caller::write, caller.callDepth() + 1, unit, known, shapes);
     }
 
     public Environment scope() {
         return scope;
     }
 
-    /**
-     * Формы классов и трейтов, собранные резолвером до выполнения.
-     * <p>
-     * Здесь, а не в интерпретаторе, потому что интерпретатор безсостоятельный
-     * и разделяется между запусками, а формы принадлежат конкретной программе.
-     */
-    public Resolution resolution() {
-        return resolution;
+    /** Модули этого запуска: где их искать и какие уже выполнены. */
+    Modules modules() {
+        return modules;
     }
 
-    /** Тот же контекст, но знающий формы разобранной программы. */
+    /** Формы классов этого запуска: кто с кем связан и что уже собрано. */
+    Linker linker() {
+        return linker;
+    }
+
+    /** Файл, который сейчас выполняется: исходник, формы его классов и его каталог. */
+    public Unit unit() {
+        return unit;
+    }
+
+    /**
+     * План объявлений выполняемого файла: что резолвер разрешил объявить до первой
+     * инструкции.
+     * <p>
+     * Здесь, а не в интерпретаторе, потому что интерпретатор безсостоятельный
+     * и разделяется между запусками, а план принадлежит конкретному файлу.
+     */
+    public Resolution resolution() {
+        return unit.resolution();
+    }
+
+    /** Тот же контекст, но выполняющий другой файл. */
+    public ExecutionContext withUnit(Unit newUnit) {
+        return new ExecutionContext(scope, output, callDepth, newUnit, modules, linker);
+    }
+
+    /** Тот же контекст, но знающий план объявлений разобранной программы. */
     public ExecutionContext withResolution(Resolution newResolution) {
-        return new ExecutionContext(scope, output, callDepth, newResolution);
+        return new ExecutionContext(scope, output, callDepth, unit.withResolution(newResolution),
+                modules, linker);
     }
 
     public Output output() {
@@ -126,7 +203,7 @@ public final class ExecutionContext implements CallContext {
 
     /** Тот же контекст, но с другим окружением: вход в блок, функцию, итерацию. */
     public ExecutionContext withScope(Environment newScope) {
-        return new ExecutionContext(newScope, output, callDepth, resolution);
+        return new ExecutionContext(newScope, output, callDepth, unit, modules, linker);
     }
 
     /** Контекст вложенной области видимости. */

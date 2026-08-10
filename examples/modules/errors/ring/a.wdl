@@ -1,0 +1,3 @@
+import b
+
+markA = "a"

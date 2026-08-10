@@ -12,6 +12,9 @@ import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.parser.Parser;
 import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.resolve.Resolver;
+import ru.wds.wdl.module.ModuleSource;
+import ru.wds.wdl.module.ModuleUnits;
+import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.runtime.ExecutionContext;
 import ru.wds.wdl.runtime.Interpreter;
 import ru.wds.wdl.runtime.Output;
@@ -51,7 +54,8 @@ import java.util.concurrent.Callable;
         footer = "%nСкрипт — это присваивания, константы (const LIMIT = 10)%n"
                 + "и вызовы (println, print, typeof, len), ветвления и циклы,%n"
                 + "свои функции: fun имя(a, b) => a + b, классы и трейты.%n"
-                + "Модули появятся на следующих шагах."
+                + "Модули подключаются через import lib.math или import lib.math as m;%n"
+                + "путь считается от каталога файла, где написан import."
 )
 public final class Main implements Callable<Integer> {
 
@@ -153,8 +157,15 @@ public final class Main implements Callable<Integer> {
             return 0;
         }
 
-        // Резолвер связывает классы и трейты и ловит то, что видно до выполнения:
-        // невыполненное требование трейта, круг в наследовании, аргументы родителю.
+        // Модули ищутся рядом со скриптом: 'wdl examples/modules/plain.wdl' находит
+        // examples/modules/lib/*.wdl, откуда бы ни запустили сам процесс. Читаются они
+        // только тогда, когда выполнится их 'import': файла может ещё и не быть.
+        ModuleUnits modules = new ModuleUnits(ModuleSource.ofDirectory(home(path)));
+
+        // Резолвер расставляет объявления типов верхнего уровня так, чтобы родитель
+        // выполнялся раньше потомка, и ловит круг в наследовании. Всё остальное —
+        // требования трейтов, аргументы родителю, неизвестные имена — называет
+        // выполнение, в тот момент, когда объявление класса до него доходит.
         Resolution resolution = Resolver.resolve(program, diagnostics);
         showDiagnostics(diagnostics);
         if (diagnostics.hasErrors()) {
@@ -165,13 +176,23 @@ public final class Main implements Callable<Integer> {
         try {
             // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
             // а не ядра: встроенный движок по умолчанию не печатает никуда.
-            new Interpreter().run(program, resolution, standardContext());
+            ExecutionContext context = standardContext().withModules(modules);
+            new Interpreter().run(Unit.of(source, program, resolution), context);
             return 0;
         } catch (WdlRuntimeError e) {
-            // Ошибка выполнения показывается так же, как ошибка разбора: с местом в скрипте.
-            System.err.println(diagnostics.render(e.toDiagnostic()));
+            // Ошибка выполнения показывается так же, как ошибка разбора: с местом
+            // в скрипте — и в том файле, которому это место принадлежит. С импортом
+            // файлов много, и смещение в каждом из них указывает на своё.
+            Source failed = e.source() != null ? e.source() : source;
+            System.err.println(new Diagnostics(failed).render(e.toDiagnostic()));
             return EXIT_SCRIPT_ERROR;
         }
+    }
+
+    /** Каталог скрипта — корень для его импортов. */
+    private static Path home(Path script) {
+        Path parent = script.toAbsolutePath().getParent();
+        return parent != null ? parent : Path.of("");
     }
 
     /**
@@ -180,7 +201,11 @@ public final class Main implements Callable<Integer> {
     private static int repl() {
         System.out.println("wdl " + version() + " — интерактивный режим. Выход: :q или Ctrl+D.");
         Interpreter interpreter = new Interpreter();
-        ExecutionContext context = standardContext();
+        // У строки, набранной в REPL, файла нет, поэтому и каталога у неё нет:
+        // импорты считаются от рабочей директории процесса. Реестр один на сеанс —
+        // модуль, импортированный одной строкой, остаётся тем же самым для следующих.
+        ModuleUnits modules = new ModuleUnits(ModuleSource.ofDirectory(Path.of("")));
+        ExecutionContext context = standardContext().withModules(modules);
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, outputCharset()));
         while (true) {
@@ -200,14 +225,15 @@ public final class Main implements Callable<Integer> {
             if (line.isBlank()) {
                 continue;
             }
-            evaluateLine(line, interpreter, context);
+            evaluateLine(line, interpreter, context, modules);
         }
     }
 
     /**
      * Выполняет строку REPL.
      */
-    private static void evaluateLine(String line, Interpreter interpreter, ExecutionContext context) {
+    private static void evaluateLine(String line, Interpreter interpreter, ExecutionContext context,
+                                     ModuleUnits modules) {
         Source source = Source.ofString(line);
         List<Token> tokens = Lexer.tokenize(source, new Diagnostics(source));
 

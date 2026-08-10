@@ -67,6 +67,11 @@ public final class Scope implements Environment {
     }
 
     @Override
+    public Value lookupHere(String name) {
+        return values.get(Objects.requireNonNull(name, "name"));
+    }
+
+    @Override
     public boolean isDefined(String name) {
         return lookup(name) != null;
     }

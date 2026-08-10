@@ -5,7 +5,11 @@ import ru.wds.wdl.ast.expr.*;
 import ru.wds.wdl.ast.op.*;
 import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.ast.visitor.*;
+import ru.wds.wdl.module.ModuleKey;
+import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.ClassShape;
+import ru.wds.wdl.resolve.LinkError;
+import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.source.Span;
@@ -15,6 +19,7 @@ import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.types.InstanceObjectValue;
+import ru.wds.wdl.value.types.ModuleValue;
 import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.types.StringValue;
@@ -48,7 +53,7 @@ public final class Interpreter
      * видимости запуска — см. {@link #hoistDeclarations}.
      */
     public void run(Program program, ExecutionContext context) {
-        run(program, context.resolution(), context);
+        execute(program, context);
     }
 
     /**
@@ -60,7 +65,30 @@ public final class Interpreter
      * попытается угадать.
      */
     public void run(Program program, Resolution resolution, ExecutionContext context) {
-        ExecutionContext running = context.withResolution(resolution);
+        execute(program, context.withResolution(resolution));
+    }
+
+    /**
+     * Выполняет файл: дерево, формы его классов и его исходник приходят одним
+     * {@link Unit юнитом}.
+     * <p>
+     * Исходник нужен затем, чтобы ошибка выполнения знала, какому файлу принадлежит
+     * её место: с импортом файлов много, а смещение в каждом из них указывает на своё.
+     * <p>
+     * <b>Файл выполняется в своей области</b> поверх переданной, и главный скрипт тут
+     * ничем не отличается от модуля. Иначе его переменные оказались бы в той же области,
+     * что служит модулям корнем, и модуль видел бы имена того, кто его импортирует, —
+     * а значит, работал бы по-разному в зависимости от места импорта.
+     */
+    public void run(Unit unit, ExecutionContext context) {
+        try {
+            execute(unit.program(), context.nested().withUnit(unit));
+        } catch (WdlRuntimeError error) {
+            throw error.inSource(unit.source());
+        }
+    }
+
+    private void execute(Program program, ExecutionContext running) {
         try {
             hoistDeclarations(program, running);
             for (Stmt statement : program.statements()) {
@@ -78,7 +106,8 @@ public final class Interpreter
     }
 
     /**
-     * Помечает объявления функций <b>верхнего уровня</b> до начала выполнения.
+     * Помечает объявления <b>верхнего уровня</b> до начала выполнения: функции, а следом
+     * трейты и классы — в порядке, который составил резолвер.
      * <p>
      * Отсюда три вещи, которых иначе бы не было: функцию можно вызвать выше её объявления
      * по тексту, две функции могут вызывать друг друга, а скрипт можно писать сверху вниз —
@@ -106,18 +135,12 @@ public final class Interpreter
                 visitFunDecl(declaration, context);
             }
         }
-        // Трейты первыми: они ни от чего не зависят. Классы вторыми, и каждый по пути
-        // заводит своего родителя, если до него ещё не дошла очередь, — отсюда
-        // и свобода порядка объявлений.
-        for (Stmt statement : program.statements()) {
-            if (statement instanceof TraitDeclStmt declaration) {
-                visitTraitDecl(declaration, context);
-            }
-        }
-        for (Stmt statement : program.statements()) {
-            if (statement instanceof ClassDeclStmt declaration) {
-                visitClassDecl(declaration, context);
-            }
+        // Трейты и классы — списком от резолвера, где родитель стоит раньше потомка.
+        // Класса, которому нужен родитель или трейт из другого файла, в этом списке нет:
+        // его связывать нечем, пока не выполнится 'import', и появляется он на своей
+        // строке — как класс внутри блока.
+        for (Stmt statement : context.resolution().hoisted()) {
+            visit(statement, context);
         }
     }
 
@@ -383,66 +406,163 @@ public final class Interpreter
     /**
      * Объявление класса: имя заводится в текущей области, как и у функции.
      * <p>
-     * Значение собирается из формы, которую резолвер приготовил до выполнения, и
-     * текущей области видимости — она станет замыканием методов. Поэтому класс,
-     * объявленный внутри функции, на каждом вызове даёт новое значение, но для
-     * {@code is} остаётся тем же классом: форма-то одна.
+     * Здесь же класс и <b>связывается</b>: родитель с трейтами ищутся среди значений,
+     * видимых в этой точке, и {@link Linker} собирает по ним форму — плоские таблицы
+     * плюс проверки требований трейтов и числа аргументов родителю. Раньше форма
+     * приходила готовой от резолвера, и ради этого приходилось разбирать модули
+     * до запуска; теперь всё, что нужно, уже стоит в области видимости, а модуля
+     * могло не быть на диске ещё секунду назад.
+     * <p>
+     * Значение собирается из формы и текущей области — она станет замыканием методов.
+     * Поэтому класс, объявленный внутри функции, на каждом вызове даёт новое значение,
+     * но для {@code is} остаётся тем же классом: форма-то одна, её держит кэш линкера.
      */
     @Override
     public Void visitClassDecl(ClassDeclStmt stmt, ExecutionContext context) {
-        ClassShape shape = context.resolution().classShape(stmt);
-        if (shape == null) {
-            throw notResolved(stmt.span(), "класс '" + stmt.name() + "'");
-        }
-        classOf(shape, context);
+        classOf(stmt, context);
         return null;
     }
 
     @Override
     public Void visitTraitDecl(TraitDeclStmt stmt, ExecutionContext context) {
-        TraitShape shape = context.resolution().traitShape(stmt);
-        if (shape == null) {
-            throw notResolved(stmt.span(), "трейт '" + stmt.name() + "'");
-        }
-        traitOf(shape, context);
+        traitOf(stmt, context);
         return null;
     }
 
     /**
      * Значение класса — то, что уже лежит под этим именем, или новое.
      * <p>
-     * Повторно объявлять нельзя не из экономии: помеченный до выполнения класс
-     * и класс, созданный заново на своей же инструкции, — два разных значения,
-     * и потомок держал бы ссылку на первое, а имя указывало бы на второе.
-     * Тогда {@code c is Shape} давало бы ложь при совершенно правильном скрипте.
+     * Повторное объявление не создаёт второе значение не из экономии: помеченный
+     * до выполнения класс и класс, созданный заново на своей же инструкции, были бы
+     * двумя разными значениями, и потомок держал бы ссылку на первое, а имя указывало
+     * бы на второе. Тогда {@code c is Shape} давало бы ложь при совершенно правильном
+     * скрипте. Сравнение идёт по форме: она одна ровно тогда, когда класс связан
+     * тем же родителем и теми же трейтами.
      */
-    private WdlClass classOf(ClassShape shape, ExecutionContext context) {
-        if (context.scope().lookup(shape.name()) instanceof WdlClass existing
+    private WdlClass classOf(ClassDeclStmt stmt, ExecutionContext context) {
+        WdlClass parent = parentOf(stmt, context);
+        List<WdlTrait> traits = mixinsOf(stmt, context);
+        ClassShape shape = shapeOf(stmt, parent, traits, context);
+
+        if (context.scope().lookup(stmt.name()) instanceof WdlClass existing
                 && existing.shape() == shape) {
             return existing;
         }
-        WdlClass parent = shape.parent() == null ? null : classOf(shape.parent(), context);
-        List<WdlTrait> traits = new ArrayList<>(shape.traits().size());
-        for (TraitShape trait : shape.traits()) {
-            traits.add(traitOf(trait, context));
-        }
-
-        WdlClass declared = new WdlClass(shape, context.scope(), parent, traits, this);
+        WdlClass declared = new WdlClass(shape, context.scope(), context.unit(), parent, traits, this);
         installFactories(declared, context);
-        checkNotConstant(shape.name(), shape.declaration().nameSpan(), context);
-        context.scope().define(shape.name(), declared);
+        checkNotConstant(stmt.name(), stmt.nameSpan(), context);
+        context.scope().define(stmt.name(), declared);
         return declared;
     }
 
-    private WdlTrait traitOf(TraitShape shape, ExecutionContext context) {
-        if (context.scope().lookup(shape.name()) instanceof WdlTrait existing
+    private WdlTrait traitOf(TraitDeclStmt stmt, ExecutionContext context) {
+        TraitShape shape = context.linker().traitShape(stmt);
+        if (context.scope().lookup(stmt.name()) instanceof WdlTrait existing
                 && existing.shape() == shape) {
             return existing;
         }
-        WdlTrait declared = new WdlTrait(shape, context.scope());
-        checkNotConstant(shape.name(), shape.declaration().nameSpan(), context);
-        context.scope().define(shape.name(), declared);
+        WdlTrait declared = new WdlTrait(shape, context.scope(), context.unit());
+        checkNotConstant(stmt.name(), stmt.nameSpan(), context);
+        context.scope().define(stmt.name(), declared);
         return declared;
+    }
+
+    /**
+     * Собирает форму класса. Ошибка связывания — обычная ошибка скрипта: место у неё
+     * есть, а стадия человека не интересует.
+     */
+    private ClassShape shapeOf(ClassDeclStmt stmt, WdlClass parent, List<WdlTrait> traits,
+                               ExecutionContext context) {
+        List<TraitShape> mixins = new ArrayList<>(traits.size());
+        for (WdlTrait trait : traits) {
+            mixins.add(trait.shape());
+        }
+        try {
+            return context.linker().classShape(stmt, parent == null ? null : parent.shape(), mixins);
+        } catch (LinkError error) {
+            throw new WdlRuntimeError(error.span(), error.getMessage());
+        }
+    }
+
+    /**
+     * Родитель: значение, видимое в этой точке под своим именем.
+     * <p>
+     * Именно значение, а не форма из таблицы разбора, — на этом и держится
+     * наследование через файлы. {@code Shape} после {@code import lib.shapes} — то же
+     * имя в той же области, что и любое другое, поэтому никакого особого случая для
+     * модулей здесь нет: работает и развёрнутый импорт, и {@code m.Shape}, и класс,
+     * объявленный рядом.
+     */
+    private WdlClass parentOf(ClassDeclStmt stmt, ExecutionContext context) {
+        ClassDeclStmt.Superclass parent = stmt.parent();
+        if (parent == null) {
+            return null;
+        }
+        Value value = typeValue(parent.alias(), parent.name(), parent.title(), "класс",
+                parent.span(), context);
+        if (value instanceof WdlClass klass) {
+            return klass;
+        }
+        if (value instanceof TraitValue) {
+            throw new WdlRuntimeError(parent.span(), "'" + parent.title() + "' — трейт, а не класс: "
+                    + "трейт подмешивается через 'with', наследуются от класса");
+        }
+        if (value instanceof ClassValue) {
+            // Класс от приложения (embed.NativeClass): его поля и методы живут в Java,
+            // и плоскую таблицу по ним не собрать.
+            throw new WdlRuntimeError(parent.span(), "'" + parent.title() + "' — встроенный класс: "
+                    + "наследоваться можно только от класса, объявленного на wdl");
+        }
+        throw new WdlRuntimeError(parent.span(), "наследоваться можно только от класса, а '"
+                + parent.title() + "' — это " + value.type().title() + " (" + value + ")");
+    }
+
+    /** Подмешанные трейты — тем же правилом, что и родитель. */
+    private List<WdlTrait> mixinsOf(ClassDeclStmt stmt, ExecutionContext context) {
+        List<WdlTrait> traits = new ArrayList<>(stmt.traits().size());
+        for (ClassDeclStmt.TraitRef reference : stmt.traits()) {
+            Value value = typeValue(reference.alias(), reference.name(), reference.title(),
+                    "трейт", reference.span(), context);
+            if (value instanceof WdlTrait trait) {
+                traits.add(trait);
+                continue;
+            }
+            if (value instanceof ClassValue) {
+                throw new WdlRuntimeError(reference.span(), "'" + reference.title()
+                        + "' — класс, а не трейт: подмешать можно только трейт,"
+                        + " у класса есть конструктор");
+            }
+            throw new WdlRuntimeError(reference.span(), "подмешать можно только трейт, а '"
+                    + reference.title() + "' — это " + value.type().title() + " (" + value + ")");
+        }
+        return traits;
+    }
+
+    /**
+     * Значение имени типа: простого или квалифицированного.
+     * <p>
+     * {@code m.Shape} читается тем же кодом, что и любое обращение через точку:
+     * слева от точки — значение-модуль, справа — его имя. Особого синтаксиса для
+     * модулей не понадобилось и здесь.
+     */
+    private Value typeValue(String alias, String name, String title, String what,
+                            Span span, ExecutionContext context) {
+        if (alias == null) {
+            Value value = context.scope().lookup(name);
+            if (value == null) {
+                throw new WdlRuntimeError(span, "неизвестный " + what + " '" + title
+                        + "': наследоваться и подмешивать можно то, что объявлено в этом же"
+                        + " файле или импортировано выше по тексту");
+            }
+            return value;
+        }
+        Value module = context.scope().lookup(alias);
+        if (module == null) {
+            throw new WdlRuntimeError(span, "неизвестный " + what + " '" + title
+                    + "': проверьте, что выше есть 'import ... as " + alias
+                    + "' и что в том модуле объявлен этот тип");
+        }
+        return read(module, StringValue.of(name), AccessStyle.DOT, span);
     }
 
     /**
@@ -453,13 +573,73 @@ public final class Interpreter
     private void installFactories(WdlClass declared, ExecutionContext context) {
         for (ClassDeclStmt.Factory factory : declared.shape().factories()) {
             declared.statics().put(factory.name(),
-                    new UserFunction(factory.function(), declared.closure(), this));
+                    new UserFunction(factory.function(), declared.closure(), declared.unit(), this));
         }
     }
 
-    private static WdlRuntimeError notResolved(Span span, String what) {
-        return new WdlRuntimeError(span, what + " не разобран резолвером: "
-                + "программу с классами нужно провести через Resolver до выполнения");
+    /**
+     * Импорт модуля.
+     * <p>
+     * Модуль выполняется (или достаётся из реестра, если уже выполнялся), а дальше
+     * всё решает одно слово {@code as}: с ним в текущей области заводится одно имя —
+     * значение-модуль, без него в неё переносятся все имена модуля, как будто их
+     * объявили здесь.
+     * <p>
+     * Область — <b>текущая</b>, и никакой особый случай для этого не понадобился:
+     * {@code import} внутри функции заводит имена в теле функции и исчезает вместе
+     * с ней, ровно как {@code fun} или {@code const} на том же месте. По той же причине
+     * импорт не помечается до выполнения ({@link #hoistDeclarations}) — он не объявление
+     * верхнего уровня, а инструкция, у которой есть побочный эффект: выполнение
+     * чужого файла. Поднимать её значило бы выполнять чужой код до первой строки скрипта.
+     */
+    @Override
+    public Void visitImport(ImportStmt stmt, ExecutionContext context) {
+        String key = ModuleKey.resolve(stmt.path(), context.unit().home());
+        ModuleValue module = context.modules().load(key, stmt.pathSpan(), context, this);
+        if (stmt.hasAlias()) {
+            checkNotConstant(stmt.alias(), stmt.aliasSpan(), context);
+            context.scope().define(stmt.alias(), module);
+            return null;
+        }
+        // Константа модуля остаётся константой и здесь: развёрнутый импорт обещает,
+        // что имена ведут себя так же, как если бы их объявили в этом файле.
+        module.members().forEach((name, value) -> {
+            checkNotConstant(name, stmt.pathSpan(), context);
+            checkNotShadowingType(name, value, stmt.pathSpan(), context);
+            if (module.isConstant(name)) {
+                context.scope().defineConstant(name, value);
+            } else {
+                context.scope().define(name, value);
+            }
+        });
+        return null;
+    }
+
+    /**
+     * Развёрнутый импорт не перекрывает тип, объявленный в этой же области, молча.
+     * <p>
+     * Два разных класса под одним именем — выше и ниже одной строки — худшее, что можно
+     * предложить читателю скрипта: по имени уже не понять, чей экземпляр создаётся
+     * и что ответит {@code is}. Заменить обычное имя импорт вправе, как и любое
+     * объявление, а два <b>типа</b> с одним именем разводятся именованной формой.
+     * <p>
+     * Смотрим только свою область: затенить класс, объявленный снаружи, импорт внутри
+     * функции может — это то же затенение, что у {@code fun} или {@code const} на том
+     * же месте.
+     */
+    private static void checkNotShadowingType(String name, Value incoming, Span span,
+                                              ExecutionContext context) {
+        Value existing = context.scope().lookupHere(name);
+        if (existing == null || existing == incoming || !isType(existing) || !isType(incoming)) {
+            return;
+        }
+        throw new WdlRuntimeError(span, "модуль приносит тип '" + name
+                + "', а такое имя в этой области уже есть. Импортируйте модуль"
+                + " с именем — 'import ... as m' — и обращайтесь через него");
+    }
+
+    private static boolean isType(Value value) {
+        return value instanceof ClassValue || value instanceof TraitValue;
     }
 
     /**
@@ -671,7 +851,7 @@ public final class Interpreter
      */
     @Override
     public Value visitFunction(FunctionExpr expr, ExecutionContext context) {
-        return new UserFunction(expr, context.scope(), this);
+        return new UserFunction(expr, context.scope(), context.unit(), this);
     }
 
     /**
@@ -784,11 +964,30 @@ public final class Interpreter
                 yield method != null ? method : NullValue.NULL;
             }
             case ClassValue declared -> declared.statics().get(key);
+            case ModuleValue module -> member(module, key, span);
             case StringValue string -> StringValue.of(String.valueOf(
                     string.value().charAt(checkIndex(string.length(), key, "строки", span))));
             default -> throw new WdlRuntimeError(span,
                     "к значению типа " + container.type().title() + " нельзя обратиться " + how(style, key));
         };
+    }
+
+    /**
+     * Имя модуля. В отличие от объекта, отсутствующее имя — ошибка, а не {@code null}:
+     * состав модуля задан его файлом и автору известен, поэтому {@code m.add} с опечаткой
+     * стоит назвать здесь, а не через два шага, когда {@code null} попробуют вызвать.
+     */
+    private static Value member(ModuleValue module, Value key, Span span) {
+        if (!(key instanceof StringValue name)) {
+            throw new WdlRuntimeError(span, "имя в модуле '" + module.name()
+                    + "' задаётся строкой, а здесь " + key.type().title() + " (" + key + ")");
+        }
+        Value value = module.get(name.value());
+        if (value == null) {
+            throw new WdlRuntimeError(span, "в модуле '" + module.name() + "' нет имени '"
+                    + name.value() + "'");
+        }
+        return value;
     }
 
     /**
@@ -810,6 +1009,11 @@ public final class Interpreter
             case MapValue object -> object.put(key, value);
             // Запись в класс — «статическое поле»: обычная запись по ключу в значении.
             case ClassValue declared -> declared.statics().put(key, value);
+            // Модуль выполняется один раз за запуск, и значение у всех, кто его
+            // импортировал, общее: запись отсюда меняла бы чужой файл всем сразу.
+            case ModuleValue module -> throw new WdlRuntimeError(span,
+                    "модуль '" + module.name() + "' изменять нельзя: его имена объявлены"
+                            + " в своём файле, и значение у всех, кто его импортировал, общее");
             // Строка неизменяема, и это не случайность реализации: строки лежат в ключах
             // объектов, и молчаливое изменение на месте испортило бы их.
             case StringValue ignored -> throw new WdlRuntimeError(span,

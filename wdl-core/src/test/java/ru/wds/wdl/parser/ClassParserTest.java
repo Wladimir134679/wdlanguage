@@ -122,6 +122,51 @@ class ClassParserTest {
         assertTrue(errorOf("class A(x) with Loud, Loud").contains("подмешан дважды"));
     }
 
+    // --- имена из модуля -----------------------------------------------------
+
+    @Test
+    @DisplayName("родитель из именованного импорта: class A : m.Shape")
+    void qualifiedParent() {
+        ClassDeclStmt circle = classOf("class Circle(r) : m.Shape(\"круг\")");
+
+        assertEquals("m", circle.parent().alias());
+        assertEquals("Shape", circle.parent().name());
+        assertEquals("m.Shape", circle.parent().title());
+        assertEquals(1, circle.parent().arguments().size());
+    }
+
+    @Test
+    @DisplayName("трейт из именованного импорта: with m.Countable")
+    void qualifiedTrait() {
+        ClassDeclStmt bag = classOf("class Bag(items) with Loud, m.Countable");
+
+        assertNull(bag.traits().get(0).alias());
+        assertEquals("m", bag.traits().get(1).alias());
+        assertEquals("Countable", bag.traits().get(1).name());
+        assertEquals("m.Countable", bag.traits().get(1).title());
+    }
+
+    @Test
+    @DisplayName("один и тот же трейт под своим именем и через модуль — разные имена")
+    void qualifiedTraitIsNotADuplicate() {
+        assertEquals(2, classOf("class A(x) with Loud, m.Loud").traits().size());
+        assertTrue(errorOf("class A(x) with m.Loud, m.Loud").contains("подмешан дважды"));
+    }
+
+    @Test
+    @DisplayName("второй точки в имени типа не бывает: слева от неё имя импорта, а не значение")
+    void twoDotsInTypeName() {
+        assertTrue(errorOf("class A(x) : a.b.C()").contains("уже полное имя"));
+        assertTrue(errorOf("class A(x) with a.b.C").contains("уже полное имя"));
+    }
+
+    @Test
+    @DisplayName("после точки в имени типа обязательно имя")
+    void nameAfterDotIsRequired() {
+        assertTrue(errorOf("class A(x) : m.()").contains("ожидалось имя класса-родителя"));
+        assertTrue(errorOf("class A(x) with m.").contains("ожидалось имя трейта"));
+    }
+
     // --- заголовок трейта ----------------------------------------------------
 
     @Test

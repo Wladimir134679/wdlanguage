@@ -41,6 +41,8 @@ public interface StmtVisitor<R, C> {
 
     R visitTraitDecl(TraitDeclStmt stmt, C context);
 
+    R visitImport(ImportStmt stmt, C context);
+
     R visitReturn(ReturnStmt stmt, C context);
 
     R visitErrorStmt(ErrorStmt stmt, C context);
@@ -61,6 +63,7 @@ public interface StmtVisitor<R, C> {
             case FunDeclStmt s -> visitFunDecl(s, context);
             case ClassDeclStmt s -> visitClassDecl(s, context);
             case TraitDeclStmt s -> visitTraitDecl(s, context);
+            case ImportStmt s -> visitImport(s, context);
             case ReturnStmt s -> visitReturn(s, context);
             case ErrorStmt s -> visitErrorStmt(s, context);
         };

@@ -2,6 +2,7 @@ package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
+import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.FieldSlot;
 import ru.wds.wdl.resolve.MethodSlot;
@@ -42,6 +43,8 @@ final class WdlClass implements ClassValue {
 
     private final ClassShape shape;
     private final Environment closure;
+    /** Файл, где класс объявлен: в нём выполняются его конструктор, методы и фабрики. */
+    private final Unit unit;
     private final WdlClass parent;
     private final List<WdlTrait> traits;
     private final Map<String, Method> methods;
@@ -61,15 +64,18 @@ final class WdlClass implements ClassValue {
      */
     private final Interpreter interpreter;
 
-    WdlClass(ClassShape shape, Environment closure, WdlClass parent, List<WdlTrait> traits,
-             Interpreter interpreter) {
+    WdlClass(ClassShape shape, Environment closure, Unit unit, WdlClass parent,
+             List<WdlTrait> traits, Interpreter interpreter) {
         this.shape = Objects.requireNonNull(shape, "shape");
         this.closure = Objects.requireNonNull(closure, "closure");
+        this.unit = Objects.requireNonNull(unit, "unit");
         this.parent = parent;
         this.traits = List.copyOf(traits);
         this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
 
         Map<String, Method> table = new LinkedHashMap<>();
+        // Методы родителя и трейтов приходят вместе со своими юнитами: унаследованный
+        // метод остаётся кодом того файла, где он написан.
         if (parent != null) {
             table.putAll(parent.methods);
         }
@@ -78,7 +84,7 @@ final class WdlClass implements ClassValue {
         }
         for (MethodSlot slot : shape.methods().values()) {
             if (slot.declaredIn() == shape) {
-                table.put(slot.name(), new Method(slot.declaration(), closure, this));
+                table.put(slot.name(), new Method(slot.declaration(), closure, unit, this));
             }
         }
         this.methods = Collections.unmodifiableMap(table);
@@ -90,6 +96,10 @@ final class WdlClass implements ClassValue {
 
     Environment closure() {
         return closure;
+    }
+
+    Unit unit() {
+        return unit;
     }
 
     WdlClass parent() {
@@ -130,7 +140,7 @@ final class WdlClass implements ClassValue {
     private FunctionValue bind(InstanceObjectValue container, Method method) {
         InstanceObjectValue self = container.identity();
         return new UserFunction(method.declaration(),
-                new InstanceScope(self, (WdlClass) self.owner(), method), interpreter);
+                new InstanceScope(self, (WdlClass) self.owner(), method), method.unit(), interpreter);
     }
 
     /**
@@ -188,7 +198,7 @@ final class WdlClass implements ClassValue {
         for (WdlClass klass : lineage) {
             FunctionExpr constructor = klass.shape.constructor();
             if (constructor != null) {
-                bind(instance, new Method(constructor, klass.closure, klass))
+                bind(instance, new Method(constructor, klass.closure, klass.unit, klass))
                         .call(caller, List.of(), span);
             }
         }
@@ -208,7 +218,7 @@ final class WdlClass implements ClassValue {
         List<Value> level = arguments;
         for (WdlClass klass = this; klass != null; klass = klass.parent) {
             Environment local = Scope.under(klass.closure);
-            ExecutionContext inner = ExecutionContext.call(local, caller);
+            ExecutionContext inner = ExecutionContext.call(local, caller, klass.unit);
             bound.put(klass.shape, bindParams(klass.shape.params(), level, local, inner));
 
             ClassDeclStmt.Superclass reference = klass.shape.declaration().parent();
@@ -255,7 +265,7 @@ final class WdlClass implements ClassValue {
             return bound.get(owner)[slot.paramIndex()];
         }
         WdlTrait trait = traitOf((TraitShape) slot.owner());
-        ExecutionContext inner = ExecutionContext.call(Scope.under(trait.closure()), caller);
+        ExecutionContext inner = ExecutionContext.call(Scope.under(trait.closure()), caller, trait.unit());
         return interpreter.visit(slot.param().defaultValue(), inner);
     }
 

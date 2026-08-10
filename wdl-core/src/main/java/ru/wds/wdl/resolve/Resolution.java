@@ -1,55 +1,61 @@
 package ru.wds.wdl.resolve;
 
-import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.Stmt;
-import ru.wds.wdl.ast.stmt.TraitDeclStmt;
 
-import java.util.IdentityHashMap;
-import java.util.Map;
+import java.util.List;
 
 /**
- * Что резолвер узнал о программе: форма каждого объявления класса и трейта.
+ * Что резолвер узнал о программе: какие объявления типов можно выполнить до первой
+ * инструкции и в каком порядке.
  * <p>
- * Ключ — сам узел дерева, и сравнивается он по ссылке, а не по равенству: два
- * одинаковых с виду объявления в разных местах файла — это два разных класса.
+ * Форм классов здесь больше нет и быть не может: форму собирает {@link Linker}
+ * в момент выполнения объявления, когда родитель и трейты уже стали значениями.
+ * До выполнения о них известно только одно — <b>кто на кого ссылается по имени
+ * внутри этого файла</b>, а этого хватает ровно на две вещи: расставить объявления
+ * в порядке «родитель раньше потомка» и увидеть круг в наследовании.
  * <p>
  * Результат неизменяем и не зависит от запуска: одно и то же дерево можно выполнять
- * в нескольких потоках с разными областями видимости, а формы у них будут общие.
- * Значения ({@code WdlClass}) при этом у каждого запуска свои — форма знает имена
- * и порядок, значение знает замыкание и данные.
+ * в нескольких потоках, порядок объявлений у них общий, а формы и значения — свои.
  */
 public final class Resolution {
 
-    private static final Resolution NONE = new Resolution(new IdentityHashMap<>());
+    private static final Resolution NONE = new Resolution(List.of());
 
-    private final Map<Stmt, Shape> shapes;
+    private final List<Stmt> hoisted;
 
-    Resolution(Map<Stmt, Shape> shapes) {
-        this.shapes = shapes;
+    Resolution(List<Stmt> hoisted) {
+        this.hoisted = List.copyOf(hoisted);
     }
 
     /**
-     * Пустой результат — для программ без классов.
+     * Пустой план — для программ, которые резолвер не проходили: REPL, {@code eval}
+     * строки, тесты.
      * <p>
-     * Нужен затем, чтобы {@code Interpreter.run(program, context)} остался рабочей
-     * точкой входа для скриптов, которым резолвер не нужен: встретив объявление
-     * класса без формы, интерпретатор скажет об этом внятно.
+     * Такая программа работает целиком, но объявления типов в ней начинают
+     * существовать со своей строки, как в блоке: расставить их заранее некому.
      */
     public static Resolution none() {
         return NONE;
     }
 
-    /** Форма класса или {@code null}, если программа не проходила резолвер. */
-    public ClassShape classShape(ClassDeclStmt declaration) {
-        return shapes.get(declaration) instanceof ClassShape shape ? shape : null;
-    }
-
-    /** Форма трейта или {@code null}. */
-    public TraitShape traitShape(TraitDeclStmt declaration) {
-        return shapes.get(declaration) instanceof TraitShape shape ? shape : null;
+    /**
+     * Объявления трейтов и классов <b>верхнего уровня</b>, которые выполняются до первой
+     * инструкции, — в порядке, где родитель и подмешанные трейты стоят раньше потомка.
+     * <p>
+     * Отсюда свобода порядка в файле: {@code class Circle : Shape} можно написать выше
+     * самого {@code Shape}. Класс, чей родитель или трейт в этом файле не объявлен,
+     * сюда не попадает — его имя придёт из {@code import}, а значит, до своей строки
+     * его связывать нечем.
+     * <p>
+     * Только верхний уровень, и это не упрощение: объявление внутри функции или блока
+     * принадлежит своей области, и поднимать его в корень значило бы протаскивать имя
+     * туда, где его никто не объявлял.
+     */
+    public List<Stmt> hoisted() {
+        return hoisted;
     }
 
     public boolean isEmpty() {
-        return shapes.isEmpty();
+        return hoisted.isEmpty();
     }
 }
