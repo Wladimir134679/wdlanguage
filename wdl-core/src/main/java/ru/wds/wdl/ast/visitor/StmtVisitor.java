@@ -45,6 +45,10 @@ public interface StmtVisitor<R, C> {
 
     R visitReturn(ReturnStmt stmt, C context);
 
+    R visitThrow(ThrowStmt stmt, C context);
+
+    R visitTry(TryStmt stmt, C context);
+
     R visitErrorStmt(ErrorStmt stmt, C context);
 
     /** Точка входа: направляет инструкцию нужному методу. */
@@ -65,6 +69,8 @@ public interface StmtVisitor<R, C> {
             case TraitDeclStmt s -> visitTraitDecl(s, context);
             case ImportStmt s -> visitImport(s, context);
             case ReturnStmt s -> visitReturn(s, context);
+            case ThrowStmt s -> visitThrow(s, context);
+            case TryStmt s -> visitTry(s, context);
             case ErrorStmt s -> visitErrorStmt(s, context);
         };
     }

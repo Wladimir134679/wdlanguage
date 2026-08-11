@@ -6,6 +6,7 @@ import ru.wds.wdl.module.NativeModules;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.resolve.Resolution;
+import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.CallContext;
 
 import java.util.Objects;
@@ -13,8 +14,8 @@ import java.util.Objects;
 /**
  * Состояние одного выполнения: всё, что интерпретатор несёт с собой по дереву.
  * <p>
- * Сейчас это область видимости и вывод. Дальше сюда придут стек вызовов для трассировки
- * ошибок, счётчик шагов и таймаут для лимитов. Если бы интерпретатор принимал
+ * Сейчас это область видимости, вывод и цепочка кадров вызова для трассировки ошибок.
+ * Дальше сюда придут счётчик шагов и таймаут для лимитов. Если бы интерпретатор принимал
  * {@link Environment} напрямую, каждое такое добавление означало бы правку подписи
  * всех методов посетителя и всех его реализаций.
  * <p>
@@ -46,7 +47,13 @@ public final class ExecutionContext implements CallContext {
 
     private final Environment scope;
     private final Output output;
-    private final int callDepth;
+    /**
+     * Кадр текущего вызова или {@code null}, если выполняется верхний уровень файла.
+     * <p>
+     * Цепочка кадров заменила собой счётчик глубины: она нужна трассировке, а глубина
+     * из неё выводится даром — {@link Frame#depth()} считается один раз при создании.
+     */
+    private final Frame frame;
     private final Unit unit;
     /**
      * Реестр модулей — изменяемое, что несёт контекст, и это не оговорка:
@@ -61,15 +68,21 @@ public final class ExecutionContext implements CallContext {
      * переставал бы узнавать свои же экземпляры.
      */
     private final Linker linker;
+    /**
+     * Классы ошибок этого запуска. Общий на весь запуск по той же причине, что
+     * и {@link #linker}: снят он один раз, с корневой области, до первой строки скрипта.
+     */
+    private final Exceptions exceptions;
 
-    private ExecutionContext(Environment scope, Output output, int callDepth, Unit unit,
-                             Modules modules, Linker linker) {
+    private ExecutionContext(Environment scope, Output output, Frame frame, Unit unit,
+                             Modules modules, Linker linker, Exceptions exceptions) {
         this.scope = Objects.requireNonNull(scope, "scope");
         this.output = Objects.requireNonNull(output, "output");
-        this.callDepth = callDepth;
+        this.frame = frame;
         this.unit = Objects.requireNonNull(unit, "unit");
         this.modules = Objects.requireNonNull(modules, "modules");
         this.linker = Objects.requireNonNull(linker, "linker");
+        this.exceptions = Objects.requireNonNull(exceptions, "exceptions");
     }
 
     /**
@@ -93,10 +106,22 @@ public final class ExecutionContext implements CallContext {
         return of(scope, Output.discarding());
     }
 
+    /**
+     * Здесь же выполняется {@linkplain Prelude прелюдия}: иерархия классов ошибок
+     * появляется в области видимости до первой строки скрипта, как и встроенные функции.
+     * <p>
+     * Сразу после этого классы снимаются в {@linkplain Exceptions реестр запуска}.
+     * Дальше скрипт волен делать с этими именами что угодно — движок берёт классы
+     * из реестра, а не из области.
+     */
     public static ExecutionContext of(Environment scope, Output output) {
-        return new ExecutionContext(scope, output, 0, Unit.none(),
+        Exceptions exceptions = new Exceptions();
+        ExecutionContext context = new ExecutionContext(scope, output, null, Unit.none(),
                 new Modules(new ModuleUnits(ModuleSource.none()), NativeModules.none(), scope),
-                new Linker());
+                new Linker(), exceptions);
+        Prelude.installTo(context);
+        exceptions.captureFrom(scope);
+        return context;
     }
 
     /**
@@ -111,8 +136,8 @@ public final class ExecutionContext implements CallContext {
      * локальных имён того, кто их импортирует.
      */
     public ExecutionContext withModules(ModuleUnits units) {
-        return new ExecutionContext(scope, output, callDepth, unit,
-                new Modules(units, modules.natives(), scope), linker);
+        return new ExecutionContext(scope, output, frame, unit,
+                new Modules(units, modules.natives(), scope), linker, exceptions);
     }
 
     /**
@@ -128,8 +153,8 @@ public final class ExecutionContext implements CallContext {
      * что одно и то же имя в двух местах скрипта означает разное.
      */
     public ExecutionContext withNativeModules(NativeModules natives) {
-        return new ExecutionContext(scope, output, callDepth, unit,
-                new Modules(modules.units(), natives, scope), linker);
+        return new ExecutionContext(scope, output, frame, unit,
+                new Modules(modules.units(), natives, scope), linker, exceptions);
     }
 
     /**
@@ -166,17 +191,28 @@ public final class ExecutionContext implements CallContext {
      * Юнит, наоборот, берётся у самой функции, а не у вызывающего: тело выполняется
      * в том файле, где оно написано, — со своими формами классов и своим исходником
      * для сообщений об ошибках.
+     * <p>
+     * Кадр, наоборот, помнит файл <b>вызывающего</b>: {@code callSite} — место в его
+     * тексте, и осмысленно оно только в его исходнике.
+     *
+     * @param function имя вызванной функции — оно и попадёт в трассировку
+     * @param callSite место вызова в тексте вызывающего
      */
-    static ExecutionContext call(Environment scope, CallContext caller, Unit unit) {
-        // Реестр модулей и собранные формы принадлежат запуску, а не файлу: функция,
-        // вызванная из чужого движка, к его модулям отношения не имеет — там начинается
-        // свой запуск.
-        boolean inRun = caller instanceof ExecutionContext;
-        Modules known = inRun
-                ? ((ExecutionContext) caller).modules
+    static ExecutionContext call(Environment scope, CallContext caller, Unit unit,
+                                 String function, Span callSite) {
+        // Реестр модулей, собранные формы и классы ошибок принадлежат запуску, а не файлу:
+        // функция, вызванная из чужого движка, к его модулям отношения не имеет — там
+        // начинается свой запуск.
+        ExecutionContext running = caller instanceof ExecutionContext context ? context : null;
+        Modules known = running != null
+                ? running.modules
                 : new Modules(new ModuleUnits(ModuleSource.none()), NativeModules.none(), scope);
-        Linker shapes = inRun ? ((ExecutionContext) caller).linker : new Linker();
-        return new ExecutionContext(scope, caller::write, caller.callDepth() + 1, unit, known, shapes);
+        Linker shapes = running != null ? running.linker : new Linker();
+        Exceptions errors = running != null ? running.exceptions : new Exceptions();
+        Unit callerUnit = running != null ? running.unit : Unit.none();
+        Frame parent = running != null ? running.frame : null;
+        return new ExecutionContext(scope, caller::write,
+                Frame.of(function, callSite, callerUnit, parent), unit, known, shapes, errors);
     }
 
     public Environment scope() {
@@ -191,6 +227,16 @@ public final class ExecutionContext implements CallContext {
     /** Формы классов этого запуска: кто с кем связан и что уже собрано. */
     Linker linker() {
         return linker;
+    }
+
+    /** Классы ошибок этого запуска: по ним движок отвечает на {@code catch (e is ...)}. */
+    Exceptions exceptions() {
+        return exceptions;
+    }
+
+    /** Кадр текущего вызова или {@code null} на верхнем уровне файла. */
+    Frame frame() {
+        return frame;
     }
 
     /** Файл, который сейчас выполняется: исходник, формы его классов и его каталог. */
@@ -211,13 +257,13 @@ public final class ExecutionContext implements CallContext {
 
     /** Тот же контекст, но выполняющий другой файл. */
     public ExecutionContext withUnit(Unit newUnit) {
-        return new ExecutionContext(scope, output, callDepth, newUnit, modules, linker);
+        return new ExecutionContext(scope, output, frame, newUnit, modules, linker, exceptions);
     }
 
     /** Тот же контекст, но знающий план объявлений разобранной программы. */
     public ExecutionContext withResolution(Resolution newResolution) {
-        return new ExecutionContext(scope, output, callDepth, unit.withResolution(newResolution),
-                modules, linker);
+        return new ExecutionContext(scope, output, frame, unit.withResolution(newResolution),
+                modules, linker, exceptions);
     }
 
     public Output output() {
@@ -231,12 +277,12 @@ public final class ExecutionContext implements CallContext {
 
     @Override
     public int callDepth() {
-        return callDepth;
+        return frame == null ? 0 : frame.depth();
     }
 
     /** Тот же контекст, но с другим окружением: вход в блок, функцию, итерацию. */
     public ExecutionContext withScope(Environment newScope) {
-        return new ExecutionContext(newScope, output, callDepth, unit, modules, linker);
+        return new ExecutionContext(newScope, output, frame, unit, modules, linker, exceptions);
     }
 
     /** Контекст вложенной области видимости. */

@@ -83,15 +83,16 @@ public final class UserFunction implements FunctionValue {
     @Override
     public Value call(CallContext context, List<Value> arguments, Span span) {
         if (context.callDepth() >= ExecutionContext.MAX_CALL_DEPTH) {
-            // Рекурсия без выхода — ошибка скрипта, и говорить о ней надо на языке скрипта.
-            throw new WdlRuntimeError(span, "слишком глубокая рекурсия: вложенных вызовов больше "
-                    + ExecutionContext.MAX_CALL_DEPTH + ". Проверьте условие выхода из '" + name() + "'");
+            // Рекурсия без выхода — не «эта операция не удалась», а «выполнение дальше
+            // не идёт»: поймать такое обработчиком нельзя, иначе цикл с try съел бы
+            // собственную защиту от зацикливания.
+            throw FatalError.tooDeep(span, "Проверьте условие выхода из '" + name() + "'");
         }
 
         Environment local = closure.child();
         // Контекст создаётся до связывания: в нём же вычисляются значения по умолчанию,
         // и оттого они видят параметры, связанные левее, — область у них одна и та же.
-        ExecutionContext inner = ExecutionContext.call(local, context, unit);
+        ExecutionContext inner = ExecutionContext.call(local, context, unit, name(), span);
         List<FunctionExpr.Param> params = declaration.params();
         for (int i = 0; i < params.size(); i++) {
             // Параметры — всегда локальные: одноимённая внешняя переменная остаётся
@@ -108,9 +109,15 @@ public final class UserFunction implements FunctionValue {
             interpreter.visit(declaration.body(), inner);
         } catch (ControlSignal.Return signal) {
             return signal.value();
-        } catch (WdlRuntimeError error) {
+        } catch (WdlError error) {
             // Место в исходнике у ошибки уже есть, а вот какому файлу оно принадлежит,
             // знает только тело функции — здесь и последняя возможность это сказать.
+            if (error instanceof WdlRuntimeError runtime) {
+                // И здесь же — путь по скрипту. Спросят об этом все границы вызова
+                // на пути наружу, но полная цепочка кадров только у самой внутренней:
+                // у внешних от неё остался бы хвост.
+                runtime.rememberTrace(Frame.trace(inner.frame()));
+            }
             throw error.inSource(unit.source());
         } catch (ControlSignal.Break | ControlSignal.Continue signal) {
             // Парсер обнуляет счётчик циклов на границе функции, поэтому сюда можно

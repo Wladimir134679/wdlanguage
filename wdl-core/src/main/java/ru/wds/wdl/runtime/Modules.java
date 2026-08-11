@@ -85,7 +85,7 @@ final class Modules {
     ModuleValue load(String path, String home, Span span, ExecutionContext context,
                      Interpreter interpreter) {
         if (path.isEmpty()) {
-            throw new WdlRuntimeError(span, "пустой путь модуля");
+            throw new WdlRuntimeError(ErrorKind.IMPORT, span, "пустой путь модуля");
         }
         String name = ModuleKey.isExplicitPath(path) ? null : ModuleKey.name(path);
         if (name != null) {
@@ -129,7 +129,7 @@ final class Modules {
         } catch (RuntimeException | LinkageError failure) {
             // Самая частая причина — библиотеки нет в classpath. Java-стек автору
             // скрипта бесполезен: ему нужна строка, на которой он попросил модуль.
-            throw new WdlRuntimeError(span, "встроенный модуль '" + name
+            throw new WdlRuntimeError(ErrorKind.IMPORT, span, "встроенный модуль '" + name
                     + "' не удалось подготовить: " + reason(failure));
         }
         if (library == null) {
@@ -139,10 +139,10 @@ final class Modules {
         ModuleScope scope = new ModuleScope(name, root);
         try {
             library.installTo(scope);
-        } catch (WdlRuntimeError error) {
+        } catch (WdlError error) {
             throw error;
         } catch (RuntimeException | LinkageError failure) {
-            throw new WdlRuntimeError(span, "встроенный модуль '" + name
+            throw new WdlRuntimeError(ErrorKind.IMPORT, span, "встроенный модуль '" + name
                     + "' не удалось подготовить: " + reason(failure));
         }
         opened.add(library);
@@ -163,7 +163,7 @@ final class Modules {
             return ready;
         }
         if (running.contains(key)) {
-            throw new WdlRuntimeError(span, "циклический импорт: "
+            throw new WdlRuntimeError(ErrorKind.IMPORT, span, "циклический импорт: "
                     + String.join(" → ", running) + " → " + key
                     + ". Модуль не может пользоваться тем, что ещё не выполнено");
         }
@@ -171,14 +171,14 @@ final class Modules {
         ModuleUnits.Loaded loaded = units.load(key);
         if (!loaded.ok()) {
             if (loaded.problem() == null) {
-                throw new WdlRuntimeError(span,
+                throw new WdlRuntimeError(ErrorKind.IMPORT, span,
                         "модуль '" + key + "' разбирается прямо сейчас: круг в импортах");
             }
             // Про встроенные упоминаем, только если они в этом запуске вообще есть:
             // иначе подсказка отправляла бы искать там, куда никто ничего не клал.
             boolean tellAboutNatives = loaded.missing() && name != null
                     && natives != NativeModules.NONE;
-            throw new WdlRuntimeError(span, tellAboutNatives
+            throw new WdlRuntimeError(ErrorKind.IMPORT, span, tellAboutNatives
                     ? loaded.problem() + ", и встроенного модуля '" + name + "' тоже нет"
                     : loaded.problem());
         }
@@ -199,7 +199,7 @@ final class Modules {
             // Область модуля уже создана и вложенной быть не должна: имена файла
             // обязаны лечь именно в неё — она же и есть значение модуля.
             interpreter.run(unit.program(), context.withScope(scope).withUnit(unit));
-        } catch (WdlRuntimeError error) {
+        } catch (WdlError error) {
             throw error.inSource(unit.source());
         }
         return scope.module();

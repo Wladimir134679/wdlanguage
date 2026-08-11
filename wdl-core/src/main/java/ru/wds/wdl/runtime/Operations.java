@@ -136,7 +136,7 @@ public final class Operations {
             long x = a.asLong();
             long y = b.asLong();
             if (y == 0) {
-                throw new WdlRuntimeError(span, "деление на ноль");
+                throw new WdlRuntimeError(ErrorKind.ARITHMETIC, span, "деление на ноль");
             }
             boolean exact = x % y == 0;
             boolean overflow = x == Long.MIN_VALUE && y == -1;
@@ -155,7 +155,7 @@ public final class Operations {
         NumberValue a = number(left, right, BinaryOp.REMAINDER, span, true);
         NumberValue b = number(left, right, BinaryOp.REMAINDER, span, false);
         if (b.asDouble() == 0.0) {
-            throw new WdlRuntimeError(span, "остаток от деления на ноль");
+            throw new WdlRuntimeError(ErrorKind.ARITHMETIC, span, "остаток от деления на ноль");
         }
         if (a.isInteger() && b.isInteger()) {
             return IntValue.of(a.asLong() % b.asLong());
@@ -238,7 +238,7 @@ public final class Operations {
      */
     private static boolean is(Value left, Value right, Span span) {
         if (!(right instanceof ClassValue) && !(right instanceof TraitValue)) {
-            throw new WdlRuntimeError(span, "справа от 'is' должен стоять класс или трейт, а здесь "
+            throw new WdlRuntimeError(ErrorKind.TYPE, span, "справа от 'is' должен стоять класс или трейт, а здесь "
                     + right.type().title() + " (" + right + ")");
         }
         // Обычный объект классу не принадлежит, поэтому и ответ на вопрос — false.
@@ -260,7 +260,7 @@ public final class Operations {
             // Оба операнда числа, и говорить «не применима к типам число и число» бессмысленно:
             // человеку нужно знать, что помешало именно вещественное значение, и какое.
             Value fractional = a.isInteger() ? right : left;
-            throw new WdlRuntimeError(span, "операция '" + op.symbol()
+            throw new WdlRuntimeError(ErrorKind.TYPE, span, "операция '" + op.symbol()
                     + "' работает только с целыми числами, а здесь вещественное " + fractional);
         }
         long x = a.asLong();
@@ -294,7 +294,7 @@ public final class Operations {
         if (value instanceof NumberValue number) {
             return number;
         }
-        throw new WdlRuntimeError(span, what + " применим только к числам, а здесь "
+        throw new WdlRuntimeError(ErrorKind.TYPE, span, what + " применим только к числам, а здесь "
                 + value.type().title() + " (" + value + ")");
     }
 
@@ -302,7 +302,7 @@ public final class Operations {
         if (value instanceof NumberValue number && number.isInteger()) {
             return number.asLong();
         }
-        throw new WdlRuntimeError(span, what + " применим только к целым числам, а здесь "
+        throw new WdlRuntimeError(ErrorKind.TYPE, span, what + " применим только к целым числам, а здесь "
                 + value.type().title() + " (" + value + ")");
     }
 
@@ -313,6 +313,6 @@ public final class Operations {
     private static WdlRuntimeError typeError(Span span, BinaryOp op, Value left, Value right, String hint) {
         String message = "операция '" + op.symbol() + "' не применима к типам "
                 + left.type().title() + " и " + right.type().title();
-        return new WdlRuntimeError(span, hint == null ? message : message + ": " + hint);
+        return new WdlRuntimeError(ErrorKind.TYPE, span, hint == null ? message : message + ": " + hint);
     }
 }

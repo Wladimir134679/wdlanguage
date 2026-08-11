@@ -58,7 +58,7 @@ public final class Builtins {
                 case StringValue string -> IntValue.of(string.length());
                 case ArrayValue array -> IntValue.of(array.size());
                 case MapValue object -> IntValue.of(object.size());
-                default -> throw new WdlRuntimeError(span,
+                default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                         "len() работает со строкой, массивом или объектом, а здесь " + value.type().title());
             };
         }));

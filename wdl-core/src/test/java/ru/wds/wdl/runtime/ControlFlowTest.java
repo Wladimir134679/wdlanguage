@@ -258,7 +258,10 @@ class ControlFlowTest {
     void interruptStopsEndlessLoop() {
         Thread.currentThread().interrupt();
         try {
-            assertTrue(errorOf("for (;;) { x = 1 }").getMessage().contains("прервано"));
+            // Прерывание — FatalError: скрипт не должен уметь его поймать и продолжить,
+            // иначе while (true) с try съел бы то, ради чего звали interrupt().
+            FatalError fatal = assertThrows(FatalError.class, () -> run("for (;;) { x = 1 }"));
+            assertTrue(fatal.getMessage().contains("прервано"), fatal.getMessage());
         } finally {
             // Флаг снимаем, иначе он утечёт в соседние тесты.
             Thread.interrupted();

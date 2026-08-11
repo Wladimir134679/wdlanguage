@@ -163,15 +163,14 @@ final class WdlClass implements ClassValue {
     public Value instantiate(List<Value> arguments, CallContext caller, Span span) {
         if (caller.callDepth() >= ExecutionContext.MAX_CALL_DEPTH) {
             // Создание считается вызовом: 'class Node(next = new Node())' обязано
-            // давать ошибку скрипта, а не StackOverflowError в чужом приложении.
-            throw new WdlRuntimeError(span, "слишком глубокая рекурсия: вложенных вызовов больше "
-                    + ExecutionContext.MAX_CALL_DEPTH + ". Проверьте создание '" + name() + "'");
+            // остановить выполнение, а не свалить чужое приложение StackOverflowError.
+            throw FatalError.tooDeep(span, "Проверьте создание '" + name() + "'");
         }
 
-        Map<Shape, Value[]> bound = bindLineage(arguments, caller);
+        Map<Shape, Value[]> bound = bindLineage(arguments, caller, span);
         InstanceObjectValue instance = InstanceObjectValue.of(this);
         for (FieldSlot slot : shape.fields().values()) {
-            instance.put(slot.name(), fieldValue(slot, bound, caller));
+            instance.put(slot.name(), fieldValue(slot, bound, caller, span));
         }
         construct(instance, caller, span);
         return instance;
@@ -213,12 +212,15 @@ final class WdlClass implements ClassValue {
      * параметром: это список аргументов, а не источник поля, и побочный эффект
      * в нём не должен зависеть от того, какие имена завёл потомок.
      */
-    private Map<Shape, Value[]> bindLineage(List<Value> arguments, CallContext caller) {
+    private Map<Shape, Value[]> bindLineage(List<Value> arguments, CallContext caller, Span span) {
         Map<Shape, Value[]> bound = new IdentityHashMap<>();
         List<Value> level = arguments;
         for (WdlClass klass = this; klass != null; klass = klass.parent) {
             Environment local = Scope.under(klass.closure);
-            ExecutionContext inner = ExecutionContext.call(local, caller, klass.unit);
+            // Кадр называется 'new Имя': в трассировке ошибка из значения по умолчанию
+            // или из аргумента родителю должна показывать создание, а не пустоту.
+            ExecutionContext inner = ExecutionContext.call(local, caller, klass.unit,
+                    "new " + klass.name(), span);
             bound.put(klass.shape, bindParams(klass.shape.params(), level, local, inner));
 
             ClassDeclStmt.Superclass reference = klass.shape.declaration().parent();
@@ -260,12 +262,13 @@ final class WdlClass implements ClassValue {
      * не должно. Область вычисления при этом всегда область объявления трейта:
      * полей класса такое значение не видит и видеть не может.
      */
-    private Value fieldValue(FieldSlot slot, Map<Shape, Value[]> bound, CallContext caller) {
+    private Value fieldValue(FieldSlot slot, Map<Shape, Value[]> bound, CallContext caller, Span span) {
         if (slot.owner() instanceof ClassShape owner) {
             return bound.get(owner)[slot.paramIndex()];
         }
         WdlTrait trait = traitOf((TraitShape) slot.owner());
-        ExecutionContext inner = ExecutionContext.call(Scope.under(trait.closure()), caller, trait.unit());
+        ExecutionContext inner = ExecutionContext.call(Scope.under(trait.closure()), caller,
+                trait.unit(), "new " + name(), span);
         return interpreter.visit(slot.param().defaultValue(), inner);
     }
 

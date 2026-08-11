@@ -50,6 +50,15 @@ public final class Parser {
     /** Сколько функций вокруг: то же самое для {@code return} вне функции. */
     private int functionDepth;
     /**
+     * Сколько блоков {@code finally} вокруг разбираемой сейчас инструкции.
+     * <p>
+     * Нужен ровно для одного: {@code return}, {@code break} и {@code continue} внутри
+     * {@code finally} запрещены — они молча погасили бы ошибку, которая летит наружу.
+     * Тело функции, объявленной внутри {@code finally}, начинается с нуля: её
+     * {@code return} возвращает из неё самой и ничего не гасит.
+     */
+    private int finallyDepth;
+    /**
      * Имя класса, тело которого разбирается сейчас, или {@code null}.
      * <p>
      * Нужно, чтобы отличить конструктор {@code fun Point()} от метода и проверить,
@@ -135,6 +144,12 @@ public final class Parser {
             case BREAK -> breakStatement();
             case CONTINUE -> continueStatement();
             case RETURN -> returnStatement();
+            case THROW -> throwStatement();
+            case TRY -> tryStatement();
+            // 'catch' и 'finally' сами по себе инструкцией не бывают: они часть 'try'
+            // и разбираются им. Отдельное сообщение здесь лучше общего «ожидалось
+            // выражение» — оно называет причину, а не симптом.
+            case CATCH, FINALLY -> orphanHandler();
             case CONST -> constDeclaration();
             // 'fun' с именем — объявление. 'fun(' — анонимная функция, то есть выражение:
             // её разберёт simpleStatement и скажет, что такая инструкция ничего не делает.
@@ -379,7 +394,9 @@ public final class Parser {
         List<FunctionExpr.Param> params = parameters("'fun'", true);
 
         int outerLoops = loopDepth;
+        int outerFinally = finallyDepth;
         loopDepth = 0;
+        finallyDepth = 0;
         functionDepth++;
         try {
             if (match(TokenType.FATARROW)) {
@@ -396,6 +413,7 @@ public final class Parser {
         } finally {
             functionDepth--;
             loopDepth = outerLoops;
+            finallyDepth = outerFinally;
         }
     }
 
@@ -754,7 +772,9 @@ public final class Parser {
      */
     private Stmt memberBody() {
         int outerLoops = loopDepth;
+        int outerFinally = finallyDepth;
         loopDepth = 0;
+        finallyDepth = 0;
         functionDepth++;
         try {
             if (match(TokenType.FATARROW)) {
@@ -765,6 +785,7 @@ public final class Parser {
         } finally {
             functionDepth--;
             loopDepth = outerLoops;
+            finallyDepth = outerFinally;
         }
     }
 
@@ -962,6 +983,7 @@ public final class Parser {
         if (functionDepth == 0) {
             diagnostics.error(keyword.span(), "'return' допустим только внутри функции");
         }
+        forbidInFinally(keyword);
         Expr value = check(TokenType.SEMICOLON) ? null : expression(0);
         if (value instanceof ErrorExpr) {
             // Возвращаемое выражение не разобралось — об этом уже сказано. Дальше по строке
@@ -971,6 +993,154 @@ public final class Parser {
         }
         Token end = expect(TokenType.SEMICOLON, "точку с запятой ';' после 'return'");
         return new ReturnStmt(value, keyword.span().to(end.span()));
+    }
+
+    // --- ошибки --------------------------------------------------------------
+
+    /**
+     * Бросок: {@code throw new ParseError(text)}.
+     * <p>
+     * Точка с запятой не обязательна, в отличие от {@code return}: аргумент у
+     * {@code throw} есть всегда, и решать «есть значение или нет» не приходится.
+     * Что брошенное обязано быть экземпляром {@code Exception}, знает выполнение —
+     * до значения парсер не добирается.
+     */
+    private Stmt throwStatement() {
+        Token keyword = advance(); // throw
+        Expr value = expression(0);
+        if (value instanceof ErrorExpr) {
+            synchronize();
+            return new ErrorStmt(keyword.span().to(value.span()));
+        }
+        return new ThrowStmt(value, keyword.span().to(value.span()));
+    }
+
+    /**
+     * {@code try} с обработчиками и завершающим блоком.
+     * <p>
+     * Тело — всегда блок: следующей строкой идёт {@code catch}, и без скобок границу
+     * тела пришлось бы угадывать. По той же причине блоками записываются и сами
+     * обработчики, и {@code finally}.
+     * <p>
+     * Обработчиков может не быть вовсе, если есть {@code finally}. А вот {@code try}
+     * без того и другого не значит ничего — это просто блок, и почти наверняка
+     * недописанная конструкция.
+     */
+    private Stmt tryStatement() {
+        Token keyword = advance(); // try
+        BlockStmt body = requiredBlock("тело 'try'");
+        if (body == null) {
+            synchronize();
+            return new ErrorStmt(keyword.span());
+        }
+
+        List<TryStmt.Catch> handlers = new ArrayList<>();
+        while (check(TokenType.CATCH)) {
+            TryStmt.Catch handler = catchClause();
+            if (handler == null) {
+                break;
+            }
+            handlers.add(handler);
+        }
+
+        BlockStmt finallyBlock = null;
+        if (check(TokenType.FINALLY)) {
+            advance();
+            finallyDepth++;
+            try {
+                finallyBlock = requiredBlock("тело 'finally'");
+            } finally {
+                finallyDepth--;
+            }
+        }
+
+        if (handlers.isEmpty() && finallyBlock == null) {
+            diagnostics.error(keyword.span(), "у 'try' должен быть хотя бы один 'catch' "
+                    + "или 'finally': без них это обычный блок");
+            return new ErrorStmt(keyword.span().to(body.span()));
+        }
+        return new TryStmt(body, handlers, finallyBlock, keyword.span().to(lastSpan()));
+    }
+
+    /**
+     * Один обработчик: {@code catch (e is IoError, ValueError) { ... }}.
+     * <p>
+     * Тип после {@code is} — имя, а не выражение, как после {@code :} и {@code with}
+     * в объявлении класса: тип обработчика должен быть виден глазами. Квалифицированная
+     * форма работает — {@code catch (e is db.QueryError)}.
+     *
+     * @return {@code null}, если обработчик не разобрался; об ошибке уже сказано
+     */
+    private TryStmt.Catch catchClause() {
+        Token keyword = advance(); // catch
+        expect(TokenType.LPAREN, "открывающую скобку '(' после 'catch'");
+        if (!check(TokenType.WORD)) {
+            diagnostics.error(peek().span(), "после 'catch (' ожидалось имя, под которым"
+                    + " ошибка ляжет в переменную, найдено " + describe(peek()));
+            synchronize();
+            return null;
+        }
+        Token name = advance();
+
+        List<TryStmt.TypeRef> types = new ArrayList<>();
+        if (match(TokenType.IS)) {
+            do {
+                TypeName type = typeName("класса или трейта ошибки");
+                if (type == null) {
+                    return null;
+                }
+                for (TryStmt.TypeRef existing : types) {
+                    if (existing.title().equals(type.title())) {
+                        diagnostics.error(type.span(),
+                                "тип '" + type.title() + "' в этом обработчике указан дважды");
+                    }
+                }
+                types.add(new TryStmt.TypeRef(type.alias(), type.name(), type.span()));
+            } while (match(TokenType.COMMA));
+        }
+        expect(TokenType.RPAREN, "закрывающую скобку ')' после 'catch'");
+
+        BlockStmt body = requiredBlock("тело 'catch'");
+        if (body == null) {
+            synchronize();
+            return null;
+        }
+        return new TryStmt.Catch(name.text(), name.span(), types, body,
+                keyword.span().to(body.span()));
+    }
+
+    /** Блок там, где одиночная инструкция не разрешена. {@code null}, если его нет. */
+    private BlockStmt requiredBlock(String what) {
+        if (check(TokenType.LBRACE)) {
+            return block();
+        }
+        diagnostics.error(peek().span(), what + " записывается блоком в фигурных скобках,"
+                + " а здесь " + describe(peek()));
+        return null;
+    }
+
+    /** {@code catch} или {@code finally} без своего {@code try}. */
+    private Stmt orphanHandler() {
+        Token keyword = advance();
+        diagnostics.error(keyword.span(), "'" + keyword.text() + "' без 'try': "
+                + "он пишется сразу после блока 'try'");
+        synchronize();
+        return new ErrorStmt(keyword.span());
+    }
+
+    /**
+     * Выход из {@code finally} наружу запрещён — ошибка разбора, а не предупреждение.
+     * <p>
+     * Это та же линия, что и {@code if (x = 5)}: конструкция, у которой единственное
+     * применение — незаметно проглотить ошибку, летящую наружу, не разбирается в принципе.
+     * В Java она разрешена и служит источником багов, которых не видно при чтении.
+     */
+    private void forbidInFinally(Token keyword) {
+        if (finallyDepth > 0) {
+            diagnostics.error(keyword.span(), "'" + keyword.text() + "' в блоке 'finally' запрещён: "
+                    + "он молча погасил бы ошибку, которая сейчас летит наружу."
+                    + " Выходите из тела 'try' или из 'catch'");
+        }
     }
 
     // --- ветвления и циклы ---------------------------------------------------
@@ -1062,12 +1232,14 @@ public final class Parser {
     private Stmt breakStatement() {
         Token keyword = advance();
         requireLoop(keyword);
+        forbidInFinally(keyword);
         return new BreakStmt(keyword.span());
     }
 
     private Stmt continueStatement() {
         Token keyword = advance();
         requireLoop(keyword);
+        forbidInFinally(keyword);
         return new ContinueStmt(keyword.span());
     }
 
@@ -1152,7 +1324,7 @@ public final class Parser {
     private static boolean isStatementBoundary(TokenType type) {
         return switch (type) {
             case RBRACE, IF, ELSE, WHILE, FOR, BREAK, CONTINUE, CONST, FUN, CLASS, TRAIT,
-                 IMPORT, RETURN -> true;
+                 IMPORT, RETURN, THROW, TRY, CATCH, FINALLY -> true;
             default -> false;
         };
     }

@@ -11,6 +11,7 @@ import ru.wds.wdl.resolve.LinkError;
 import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.resolve.TraitShape;
+import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.TraitValue;
@@ -82,7 +83,7 @@ public final class Interpreter
     public void run(Unit unit, ExecutionContext context) {
         try {
             execute(unit.program(), context.nested().withUnit(unit));
-        } catch (WdlRuntimeError error) {
+        } catch (WdlError error) {
             throw error.inSource(unit.source());
         }
     }
@@ -100,7 +101,10 @@ public final class Interpreter
             throw new IllegalStateException(
                     "сигнал управления вне цикла или функции: дерево собрано неверно", signal);
         } catch (StackOverflowError e) {
-            throw stackExhausted();
+            // Вторая линия защиты от рекурсии, и ловится она только на границе выполнения,
+            // где стек уже раскручен: собирать сообщение в тот момент, когда стека нет, —
+            // верный способ получить второе переполнение вместо диагностики.
+            throw FatalError.stackExhausted();
         }
     }
 
@@ -155,34 +159,16 @@ public final class Interpreter
         try {
             return visit(expr, context);
         } catch (StackOverflowError e) {
-            throw stackExhausted();
+            // Вторая линия защиты от рекурсии, и ловится она только на границе выполнения,
+            // где стек уже раскручен: собирать сообщение в тот момент, когда стека нет, —
+            // верный способ получить второе переполнение вместо диагностики.
+            throw FatalError.stackExhausted();
         }
     }
 
     /** Вычисление выражения внутри дерева — без страховок, их место на границе. */
     private Value valueOf(Expr expr, ExecutionContext context) {
         return visit(expr, context);
-    }
-
-    /**
-     * Стек потока кончился раньше, чем счётчик вложенных вызовов
-     * ({@link ExecutionContext#MAX_CALL_DEPTH}).
-     * <p>
-     * Счётчик — основная защита от бесконечной рекурсии, и он предсказуем: одно и то же
-     * число вызовов в любом окружении. Но сколько кадров Java уходит на один вызов wdl,
-     * зависит от формы тела, а сколько их вообще влезает — от размера стека потока,
-     * который движку не подчиняется. Поэтому здесь и стоит вторая линия: в чужом
-     * приложении скрипт обязан падать ошибкой скрипта, а не {@code StackOverflowError}
-     * посреди чужого кода.
-     * <p>
-     * Ловится ошибка только на границе выполнения, где стек уже раскручен: собирать
-     * сообщение в тот момент, когда стека нет, — верный способ получить второе
-     * переполнение вместо диагностики. Места в исходнике здесь нет и быть не может —
-     * его знал тот кадр, которого уже не существует.
-     */
-    private static WdlRuntimeError stackExhausted() {
-        return new WdlRuntimeError(Span.NONE, "стек вызовов исчерпан: рекурсия оказалась глубже, "
-                + "чем выдерживает поток. Проверьте условие выхода из рекурсии");
     }
 
     // --- инструкции ----------------------------------------------------------
@@ -326,7 +312,7 @@ public final class Interpreter
                     }
                 }
             }
-            default -> throw new WdlRuntimeError(stmt.iterable().span(),
+            default -> throw new WdlRuntimeError(ErrorKind.TYPE, stmt.iterable().span(),
                     "перебрать можно массив, строку или объект, а здесь "
                             + iterable.type().title() + " (" + iterable + ")");
         }
@@ -396,7 +382,7 @@ public final class Interpreter
      */
     private static void checkNotConstant(String name, Span span, ExecutionContext context) {
         if (context.scope().isConstantHere(name)) {
-            throw new WdlRuntimeError(span, "'" + name + "' нельзя объявить: в этой области уже есть"
+            throw new WdlRuntimeError(ErrorKind.DECLARATION, span, "'" + name + "' нельзя объявить: в этой области уже есть"
                     + " константа с таким именем, а её значение задаётся один раз."
                     + " Перекрыть константу можно только во вложенной области");
         }
@@ -479,7 +465,7 @@ public final class Interpreter
         try {
             return context.linker().classShape(stmt, parent == null ? null : parent.shape(), mixins);
         } catch (LinkError error) {
-            throw new WdlRuntimeError(error.span(), error.getMessage());
+            throw new WdlRuntimeError(ErrorKind.DECLARATION, error.span(), error.getMessage());
         }
     }
 
@@ -503,16 +489,16 @@ public final class Interpreter
             return klass;
         }
         if (value instanceof TraitValue) {
-            throw new WdlRuntimeError(parent.span(), "'" + parent.title() + "' — трейт, а не класс: "
+            throw new WdlRuntimeError(ErrorKind.DECLARATION, parent.span(), "'" + parent.title() + "' — трейт, а не класс: "
                     + "трейт подмешивается через 'with', наследуются от класса");
         }
         if (value instanceof ClassValue) {
             // Класс от приложения (embed.NativeClass): его поля и методы живут в Java,
             // и плоскую таблицу по ним не собрать.
-            throw new WdlRuntimeError(parent.span(), "'" + parent.title() + "' — встроенный класс: "
+            throw new WdlRuntimeError(ErrorKind.DECLARATION, parent.span(), "'" + parent.title() + "' — встроенный класс: "
                     + "наследоваться можно только от класса, объявленного на wdl");
         }
-        throw new WdlRuntimeError(parent.span(), "наследоваться можно только от класса, а '"
+        throw new WdlRuntimeError(ErrorKind.DECLARATION, parent.span(), "наследоваться можно только от класса, а '"
                 + parent.title() + "' — это " + value.type().title() + " (" + value + ")");
     }
 
@@ -527,11 +513,11 @@ public final class Interpreter
                 continue;
             }
             if (value instanceof ClassValue) {
-                throw new WdlRuntimeError(reference.span(), "'" + reference.title()
+                throw new WdlRuntimeError(ErrorKind.DECLARATION, reference.span(), "'" + reference.title()
                         + "' — класс, а не трейт: подмешать можно только трейт,"
                         + " у класса есть конструктор");
             }
-            throw new WdlRuntimeError(reference.span(), "подмешать можно только трейт, а '"
+            throw new WdlRuntimeError(ErrorKind.DECLARATION, reference.span(), "подмешать можно только трейт, а '"
                     + reference.title() + "' — это " + value.type().title() + " (" + value + ")");
         }
         return traits;
@@ -549,7 +535,7 @@ public final class Interpreter
         if (alias == null) {
             Value value = context.scope().lookup(name);
             if (value == null) {
-                throw new WdlRuntimeError(span, "неизвестный " + what + " '" + title
+                throw new WdlRuntimeError(ErrorKind.NAME, span, "неизвестный " + what + " '" + title
                         + "': наследоваться и подмешивать можно то, что объявлено в этом же"
                         + " файле или импортировано выше по тексту");
             }
@@ -557,7 +543,7 @@ public final class Interpreter
         }
         Value module = context.scope().lookup(alias);
         if (module == null) {
-            throw new WdlRuntimeError(span, "неизвестный " + what + " '" + title
+            throw new WdlRuntimeError(ErrorKind.NAME, span, "неизвестный " + what + " '" + title
                     + "': проверьте, что выше есть 'import ... as " + alias
                     + "' и что в том модуле объявлен этот тип");
         }
@@ -637,7 +623,7 @@ public final class Interpreter
         if (existing == null || existing == incoming || !isType(existing) || !isType(incoming)) {
             return;
         }
-        throw new WdlRuntimeError(span, "модуль приносит тип '" + name
+        throw new WdlRuntimeError(ErrorKind.DECLARATION, span, "модуль приносит тип '" + name
                 + "', а такое имя в этой области уже есть. Импортируйте модуль"
                 + " с именем — 'import ... as m' — и обращайтесь через него");
     }
@@ -659,6 +645,228 @@ public final class Interpreter
     @Override
     public Void visitErrorStmt(ErrorStmt stmt, ExecutionContext context) {
         throw brokenTree(stmt.span());
+    }
+
+    // --- ошибки --------------------------------------------------------------
+
+    /** Поле экземпляра ошибки: сообщение для человека. */
+    private static final String MESSAGE = "message";
+    /** Поле экземпляра ошибки: имя её класса. Проставляется в момент броска. */
+    private static final String KIND = "kind";
+    /** Поле экземпляра ошибки: место броска — «файл:строка:столбец». */
+    private static final String AT = "at";
+    /** Поле экземпляра ошибки: путь по скрипту, массив строк. */
+    private static final String TRACE = "trace";
+    /** Поле экземпляра ошибки: то, что случилось на пути наружу и не должно затирать причину. */
+    private static final String SUPPRESSED = "suppressed";
+
+    /**
+     * Бросок из скрипта.
+     * <p>
+     * Значение обязано быть экземпляром {@code Exception} или его наследника. Проверка
+     * стоит одной строки и убирает из каждого обработчика вопрос «а это вообще объект?»,
+     * которым расплачиваются языки, разрешающие {@code throw 5}.
+     */
+    @Override
+    public Void visitThrow(ThrowStmt stmt, ExecutionContext context) {
+        Value value = valueOf(stmt.error(), context);
+        if (!(value instanceof InstanceObjectValue error) || !isException(error, context)) {
+            throw new WdlRuntimeError(ErrorKind.TYPE, stmt.error().span(),
+                    "бросить можно только экземпляр Exception, а здесь "
+                            + value.type().title() + " (" + value.display() + ")");
+        }
+        throw raise(error, stmt.span(), context);
+    }
+
+    /**
+     * {@code try} с обработчиками и {@code finally}.
+     * <p>
+     * Порядок здесь и есть обещание языка, поэтому конструкция расписана явно, а не
+     * отдана {@code try/finally} самой Java:
+     * <ol>
+     *   <li>сигналы ({@code return}, {@code break}, {@code continue}) и {@link FatalError}
+     *       обработчикам не достаются, но {@code finally} при них выполняется;</li>
+     *   <li>ошибка, брошенная из обработчика, летит наружу — своим же {@code catch}
+     *       она не ловится;</li>
+     *   <li>ошибка из {@code finally} не затирает ту, ради которой мы шли наружу:
+     *       первая летит дальше, вторая ложится ей в {@code suppressed}.</li>
+     * </ol>
+     */
+    @Override
+    public Void visitTry(TryStmt stmt, ExecutionContext context) {
+        RuntimeException pending = null;
+        try {
+            visitBlock(stmt.body(), context);
+        } catch (WdlRuntimeError error) {
+            TryStmt.Catch handler = handlerFor(stmt, error, context);
+            if (handler == null) {
+                pending = error;
+            } else {
+                try {
+                    handle(handler, error, context);
+                } catch (RuntimeException failed) {
+                    pending = failed;
+                }
+            }
+        } catch (RuntimeException uncatchable) {
+            // Сигналы управления и FatalError: обработчик их не видит, а finally обязан
+            // выполниться — закрыть начатое на пути наружу можно и нужно.
+            pending = uncatchable;
+        }
+
+        if (stmt.hasFinally()) {
+            try {
+                visitBlock(stmt.finallyBlock(), context);
+            } catch (RuntimeException second) {
+                if (pending instanceof WdlRuntimeError flying && second instanceof WdlRuntimeError extra) {
+                    suppress(flying, extra, context);
+                    throw flying;
+                }
+                throw second;
+            }
+        }
+        if (pending != null) {
+            throw pending;
+        }
+        return null;
+    }
+
+    /** Первый подходящий обработчик, сверху вниз, или {@code null}. */
+    private TryStmt.Catch handlerFor(TryStmt stmt, WdlRuntimeError error, ExecutionContext context) {
+        for (TryStmt.Catch handler : stmt.handlers()) {
+            if (handler.catchesEverything()) {
+                return handler;
+            }
+            for (TryStmt.TypeRef reference : handler.types()) {
+                if (catches(error, typeOf(reference, context), context)) {
+                    return handler;
+                }
+            }
+        }
+        return null;
+    }
+
+    private Value typeOf(TryStmt.TypeRef reference, ExecutionContext context) {
+        Value value = typeValue(reference.alias(), reference.name(), reference.title(),
+                "класса или трейта", reference.span(), context);
+        if (value instanceof ClassValue || value instanceof TraitValue) {
+            return value;
+        }
+        throw new WdlRuntimeError(ErrorKind.TYPE, reference.span(),
+                "после 'is' в обработчике должен стоять класс или трейт, а '" + reference.title()
+                        + "' — это " + value.type().title() + " (" + value.display() + ")");
+    }
+
+    /**
+     * Подходит ли ошибка обработчику.
+     * <p>
+     * У ошибки, брошенной скриптом, значение уже есть, и вопрос решает её класс.
+     * У ошибки движка значения ещё нет и создавать его ради проверки незачем: реестр
+     * запуска сравнивает формы классов, ничего не материализуя.
+     */
+    private static boolean catches(WdlRuntimeError error, Value target, ExecutionContext context) {
+        if (error.payload() instanceof InstanceObjectValue instance) {
+            return instance.owner().conformsTo(target);
+        }
+        return error.kind() != null && context.exceptions().matches(error.kind(), target);
+    }
+
+    /** Выполняет обработчик: имя пойманной ошибки живёт только в его области. */
+    private void handle(TryStmt.Catch handler, WdlRuntimeError error, ExecutionContext context) {
+        ExecutionContext inner = context.nested();
+        inner.scope().define(handler.name(), materialize(error, context));
+        visit(handler.body(), inner);
+    }
+
+    /**
+     * Значение ошибки — готовое или созданное сейчас.
+     * <p>
+     * Ошибка движка становится объектом ровно в этот момент: непойманная не становится
+     * им никогда, и на пути в хост от неё нужны только текст и место.
+     */
+    private Value materialize(WdlRuntimeError error, ExecutionContext context) {
+        if (error.payload() != null) {
+            return error.payload();
+        }
+        ClassValue declared = context.exceptions().classOf(error.kind());
+        MapValue value;
+        if (declared != null
+                && declared.instantiate(List.of(StringValue.of(error.getMessage())), context,
+                        error.span()) instanceof MapValue created) {
+            value = created;
+        } else {
+            // Прелюдии в этом запуске не было — такое бывает, когда функцию wdl зовёт
+            // приложение через свой CallContext. Объект всё равно нужен: обработчик
+            // получит те же поля, только без класса.
+            value = new MapValue();
+            value.put(MESSAGE, StringValue.of(error.getMessage()));
+            value.put(SUPPRESSED, new ArrayValue());
+        }
+        value.put(KIND, StringValue.of(error.kindName()));
+        value.put(AT, StringValue.of(placeOf(error.span(), error.source(), context)));
+        value.put(TRACE, traceValue(error.trace()));
+        error.materialized(value);
+        return value;
+    }
+
+    /** Ошибка при выходе не затирает ту, ради которой мы выходим, — она ложится к ней. */
+    private void suppress(WdlRuntimeError flying, WdlRuntimeError extra, ExecutionContext context) {
+        if (materialize(flying, context) instanceof MapValue carrier
+                && carrier.get(SUPPRESSED) instanceof ArrayValue list) {
+            list.add(materialize(extra, context));
+        }
+    }
+
+    /**
+     * Готовит экземпляр к полёту: имя класса, место и путь по скрипту.
+     * <p>
+     * Повторный бросок ({@code throw e} внутри обработчика) место и трейс не затирает:
+     * иначе перезаворачивание стирало бы ровно ту информацию, ради которой заворачивают.
+     */
+    private static WdlRuntimeError raise(InstanceObjectValue error, Span span,
+                                         ExecutionContext context) {
+        List<String> trace = Frame.trace(context.frame());
+        if (!alreadyThrown(error)) {
+            error.put(KIND, StringValue.of(error.owner().name()));
+            error.put(AT, StringValue.of(placeOf(span, null, context)));
+            error.put(TRACE, traceValue(trace));
+        }
+        WdlRuntimeError thrown = WdlRuntimeError.thrown(span, error, messageOf(error));
+        thrown.rememberTrace(trace);
+        return thrown;
+    }
+
+    private static boolean alreadyThrown(InstanceObjectValue error) {
+        return error.get(AT) instanceof StringValue at && !at.value().isEmpty();
+    }
+
+    /** Наследник ли это {@code Exception} — по классу из реестра запуска, а не по имени. */
+    private static boolean isException(InstanceObjectValue error, ExecutionContext context) {
+        ClassValue root = context.exceptions().classOf(ErrorKind.EXCEPTION);
+        // Без прелюдии сравнивать не с чем: разрешаем любой экземпляр, иначе бросок
+        // вообще перестал бы работать там, где корневой класс не объявлен.
+        return root == null || error.owner().conformsTo(root);
+    }
+
+    private static String messageOf(InstanceObjectValue error) {
+        return error.get(MESSAGE) instanceof StringValue message
+                ? message.value()
+                : error.owner().name();
+    }
+
+    /** «файл:строка:столбец» или пустая строка, если исходника нет (REPL, eval). */
+    private static String placeOf(Span span, Source known, ExecutionContext context) {
+        Source source = known != null ? known : context.unit().source();
+        if (source == null || span.isNone() || span.start() > source.length()) {
+            return "";
+        }
+        return source.name() + ":" + source.positionOf(span.start());
+    }
+
+    private static ArrayValue traceValue(List<String> frames) {
+        ArrayValue lines = new ArrayValue();
+        frames.forEach(frame -> lines.add(StringValue.of(frame)));
+        return lines;
     }
 
     // --- механика циклов -----------------------------------------------------
@@ -698,10 +906,14 @@ public final class Interpreter
      * Даёт остановить зациклившийся скрипт снаружи — обычным
      * {@link Thread#interrupt()}. Три строки на цикл против «приложение висит,
      * и сделать с этим нечего».
+     * <p>
+     * Это {@link FatalError}, а не ошибка скрипта, и разница здесь принципиальная:
+     * {@code while (true) { try { ... } catch (e) {} }} поймал бы прерывание и продолжил
+     * работу — ровно то, ради чего приложение и звало {@code interrupt()}.
      */
     private static void checkInterrupted(Span span) {
         if (Thread.currentThread().isInterrupted()) {
-            throw new WdlRuntimeError(span, "выполнение прервано");
+            throw FatalError.interrupted(span);
         }
     }
 
@@ -716,7 +928,7 @@ public final class Interpreter
     public Value visitVariable(VariableExpr expr, ExecutionContext context) {
         Value value = context.scope().lookup(expr.name());
         if (value == null) {
-            throw new WdlRuntimeError(expr.span(), "переменная '" + expr.name() + "' не определена");
+            throw new WdlRuntimeError(ErrorKind.NAME, expr.span(), "переменная '" + expr.name() + "' не определена");
         }
         return value;
     }
@@ -782,7 +994,7 @@ public final class Interpreter
     public Value visitCall(CallExpr expr, ExecutionContext context) {
         Value callee = valueOf(expr.callee(), context);
         if (!(callee instanceof FunctionValue function)) {
-            throw new WdlRuntimeError(expr.callee().span(),
+            throw new WdlRuntimeError(ErrorKind.CALL, expr.callee().span(),
                     "вызвать можно только функцию, а здесь " + callee.type().title() + " (" + callee + ")");
         }
 
@@ -791,7 +1003,7 @@ public final class Interpreter
             arguments.add(valueOf(argument, context));
         }
         if (!function.arity().accepts(arguments.size())) {
-            throw new WdlRuntimeError(expr.span(), "функция '" + function.name() + "' принимает "
+            throw new WdlRuntimeError(ErrorKind.CALL, expr.span(), "функция '" + function.name() + "' принимает "
                     + function.arity().describeArguments() + ", а передано " + arguments.size());
         }
         return function.call(context, arguments, expr.span());
@@ -808,11 +1020,11 @@ public final class Interpreter
     public Value visitNew(NewExpr expr, ExecutionContext context) {
         Value target = valueOf(expr.callee(), context);
         if (target instanceof TraitValue trait) {
-            throw new WdlRuntimeError(expr.callee().span(),
+            throw new WdlRuntimeError(ErrorKind.DECLARATION, expr.callee().span(),
                     "'" + trait.name() + "' — трейт, экземпляр создаёт класс");
         }
         if (!(target instanceof ClassValue declared)) {
-            throw new WdlRuntimeError(expr.callee().span(), "создать экземпляр можно только классом, "
+            throw new WdlRuntimeError(ErrorKind.CALL, expr.callee().span(), "создать экземпляр можно только классом, "
                     + "а здесь " + target.type().title() + " (" + target + ")");
         }
 
@@ -821,7 +1033,7 @@ public final class Interpreter
             arguments.add(valueOf(argument, context));
         }
         if (!declared.arity().accepts(arguments.size())) {
-            throw new WdlRuntimeError(expr.span(), "класс '" + declared.name() + "' принимает "
+            throw new WdlRuntimeError(ErrorKind.CALL, expr.span(), "класс '" + declared.name() + "' принимает "
                     + declared.arity().describeArguments() + ", а передано " + arguments.size());
         }
         // Класс, написанный на wdl, и класс, встроенный приложением, здесь неразличимы.
@@ -892,7 +1104,7 @@ public final class Interpreter
         public Value read() {
             Value value = scope.lookup(name);
             if (value == null) {
-                throw new WdlRuntimeError(span, "переменная '" + name + "' не определена");
+                throw new WdlRuntimeError(ErrorKind.NAME, span, "переменная '" + name + "' не определена");
             }
             return value;
         }
@@ -904,7 +1116,7 @@ public final class Interpreter
             switch (scope.assign(name, value)) {
                 case DONE -> { }
                 case ABSENT -> scope.define(name, value);
-                case CONSTANT -> throw new WdlRuntimeError(span, "'" + name + "' нельзя присвоить: "
+                case CONSTANT -> throw new WdlRuntimeError(ErrorKind.DECLARATION, span, "'" + name + "' нельзя присвоить: "
                         + "это константа, её значение задаётся один раз при объявлении");
             }
         }
@@ -971,7 +1183,7 @@ public final class Interpreter
             case ModuleValue module -> member(module, key, span);
             case StringValue string -> StringValue.of(String.valueOf(
                     string.value().charAt(checkIndex(string.length(), key, "строки", span))));
-            default -> throw new WdlRuntimeError(span,
+            default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "к значению типа " + container.type().title() + " нельзя обратиться " + how(style, key));
         };
     }
@@ -983,12 +1195,12 @@ public final class Interpreter
      */
     private static Value member(ModuleValue module, Value key, Span span) {
         if (!(key instanceof StringValue name)) {
-            throw new WdlRuntimeError(span, "имя в модуле '" + module.name()
+            throw new WdlRuntimeError(ErrorKind.TYPE, span, "имя в модуле '" + module.name()
                     + "' задаётся строкой, а здесь " + key.type().title() + " (" + key + ")");
         }
         Value value = module.get(name.value());
         if (value == null) {
-            throw new WdlRuntimeError(span, "в модуле '" + module.name() + "' нет имени '"
+            throw new WdlRuntimeError(ErrorKind.NAME, span, "в модуле '" + module.name() + "' нет имени '"
                     + name.value() + "'");
         }
         return value;
@@ -1015,26 +1227,26 @@ public final class Interpreter
             case ClassValue declared -> declared.statics().put(key, value);
             // Модуль выполняется один раз за запуск, и значение у всех, кто его
             // импортировал, общее: запись отсюда меняла бы чужой файл всем сразу.
-            case ModuleValue module -> throw new WdlRuntimeError(span,
+            case ModuleValue module -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "модуль '" + module.name() + "' изменять нельзя: его имена объявлены"
                             + " в своём файле, и значение у всех, кто его импортировал, общее");
             // Строка неизменяема, и это не случайность реализации: строки лежат в ключах
             // объектов, и молчаливое изменение на месте испортило бы их.
-            case StringValue ignored -> throw new WdlRuntimeError(span,
+            case StringValue ignored -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "строку нельзя изменить по индексу: строки неизменяемы");
-            default -> throw new WdlRuntimeError(span,
+            default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "в значение типа " + container.type().title() + " нельзя записать " + how(style, key));
         }
     }
 
     private static int checkIndex(int size, Value key, String what, Span span) {
         if (!(key instanceof NumberValue number) || !number.isInteger()) {
-            throw new WdlRuntimeError(span, "индекс " + what + " должен быть целым числом, а здесь "
+            throw new WdlRuntimeError(ErrorKind.INDEX, span, "индекс " + what + " должен быть целым числом, а здесь "
                     + key.type().title() + " (" + key + ")");
         }
         long index = number.asLong();
         if (index < 0 || index >= size) {
-            throw new WdlRuntimeError(span, "индекс " + index + " вне границ " + what + " размером " + size);
+            throw new WdlRuntimeError(ErrorKind.INDEX, span, "индекс " + index + " вне границ " + what + " размером " + size);
         }
         return (int) index;
     }

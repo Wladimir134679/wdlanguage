@@ -18,7 +18,7 @@ import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.runtime.ExecutionContext;
 import ru.wds.wdl.runtime.Interpreter;
 import ru.wds.wdl.runtime.Output;
-import ru.wds.wdl.runtime.WdlRuntimeError;
+import ru.wds.wdl.runtime.WdlError;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.stdlib.Std;
 import ru.wds.wdl.stdlib.Sys;
@@ -181,18 +181,35 @@ public final class Main implements Callable<Integer> {
         try {
             new Interpreter().run(Unit.of(source, program, resolution), context);
             return 0;
-        } catch (WdlRuntimeError e) {
+        } catch (WdlError e) {
             // Ошибка выполнения показывается так же, как ошибка разбора: с местом
             // в скрипте — и в том файле, которому это место принадлежит. С импортом
-            // файлов много, и смещение в каждом из них указывает на своё.
-            Source failed = e.source() != null ? e.source() : source;
-            System.err.println(new Diagnostics(failed).render(e.toDiagnostic()));
+            // файлов много, и смещение в каждом из них указывает на своё. Ниже —
+            // путь по скрипту: он про вызовы, а не про строку, где рвануло.
+            System.err.println(report(e, source));
             return EXIT_SCRIPT_ERROR;
         } finally {
             // Встроенные модули могли завести живое — клиента, соединение, поток.
             // Закрывает их хозяин запуска, и здесь это мы, чем бы скрипт ни кончился.
             context.shutdownModules();
         }
+    }
+
+    /**
+     * Ошибка выполнения так, как её видит человек: строка исходника с подчёркиванием,
+     * а следом путь по скрипту.
+     * <p>
+     * Java-стек сюда не попадает вовсе: он описывал бы путь по методам интерпретатора,
+     * который автору скрипта бесполезен.
+     */
+    private static String report(WdlError error, Source fallback) {
+        Source failed = error.source() != null ? error.source() : fallback;
+        StringBuilder sb = new StringBuilder(256);
+        sb.append(new Diagnostics(failed).render(error.toDiagnostic()));
+        for (String frame : error.trace()) {
+            sb.append(System.lineSeparator()).append("  ").append(frame);
+        }
+        return sb.toString();
     }
 
     /** Каталог скрипта — корень для его импортов. */
@@ -253,8 +270,8 @@ public final class Main implements Callable<Integer> {
                 if (value != NullValue.NULL) {
                     System.out.println(value);
                 }
-            } catch (WdlRuntimeError e) {
-                System.err.println(asExpression.render(e.toDiagnostic()));
+            } catch (WdlError e) {
+                System.err.println(report(e, source));
             }
             return;
         }
@@ -272,8 +289,8 @@ public final class Main implements Callable<Integer> {
             // Каждая строка REPL — своя программа, поэтому и формы у неё свои:
             // класс живёт в области сеанса, а наследоваться можно в пределах ввода.
             interpreter.run(program, resolution, context);
-        } catch (WdlRuntimeError e) {
-            System.err.println(diagnostics.render(e.toDiagnostic()));
+        } catch (WdlError e) {
+            System.err.println(report(e, source));
         }
     }
 

@@ -243,11 +243,12 @@ class FunctionTest {
     }
 
     @Test
-    @DisplayName("бесконечная рекурсия — ошибка скрипта, а не падение потока")
+    @DisplayName("бесконечная рекурсия останавливает выполнение, а не роняет поток")
     void recursionHasLimit() {
-        WdlRuntimeError error = errorOf("fun вечно(n) => вечно(n + 1)\nвечно(0)");
-        assertTrue(error.getMessage().contains("слишком глубокая рекурсия"), error.getMessage());
-        assertFalse(error.span().isNone(), "ошибка обязана знать место в скрипте");
+        FatalError fatal = assertThrows(FatalError.class,
+                () -> printed("fun вечно(n) => вечно(n + 1)\nвечно(0)"));
+        assertTrue(fatal.getMessage().contains("слишком глубокая рекурсия"), fatal.getMessage());
+        assertFalse(fatal.span().isNone(), "ошибка обязана знать место в скрипте");
     }
 
     @Test
@@ -258,11 +259,11 @@ class FunctionTest {
     }
 
     @Test
-    @DisplayName("если стека потока не хватило раньше счётчика — всё равно ошибка скрипта")
+    @DisplayName("если стека потока не хватило раньше счётчика — всё равно остановка, а не крах")
     void shortStackStillGivesScriptError() throws InterruptedException {
         // Счётчик движка до предела не дойдёт: он рассчитан на обычный поток, а здесь стек
         // нарочно крошечный. Проверяется вторая линия защиты — та, что превращает
-        // StackOverflowError в ошибку скрипта.
+        // StackOverflowError в остановку выполнения с внятным сообщением.
         Program program = parse("fun вниз(n) => n <= 0 ? 0 : вниз(n - 1)\nвниз("
                 + (ExecutionContext.MAX_CALL_DEPTH - 2) + ")");
 
@@ -277,9 +278,9 @@ class FunctionTest {
         thread.start();
         thread.join();
 
-        WdlRuntimeError error = assertInstanceOf(WdlRuntimeError.class, thrown[0],
-                () -> "ожидалась ошибка скрипта, а получено: " + thrown[0]);
-        assertTrue(error.getMessage().contains("стек вызовов исчерпан"), error.getMessage());
+        FatalError fatal = assertInstanceOf(FatalError.class, thrown[0],
+                () -> "ожидалась остановка выполнения, а получено: " + thrown[0]);
+        assertTrue(fatal.getMessage().contains("стек вызовов исчерпан"), fatal.getMessage());
     }
 
     // --- функция как значение ------------------------------------------------

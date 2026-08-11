@@ -213,6 +213,37 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
+    public Void visitThrow(ThrowStmt stmt, Integer depth) {
+        line(depth, "throw", stmt.span());
+        return visit(stmt.error(), depth + 1);
+    }
+
+    /**
+     * Порядок вложенного тот же, что при выполнении: тело, обработчики сверху вниз,
+     * {@code finally}. Типы обработчика печатаются в его заголовке — по ним и видно,
+     * который сработает первым.
+     */
+    @Override
+    public Void visitTry(TryStmt stmt, Integer depth) {
+        line(depth, "try, обработчиков: " + stmt.handlers().size(), stmt.span());
+        line(depth + 1, "тело", stmt.body().span());
+        visit(stmt.body(), depth + 2);
+        for (TryStmt.Catch handler : stmt.handlers()) {
+            line(depth + 1, "catch " + handler.name() + (handler.catchesEverything()
+                    ? " (любая ошибка)"
+                    : " is " + handler.types().stream()
+                            .map(TryStmt.TypeRef::title)
+                            .collect(Collectors.joining(", "))), handler.span());
+            visit(handler.body(), depth + 2);
+        }
+        if (stmt.hasFinally()) {
+            line(depth + 1, "finally", stmt.finallyBlock().span());
+            visit(stmt.finallyBlock(), depth + 2);
+        }
+        return null;
+    }
+
+    @Override
     public Void visitErrorStmt(ErrorStmt stmt, Integer depth) {
         return line(depth, "<неразобранная инструкция>", stmt.span());
     }

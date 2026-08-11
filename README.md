@@ -98,7 +98,9 @@ $ wdl examples/hello.wdl
 `for`, `for ... in`, `break`, `continue`), свои функции (`fun`, `return`,
 тело-выражение `=>`, анонимные функции, значения параметров по умолчанию, замыкания),
 классы (`class`, `trait`, `new`, `this`, `super`, `with`, `is`, фабрики
-`fun Имя.член(...)`) и модули (`import lib.math`, `import lib.math as m`,
+`fun Имя.член(...)`), ошибки (иерархия `Exception`, `throw`,
+`try`/`catch`/`finally`, путь по скрипту в сообщении; `try?`, `defer` и `use`
+ещё нет) и модули (`import lib.math`, `import lib.math as m`,
 наследование и трейты через файлы). Модуль читается тогда, когда выполняется его
 `import`, — поэтому импортировать можно файл, которого при запуске ещё не было.
 Модулем бывает и библиотека на Java: консольный запуск даёт `sys.io` (файлы),
@@ -110,8 +112,8 @@ $ wdl examples/hello.wdl
 отдельных имён ещё нет, наследоваться от класса встроенного модуля пока нельзя.
 Подробности — в [docs/statements.md](docs/statements.md),
 [docs/control-flow.md](docs/control-flow.md), [docs/functions.md](docs/functions.md),
-[docs/classes.md](docs/classes.md), [docs/modules.md](docs/modules.md)
-и [docs/expressions.md](docs/expressions.md).
+[docs/classes.md](docs/classes.md), [docs/errors.md](docs/errors.md),
+[docs/modules.md](docs/modules.md) и [docs/expressions.md](docs/expressions.md).
 
 Решения парсера и интерпретатора, определяющие остальное:
 

@@ -37,6 +37,13 @@ public enum TokenType {
     IN("in"),
     BREAK("break"),
     CONTINUE("continue"),
+    /** Бросок ошибки: {@code throw new ParseError(text)}. */
+    THROW("throw"),
+    TRY("try"),
+    /** Обработчик: {@code catch (e is IoError, ValueError)}. Тип после {@code is} — имя. */
+    CATCH("catch"),
+    /** Блок, который выполняется при любом выходе из {@code try}. */
+    FINALLY("finally"),
     MATCH("match"),
     CASE("case"),
     CLASS("class"),

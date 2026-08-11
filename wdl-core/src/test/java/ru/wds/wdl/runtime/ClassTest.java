@@ -289,10 +289,13 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("бесконечное создание — ошибка скрипта, а не переполнение стека")
+    @DisplayName("бесконечное создание останавливает выполнение, а не переполняет стек")
     void endlessCreation() {
-        assertTrue(errorOf("class Node(next = new Node())\nnew Node()")
-                .getMessage().contains("слишком глубокая рекурсия"));
+        // FatalError, а не ошибка скрипта: «выполнение дальше не идёт» ловить обработчиком
+        // нельзя, иначе цикл с try съел бы собственную защиту от зацикливания.
+        FatalError fatal = assertThrows(FatalError.class,
+                () -> printed("class Node(next = new Node())\nnew Node()"));
+        assertTrue(fatal.getMessage().contains("слишком глубокая рекурсия"), fatal.getMessage());
     }
 
     // --- печать и typeof -----------------------------------------------------

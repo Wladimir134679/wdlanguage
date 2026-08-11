@@ -1,71 +1,135 @@
 package ru.wds.wdl.runtime;
 
-import ru.wds.wdl.diagnostic.Diagnostic;
-import ru.wds.wdl.diagnostic.Severity;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.Value;
+import ru.wds.wdl.value.types.InstanceObjectValue;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
- * Ошибка времени выполнения скрипта: деление на ноль, неверный тип, выход за границы.
+ * Ошибка выполнения скрипта: деление на ноль, неверный тип, выход за границы —
+ * и всё, что бросил сам скрипт через {@code throw}.
  * <p>
- * Несёт {@link Span} — место в скрипте, а не в коде интерпретатора. Благодаря этому
- * ошибка выполнения показывается человеку ровно тем же способом, что и ошибка разбора:
- * строкой исходника с подчёркиванием (см. {@link ru.wds.wdl.diagnostic.Diagnostics#render}).
- * <p>
- * Стек вызовов Java не заполняется: он описывает путь по методам интерпретатора,
- * а пользователю скрипта нужен путь по его собственному коду. Заодно это делает
- * создание ошибки дешёвым. Когда появятся функции, сюда добавится стек вызовов
- * самого скрипта.
+ * У каждой такой ошибки есть <b>класс</b> в иерархии {@code Exception}, и на этом
+ * держится {@code catch}: {@code catch (e is IndexError)} ловит одно, {@code catch (e
+ * is RuntimeError)} — всё, что бросает движок, {@code catch (e)} — вообще всё ловимое.
+ * Класс берётся из двух разных мест, и различает их {@link #payload()}:
+ * <ul>
+ *   <li>ошибку бросил движок — класс задан {@link ErrorKind}, а значение-экземпляр
+ *       не создаётся вовсе, пока ошибку не поймают. Непойманная ошибка доходит
+ *       до хозяина запуска, ни разу не став объектом;</li>
+ *   <li>ошибку бросил скрипт — значение уже есть, оно и лежит в {@code payload}.
+ *       Тот же самый объект получит обработчик: {@code throw e} внутри {@code catch}
+ *       не порождает второй ошибки.</li>
+ * </ul>
+ * Что нельзя поймать, здесь не живёт: прерывание потока, исчерпание стека
+ * и слишком глубокая рекурсия — это {@link FatalError}.
  */
-public class WdlRuntimeError extends RuntimeException {
+public final class WdlRuntimeError extends WdlError {
 
-    private final transient Span span;
-    private final transient Source source;
+    private final ErrorKind kind;
+    /**
+     * Значение ошибки: у брошенной скриптом оно есть с самого начала, у ошибки движка
+     * появляется только тогда, когда её действительно поймали.
+     * <p>
+     * Записывается один раз — обработчик обязан получить <b>тот самый</b> объект,
+     * иначе {@code throw e} внутри {@code catch} порождал бы вторую ошибку вместо первой.
+     */
+    private transient Value payload;
+    /**
+     * Путь по скрипту, собранный из кадров вызова в момент броска.
+     * <p>
+     * Поле записывается один раз и не участвует в создании ошибки: место броска знает
+     * тот, кто бросает, а цепочку вызовов — ближайшая граница вызова, через которую
+     * ошибка полетит наружу. Ошибка — объект одноразовый, и копировать её целиком ради
+     * дописанного о ней знания незачем.
+     */
+    private transient List<String> trace;
 
     public WdlRuntimeError(Span span, String message) {
-        this(span, message, null);
+        this(span, message, ErrorKind.RUNTIME, null, null, null);
     }
 
-    private WdlRuntimeError(Span span, String message, Source source) {
-        super(message, null, false, false);
-        this.span = Objects.requireNonNull(span, "span");
-        this.source = source;
+    /** Ошибка движка с указанным классом: {@code new WdlRuntimeError(ErrorKind.INDEX, span, ...)}. */
+    public WdlRuntimeError(ErrorKind kind, Span span, String message) {
+        this(span, message, Objects.requireNonNull(kind, "kind"), null, null, null);
     }
 
-    public Span span() {
-        return span;
-    }
-
-    /**
-     * Файл, в котором стоит {@link #span()}, или {@code null}, если он неизвестен.
-     * <p>
-     * Смещение само по себе ничего не значит: с появлением {@code import} выполняются
-     * несколько файлов сразу, и одно и то же число указывает в каждом из них на разное
-     * место. Кто печатает ошибку, тот и обязан взять исходник отсюда.
-     */
-    public Source source() {
-        return source;
+    private WdlRuntimeError(Span span, String message, ErrorKind kind, Value payload,
+                            Source source, List<String> trace) {
+        super(message, span, source);
+        this.kind = kind;
+        this.payload = payload;
+        this.trace = trace;
     }
 
     /**
-     * Та же ошибка, но с проставленным файлом.
+     * Ошибка, брошенная скриптом: значение уже создано, класс берётся у него.
      * <p>
-     * Проставляет его тот, кто первым узнаёт ответ, — граница выполнения файла:
-     * вызов функции знает юнит своего объявления, загрузка модуля знает его исходник.
-     * Уже отвеченный вопрос второй раз не задаётся: ошибка, поднимающаяся из модуля
-     * через вызов из главного скрипта, остаётся ошибкой модуля.
+     * Сообщение достаётся из поля {@code message} самого значения — чтобы хозяин
+     * запуска, который об иерархии классов скрипта ничего не знает, всё равно получил
+     * читаемую строку.
      */
+    static WdlRuntimeError thrown(Span span, Value error, String message) {
+        return new WdlRuntimeError(span, message, null, Objects.requireNonNull(error, "error"),
+                null, null);
+    }
+
+    /** Класс ошибки движка или {@code null}, если ошибку бросил скрипт своим классом. */
+    public ErrorKind kind() {
+        return kind;
+    }
+
+    /** Значение ошибки, если оно уже создано, иначе {@code null}. */
+    public Value payload() {
+        return payload;
+    }
+
+    /**
+     * Запоминает созданное значение ошибки.
+     * <p>
+     * Зовёт интерпретатор, когда для ошибки движка нашёлся обработчик: до этого момента
+     * объект не нужен никому, а непойманная ошибка не материализуется никогда — на пути
+     * в хост от неё требуется только текст и место.
+     */
+    void materialized(Value value) {
+        if (payload == null) {
+            payload = Objects.requireNonNull(value, "value");
+        }
+    }
+
+    @Override
+    public String kindName() {
+        if (payload instanceof InstanceObjectValue instance) {
+            return instance.owner().name();
+        }
+        return kind == null ? null : kind.title();
+    }
+
+    @Override
+    public List<String> trace() {
+        return trace == null ? List.of() : trace;
+    }
+
+    /**
+     * Запоминает путь по скрипту — но только если он ещё не запомнен.
+     * <p>
+     * Спрашивают об этом все границы вызова на пути наружу, а ответ нужен от самой
+     * внутренней: цепочка кадров у неё полная, а у внешних от неё остался бы хвост.
+     */
+    void rememberTrace(List<String> frames) {
+        if (trace == null && !frames.isEmpty()) {
+            trace = List.copyOf(frames);
+        }
+    }
+
+    @Override
     public WdlRuntimeError inSource(Source known) {
-        if (source != null || known == null) {
+        if (source() != null || known == null) {
             return this;
         }
-        return new WdlRuntimeError(span, getMessage(), known);
-    }
-
-    /** Ошибка в виде диагностики — чтобы напечатать её тем же кодом, что и ошибки разбора. */
-    public Diagnostic toDiagnostic() {
-        return new Diagnostic(Severity.ERROR, getMessage(), span);
+        return new WdlRuntimeError(span(), getMessage(), kind, payload, known, trace);
     }
 }
