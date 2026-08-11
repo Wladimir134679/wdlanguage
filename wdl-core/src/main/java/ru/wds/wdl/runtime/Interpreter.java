@@ -13,6 +13,7 @@ import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.types.ArrayValue;
@@ -89,10 +90,15 @@ public final class Interpreter
     }
 
     private void execute(Program program, ExecutionContext running) {
+        // Верхний уровень файла — тоже область: 'defer' на нём выполняется, когда файл
+        // дочитан, чем бы он ни кончился.
+        Deferred pending = new Deferred();
+        ExecutionContext scoped = running.withDeferred(pending);
+        RuntimeException flying = null;
         try {
-            hoistDeclarations(program, running);
+            hoistDeclarations(program, scoped);
             for (Stmt statement : program.statements()) {
-                visit(statement, running);
+                visit(statement, scoped);
             }
         } catch (ControlSignal signal) {
             // break, continue или return вне своей конструкции. Парсер такое не пропускает,
@@ -103,8 +109,15 @@ public final class Interpreter
         } catch (StackOverflowError e) {
             // Вторая линия защиты от рекурсии, и ловится она только на границе выполнения,
             // где стек уже раскручен: собирать сообщение в тот момент, когда стека нет, —
-            // верный способ получить второе переполнение вместо диагностики.
+            // верный способ получить второе переполнение вместо диагностики. Отложенное
+            // при этом не выполняется: стека на него всё равно нет.
             throw FatalError.stackExhausted();
+        } catch (RuntimeException error) {
+            flying = error;
+        }
+        flying = runDeferred(pending, flying, scoped);
+        if (flying != null) {
+            throw flying;
         }
     }
 
@@ -218,8 +231,30 @@ public final class Interpreter
     @Override
     public Void visitBlock(BlockStmt stmt, ExecutionContext context) {
         ExecutionContext inner = context.nested();
-        for (Stmt statement : stmt.statements()) {
-            visit(statement, inner);
+        if (!stmt.hasDefer()) {
+            for (Stmt statement : stmt.statements()) {
+                visit(statement, inner);
+            }
+            return null;
+        }
+
+        // Блок с отложенным: список заводится только здесь, потому что блоков в скрипте
+        // тысячи, а блоков с 'defer' — единицы. Знает об этом разбор, а не выполнение.
+        Deferred pending = new Deferred();
+        ExecutionContext scoped = inner.withDeferred(pending);
+        RuntimeException flying = null;
+        try {
+            for (Stmt statement : stmt.statements()) {
+                visit(statement, scoped);
+            }
+        } catch (RuntimeException exit) {
+            // Любой выход — нормальный, через return, break, continue, ошибку
+            // или остановку выполнения: отложенное выполняется при всех.
+            flying = exit;
+        }
+        flying = runDeferred(pending, flying, scoped);
+        if (flying != null) {
+            throw flying;
         }
         return null;
     }
@@ -698,6 +733,10 @@ public final class Interpreter
         try {
             visitBlock(stmt.body(), context);
         } catch (WdlRuntimeError error) {
+            // Путь по скрипту записывается здесь же: ошибка, брошенная и пойманная
+            // внутри одной функции, границы вызова не пересекает вовсе — а кадры
+            // вокруг неё есть, и обработчик вправе их увидеть.
+            error.rememberTrace(Frame.trace(context.frame()));
             TryStmt.Catch handler = handlerFor(stmt, error, context);
             if (handler == null) {
                 pending = error;
@@ -718,17 +757,150 @@ public final class Interpreter
             try {
                 visitBlock(stmt.finallyBlock(), context);
             } catch (RuntimeException second) {
-                if (pending instanceof WdlRuntimeError flying && second instanceof WdlRuntimeError extra) {
-                    suppress(flying, extra, context);
-                    throw flying;
-                }
-                throw second;
+                pending = onTheWayOut(pending, second, context);
             }
         }
         if (pending != null) {
             throw pending;
         }
         return null;
+    }
+
+    /**
+     * Записывает отложенное действие. Именно записывает: до выхода из области
+     * оно не выполняется, а если выполнение до этой строки не дошло — не выполнится вовсе.
+     * <p>
+     * В этом и разница с {@code finally}, из-за которой нужны оба: блок {@code finally}
+     * существует независимо от того, дошло ли дело до захвата ресурса, и потому обрастает
+     * проверками на {@code null}; отложенного действия просто нет, пока {@code open}
+     * не вернулся.
+     */
+    @Override
+    public Void visitDefer(DeferStmt stmt, ExecutionContext context) {
+        Deferred pending = context.deferred();
+        if (pending == null) {
+            // Парсер ставит 'defer' только внутри блока или на верхнем уровне файла,
+            // а у обоих список есть. Сюда можно попасть только с деревом, собранным
+            // в обход разбора.
+            throw new IllegalStateException("'defer' вне области видимости: дерево собрано неверно");
+        }
+        pending.add(stmt.body(), context);
+        return null;
+    }
+
+    /**
+     * Работа с ресурсом.
+     * <p>
+     * Захват идёт слева направо, закрытие — справа налево: правый ресурс мог быть взят
+     * из левого. Если бросил сам захват, закрывается только то, что уже захвачено,
+     * а тело не выполняется вовсе — то же правило «отложено только после успеха»,
+     * что у {@code defer}, просто записанное конструкцией.
+     */
+    @Override
+    public Void visitUse(UseStmt stmt, ExecutionContext context) {
+        ExecutionContext inner = context.nested();
+        List<Value> held = new ArrayList<>(stmt.resources().size());
+        RuntimeException flying = null;
+        try {
+            for (UseStmt.Binding resource : stmt.resources()) {
+                Value value = valueOf(resource.value(), inner);
+                checkCloseable(value, resource, inner);
+                held.add(value);
+                inner.scope().define(resource.name(), value);
+            }
+            visit(stmt.body(), inner);
+        } catch (RuntimeException exit) {
+            flying = exit;
+        }
+
+        for (int i = held.size() - 1; i >= 0; i--) {
+            try {
+                close(held.get(i), stmt.resources().get(i).span(), inner);
+            } catch (RuntimeException failed) {
+                flying = onTheWayOut(flying, failed, inner);
+            }
+        }
+        if (flying != null) {
+            throw flying;
+        }
+        return null;
+    }
+
+    /**
+     * Проверка стоит здесь, а не в момент закрытия: узнать «это не ресурс» надо
+     * до того, как тело отработало, — иначе ошибка прилетит в самом конце и объяснит
+     * не то.
+     */
+    private static void checkCloseable(Value value, UseStmt.Binding resource,
+                                       ExecutionContext context) {
+        TraitValue closeable = context.exceptions().closeable();
+        if (closeable == null) {
+            // Прелюдии не было — проверять не с чем; закрытие само скажет, если close нет.
+            return;
+        }
+        if (value instanceof InstanceObjectValue instance && instance.owner().conformsTo(closeable)) {
+            return;
+        }
+        String what = value instanceof InstanceObjectValue instance
+                ? "класс '" + instance.owner().name() + "' не подмешивает трейт 'Closeable'"
+                : "здесь " + value.type().title() + " (" + value.display() + ")";
+        throw new WdlRuntimeError(ErrorKind.TYPE, resource.value().span(),
+                "'use' работает со значением, которое умеет закрываться, а " + what);
+    }
+
+    /** Зовёт {@code close()} — обычным чтением метода и обычным вызовом. */
+    private void close(Value resource, Span span, ExecutionContext context) {
+        Value method = read(resource, StringValue.of("close"), AccessStyle.DOT, span);
+        if (!(method instanceof FunctionValue function)) {
+            throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                    "у ресурса нет метода 'close', закрывать его нечем");
+        }
+        function.call(context, List.of(), span);
+    }
+
+    /**
+     * Выполняет отложенное — в обратном порядке и <b>всё</b>, даже если по дороге
+     * что-то из него упало.
+     *
+     * @param flying то, с чем мы уходим из области: ошибка, сигнал или {@code null}
+     * @return то, что полетит наружу после уборки
+     */
+    private RuntimeException runDeferred(Deferred pending, RuntimeException flying,
+                                         ExecutionContext context) {
+        if (pending.isEmpty()) {
+            return flying;
+        }
+        for (Deferred.Action action : pending.inRunOrder()) {
+            try {
+                visit(action.body(), action.context());
+            } catch (RuntimeException failed) {
+                flying = onTheWayOut(flying, failed, context);
+            }
+        }
+        return flying;
+    }
+
+    /**
+     * Что победит: то, ради чего мы идём наружу, или то, что случилось по дороге.
+     * <p>
+     * Правило одно на {@code finally}, {@code defer} и закрытие ресурсов:
+     * <b>подавляется то, что случилось на пути наружу, а не то, ради чего мы шли</b>.
+     * Первая ошибка объясняет, что пошло не так, вторая — лишь следствие, и терять
+     * первую нельзя.
+     * <p>
+     * Исключение одно: {@code return}, {@code break} и {@code continue} — не причина,
+     * а намерение, и ошибка их отменяет. Иначе {@code return} молча возвращал бы
+     * значение из области, уборка которой не удалась.
+     */
+    private RuntimeException onTheWayOut(RuntimeException flying, RuntimeException second,
+                                         ExecutionContext context) {
+        if (flying == null || flying instanceof ControlSignal) {
+            return second;
+        }
+        if (flying instanceof WdlRuntimeError first && second instanceof WdlRuntimeError extra) {
+            suppress(first, extra, context);
+        }
+        return flying;
     }
 
     /** Первый подходящий обработчик, сверху вниз, или {@code null}. */
@@ -805,8 +977,30 @@ public final class Interpreter
         value.put(KIND, StringValue.of(error.kindName()));
         value.put(AT, StringValue.of(placeOf(error.span(), error.source(), context)));
         value.put(TRACE, traceValue(error.trace()));
+        if (error.javaCause() != null) {
+            describeJava(value, error);
+        }
         error.materialized(value);
         return value;
+    }
+
+    /** Поля {@code JavaException}: откуда прилетело и чем это было. */
+    private static void describeJava(MapValue value, WdlRuntimeError error) {
+        Throwable cause = error.javaCause();
+        value.put("javaClass", StringValue.of(cause.getClass().getName()));
+        value.put("module", error.module() == null
+                ? NullValue.NULL
+                : StringValue.of(error.module()));
+        // Функцией, а не массивом: стек из сорока строк не должен попадать ни в println,
+        // ни в перебор полей, а собирать его незачем, пока не спросили.
+        value.put("javaTrace", BuiltinFunction.of("javaTrace", Arity.exactly(0),
+                (ignoredContext, ignoredArguments, ignoredSpan) -> {
+                    ArrayValue lines = new ArrayValue();
+                    for (StackTraceElement element : cause.getStackTrace()) {
+                        lines.add(StringValue.of(element.toString()));
+                    }
+                    return lines;
+                }));
     }
 
     /** Ошибка при выходе не затирает ту, ради которой мы выходим, — она ложится к ней. */
@@ -1006,7 +1200,34 @@ public final class Interpreter
             throw new WdlRuntimeError(ErrorKind.CALL, expr.span(), "функция '" + function.name() + "' принимает "
                     + function.arity().describeArguments() + ", а передано " + arguments.size());
         }
-        return function.call(context, arguments, expr.span());
+        if (function instanceof UserFunction) {
+            return function.call(context, arguments, expr.span());
+        }
+        // Тело написано на Java — значит, оттуда может прилететь что угодно.
+        try {
+            return function.call(context, arguments, expr.span());
+        } catch (WdlError | ControlSignal known) {
+            throw known;
+        } catch (RuntimeException | LinkageError foreign) {
+            throw WdlRuntimeError.fromJava(expr.span(), foreign, moduleOf(expr.callee(), context));
+        }
+    }
+
+    /**
+     * Из какого модуля прилетело чужое исключение.
+     * <p>
+     * Спрашивается только тогда, когда оно уже прилетело, — на удачном пути этого кода
+     * нет вовсе. Отвечает по форме записи вызова: {@code io.read(path)} называет модуль,
+     * {@code read(path)} после развёрнутого импорта — уже нет, и это честный {@code null},
+     * а не догадка.
+     */
+    private static String moduleOf(Expr callee, ExecutionContext context) {
+        if (callee instanceof AccessExpr access
+                && access.target() instanceof VariableExpr holder
+                && context.scope().lookup(holder.name()) instanceof ModuleValue module) {
+            return module.name();
+        }
+        return null;
     }
 
     /**
@@ -1036,8 +1257,19 @@ public final class Interpreter
             throw new WdlRuntimeError(ErrorKind.CALL, expr.span(), "класс '" + declared.name() + "' принимает "
                     + declared.arity().describeArguments() + ", а передано " + arguments.size());
         }
-        // Класс, написанный на wdl, и класс, встроенный приложением, здесь неразличимы.
-        return declared.instantiate(arguments, context, expr.span());
+        // Класс, написанный на wdl, и класс, встроенный приложением, здесь неразличимы —
+        // кроме одного: у второго конструктор написан на Java, и оттуда может прилететь
+        // что угодно. Это единственное место, где Java-код зовётся при создании.
+        if (declared instanceof WdlClass) {
+            return declared.instantiate(arguments, context, expr.span());
+        }
+        try {
+            return declared.instantiate(arguments, context, expr.span());
+        } catch (WdlError | ControlSignal known) {
+            throw known;
+        } catch (RuntimeException | LinkageError foreign) {
+            throw WdlRuntimeError.fromJava(expr.span(), foreign, moduleOf(expr.callee(), context));
+        }
     }
 
     @Override
@@ -1068,6 +1300,26 @@ public final class Interpreter
     @Override
     public Value visitFunction(FunctionExpr expr, ExecutionContext context) {
         return new UserFunction(expr, context.scope(), context.unit(), this);
+    }
+
+    /**
+     * Короткая форма обработки ошибки.
+     * <p>
+     * Ловится ровно то же, что ловит {@code catch}: {@link FatalError} проходит сквозь
+     * обе формы наружу. Экземпляр ошибки при этом не создаётся — {@code try?} о ней
+     * ничего не спрашивает, а {@code try!} несёт её дальше как есть.
+     */
+    @Override
+    public Value visitTryExpr(TryExpr expr, ExecutionContext context) {
+        try {
+            return valueOf(expr.inner(), context);
+        } catch (WdlRuntimeError error) {
+            if (expr.style() == TryStyle.OPTIONAL) {
+                return NullValue.NULL;
+            }
+            error.rememberTrace(Frame.trace(context.frame()));
+            throw FatalError.assertionFailed(error.inSource(context.unit().source()));
+        }
     }
 
     /**

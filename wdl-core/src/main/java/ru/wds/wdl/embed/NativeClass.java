@@ -6,6 +6,7 @@ import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.MapValue;
@@ -50,10 +51,21 @@ import java.util.stream.Collectors;
  * что выразимо значением, лежит именно полем; для остального есть
  * {@link NativeInstance#state()}.
  *
+ * <h2>Трейты</h2>
+ * Класс может подмешать трейт — {@code .with(closeable)}, — и тогда {@code is}
+ * отвечает {@code true} и ему. Требования трейта проверяются <b>при сборке класса</b>,
+ * то есть при старте приложения: забыли метод — исключение из построителя, а не
+ * непонятная ошибка у автора скрипта через месяц. Это то же обещание и в тот же
+ * момент, что у класса на wdl, где требования проверяет {@code Linker} на строке
+ * {@code class}.
+ * <p>
+ * Методов по умолчанию трейт нативному классу не приносит: метод в плоской таблице
+ * держит кусок дерева, а у Java-метода дерева нет. Трейт здесь — контракт, и только.
+ *
  * <h2>Чего у нативного класса пока нет</h2>
- * Наследования и трейтов: {@code is} отвечает {@code true} только на сам класс.
- * Когда понадобится, сюда добавится ссылка на родителя — таблица методов здесь
- * и так плоская, как у классов языка.
+ * Наследования: {@code is} отвечает {@code true} самому классу и подмешанным трейтам,
+ * но не предку. Когда понадобится, сюда добавится ссылка на родителя — таблица методов
+ * здесь и так плоская, как у классов языка.
  */
 public final class NativeClass implements ClassValue {
 
@@ -61,6 +73,7 @@ public final class NativeClass implements ClassValue {
     private final List<Field> fields;
     private final NativeMethod init;
     private final Map<String, Entry> methods;
+    private final List<TraitValue> traits;
     private final MapValue statics = new MapValue();
     private final Arity arity;
 
@@ -69,6 +82,7 @@ public final class NativeClass implements ClassValue {
         this.fields = List.copyOf(builder.fields);
         this.init = builder.init;
         this.methods = Collections.unmodifiableMap(new LinkedHashMap<>(builder.methods));
+        this.traits = List.copyOf(builder.traits);
         this.arity = arityOf(fields);
         builder.statics.forEach(statics::put);
     }
@@ -137,10 +151,16 @@ public final class NativeClass implements ClassValue {
         return new Bound(entry, self, this.name);
     }
 
-    /** Наследования у нативных классов пока нет, поэтому и ответ короткий. */
+    /**
+     * Сам класс и подмешанные трейты. Наследования у нативных классов пока нет,
+     * поэтому цепочки предков в ответе тоже нет.
+     * <p>
+     * Сравнение по ссылке, а не по имени: трейт прелюдии принадлежит запуску,
+     * и класс, собранный для одного запуска, честно не совпадает с трейтом другого.
+     */
     @Override
     public boolean conformsTo(Value classOrTrait) {
-        return classOrTrait == this;
+        return classOrTrait == this || traits.contains(classOrTrait);
     }
 
     @Override
@@ -195,6 +215,7 @@ public final class NativeClass implements ClassValue {
         private final List<Field> fields = new ArrayList<>();
         private final Map<String, Entry> methods = new LinkedHashMap<>();
         private final Map<String, Value> statics = new LinkedHashMap<>();
+        private final List<TraitValue> traits = new ArrayList<>();
         private NativeMethod init;
 
         private Builder(String name) {
@@ -272,7 +293,38 @@ public final class NativeClass implements ClassValue {
             return this;
         }
 
+        /**
+         * Подмешивает трейт: {@code is} начнёт отвечать ему {@code true}.
+         * <p>
+         * Трейт берётся значением, а не именем, и это важно: трейт прелюдии
+         * ({@code Closeable}) принадлежит запуску, поэтому и класс, который его
+         * обещает, собирается на запуск — в {@code installTo}, а не статическим полем.
+         */
+        public Builder with(TraitValue trait) {
+            Objects.requireNonNull(trait, "trait");
+            if (!traits.contains(trait)) {
+                traits.add(trait);
+            }
+            return this;
+        }
+
+        /**
+         * Собирает класс, проверив обещания трейтов.
+         * <p>
+         * Проверка здесь, а не при первом вызове из скрипта: класс собирают при старте
+         * приложения, и «забыл close» должно падать там же, где написано {@code .with}.
+         */
         public NativeClass build() {
+            for (TraitValue trait : traits) {
+                for (String required : trait.requiredMethods()) {
+                    if (!methods.containsKey(required)
+                            && fields.stream().noneMatch(field -> field.name.equals(required))) {
+                        throw new IllegalStateException("класс '" + name
+                                + "' не выполняет требование трейта '" + trait.name()
+                                + "': нет метода '" + required + "'");
+                    }
+                }
+            }
             return new NativeClass(this);
         }
 

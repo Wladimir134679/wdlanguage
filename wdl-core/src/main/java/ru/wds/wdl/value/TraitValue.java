@@ -1,5 +1,7 @@
 package ru.wds.wdl.value;
 
+import java.util.List;
+
 /**
  * Трейт как значение.
  * <p>
@@ -15,6 +17,18 @@ package ru.wds.wdl.value;
 public non-sealed interface TraitValue extends Value {
 
     String name();
+
+    /**
+     * Имена методов, которые класс обязан объявить сам.
+     * <p>
+     * Нужно ровно там, где требования проверяет не {@code Linker}: класс, встроенный
+     * приложением, формы не имеет, а обещание трейта выполнить обязан — и проверить
+     * это надо при сборке класса, то есть при старте приложения, а не при первом
+     * вызове из скрипта.
+     */
+    default List<String> requiredMethods() {
+        return List.of();
+    }
 
     @Override
     default ValueType type() {

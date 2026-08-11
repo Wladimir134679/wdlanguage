@@ -36,6 +36,39 @@ class IoTest {
     }
 
     @Test
+    @DisplayName("io.create и io.open отдают поток, который use закрывает сам")
+    void streamsWorkWithUse(@TempDir Path dir) {
+        String file = script(dir.resolve("stream.txt"));
+        assertEquals("2 первая целиком 16 true", printed("""
+                import sys.io as io
+
+                use (out = io.create("%s")) {
+                    out.writeLine("первая").writeLine("вторая")
+                }
+                use (src = io.open("%s")) {
+                    lines = src.lines()
+                    println(len(lines), " ", lines[0])
+                }
+                use (src = io.open("%s")) {
+                    println("целиком ", len(src.read()), " ", src is Closeable)
+                }
+                """.formatted(file, file, file)));
+    }
+
+    @Test
+    @DisplayName("после close поток говорит об этом прямо, а не падает загадочно")
+    void closedStreamSaysSo(@TempDir Path dir) {
+        String file = script(dir.resolve("closed.txt"));
+        assertTrue(errorOf("""
+                import sys.io as io
+                io.write("%s", "текст")
+                src = io.open("%s")
+                src.close()
+                println(src.read())
+                """.formatted(file, file)).getMessage().contains("поток уже закрыт"));
+    }
+
+    @Test
     @DisplayName("дописывание и построчное чтение")
     void appendAndLines(@TempDir Path dir) {
         String file = script(dir.resolve("log.txt"));

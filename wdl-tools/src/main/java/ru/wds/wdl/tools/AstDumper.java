@@ -68,7 +68,8 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
 
     @Override
     public Void visitBlock(BlockStmt stmt, Integer depth) {
-        line(depth, "блок, инструкций: " + stmt.statements().size(), stmt.span());
+        line(depth, "блок, инструкций: " + stmt.statements().size()
+                + (stmt.hasDefer() ? ", с отложенным" : ""), stmt.span());
         stmt.statements().forEach(statement -> visit(statement, depth + 1));
         return null;
     }
@@ -244,6 +245,24 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
+    public Void visitDefer(DeferStmt stmt, Integer depth) {
+        line(depth, "defer", stmt.span());
+        return visit(stmt.body(), depth + 1);
+    }
+
+    /** Ресурсы печатаются в порядке захвата — закрываются они в обратном. */
+    @Override
+    public Void visitUse(UseStmt stmt, Integer depth) {
+        line(depth, "use, ресурсов: " + stmt.resources().size(), stmt.span());
+        for (UseStmt.Binding resource : stmt.resources()) {
+            line(depth + 1, "ресурс " + resource.name(), resource.span());
+            visit(resource.value(), depth + 2);
+        }
+        line(depth + 1, "тело", stmt.body().span());
+        return visit(stmt.body(), depth + 2);
+    }
+
+    @Override
     public Void visitErrorStmt(ErrorStmt stmt, Integer depth) {
         return line(depth, "<неразобранная инструкция>", stmt.span());
     }
@@ -345,6 +364,12 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         line(depth, "функция " + expr.title() + "(" + header(expr.params()) + ")" + arrow, expr);
         defaults(expr.params(), depth + 1);
         return visit(expr.body(), depth + 1);
+    }
+
+    @Override
+    public Void visitTryExpr(TryExpr expr, Integer depth) {
+        line(depth, "короткая форма '" + expr.style().text() + "'", expr);
+        return visit(expr.inner(), depth + 1);
     }
 
     @Override

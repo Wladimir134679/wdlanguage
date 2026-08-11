@@ -59,6 +59,20 @@ public final class Parser {
      */
     private int finallyDepth;
     /**
+     * Сколько блоков {@code defer} вокруг: тот же запрет на выход наружу и по той же
+     * причине — отложенное действие выполняется на пути наружу, и уйти из него
+     * значило бы погасить то, ради чего мы идём.
+     */
+    private int deferDepth;
+    /**
+     * Есть ли отложенное действие в блоке, который разбирается прямо сейчас.
+     * <p>
+     * Флаг ставится при разборе {@code defer} и снимается блоком: так {@link BlockStmt}
+     * узнаёт о своих отложенных действиях даром, а выполнению не приходится заводить
+     * список на каждый блок — их в скрипте тысячи, а блоков с {@code defer} единицы.
+     */
+    private boolean blockHasDefer;
+    /**
      * Имя класса, тело которого разбирается сейчас, или {@code null}.
      * <p>
      * Нужно, чтобы отличить конструктор {@code fun Point()} от метода и проверить,
@@ -145,11 +159,15 @@ public final class Parser {
             case CONTINUE -> continueStatement();
             case RETURN -> returnStatement();
             case THROW -> throwStatement();
-            case TRY -> tryStatement();
+            // 'try?' и 'try!' — выражения, а не конструкция с блоком, и в начале строки
+            // они тоже выражения: 'try? save()' значит «вызови, ошибку проглоти».
+            case TRY -> shortTryAhead() ? simpleStatement() : tryStatement();
             // 'catch' и 'finally' сами по себе инструкцией не бывают: они часть 'try'
             // и разбираются им. Отдельное сообщение здесь лучше общего «ожидалось
             // выражение» — оно называет причину, а не симптом.
             case CATCH, FINALLY -> orphanHandler();
+            case DEFER -> deferStatement();
+            case USE -> useStatement();
             case CONST -> constDeclaration();
             // 'fun' с именем — объявление. 'fun(' — анонимная функция, то есть выражение:
             // её разберёт simpleStatement и скажет, что такая инструкция ничего не делает.
@@ -179,9 +197,7 @@ public final class Parser {
             return assignment(expr, assign);
         }
 
-        // Вызов и создание — единственные выражения, которые сами по себе что-то делают:
-        // первое считает и может напечатать, второе заводит объект и выполняет конструктор.
-        if (expr instanceof CallExpr || expr instanceof NewExpr) {
+        if (doesSomething(expr)) {
             return new ExprStmt(expr, expr.span());
         }
         if (!(expr instanceof ErrorExpr)) {
@@ -191,6 +207,24 @@ public final class Parser {
         }
         synchronize();
         return new ErrorStmt(expr.span());
+    }
+
+    /**
+     * Выражение, которое имеет смысл как целая инструкция.
+     * <p>
+     * Вызов и создание — единственные, которые сами по себе что-то делают: первое
+     * считает и может напечатать, второе заводит объект и выполняет конструктор.
+     * Короткая форма {@code try?} прозрачна: {@code try? save()} — это тот же вызов,
+     * просто с проглоченной ошибкой, и запрещать его значило бы требовать переменную,
+     * в которую никто не смотрит.
+     */
+    private static boolean doesSomething(Expr expr) {
+        return switch (expr) {
+            case CallExpr ignored -> true;
+            case NewExpr ignored -> true;
+            case TryExpr shortForm -> doesSomething(shortForm.inner());
+            default -> false;
+        };
     }
 
     /**
@@ -395,8 +429,10 @@ public final class Parser {
 
         int outerLoops = loopDepth;
         int outerFinally = finallyDepth;
+        int outerDefer = deferDepth;
         loopDepth = 0;
         finallyDepth = 0;
+        deferDepth = 0;
         functionDepth++;
         try {
             if (match(TokenType.FATARROW)) {
@@ -414,6 +450,7 @@ public final class Parser {
             functionDepth--;
             loopDepth = outerLoops;
             finallyDepth = outerFinally;
+            deferDepth = outerDefer;
         }
     }
 
@@ -773,8 +810,10 @@ public final class Parser {
     private Stmt memberBody() {
         int outerLoops = loopDepth;
         int outerFinally = finallyDepth;
+        int outerDefer = deferDepth;
         loopDepth = 0;
         finallyDepth = 0;
+        deferDepth = 0;
         functionDepth++;
         try {
             if (match(TokenType.FATARROW)) {
@@ -786,6 +825,7 @@ public final class Parser {
             functionDepth--;
             loopDepth = outerLoops;
             finallyDepth = outerFinally;
+            deferDepth = outerDefer;
         }
     }
 
@@ -951,6 +991,7 @@ public final class Parser {
                 }
                 yield null;
             }
+            case TryExpr shortForm -> findUse(shortForm.inner(), names);
             case FunctionExpr ignored -> null;
             case LiteralExpr ignored -> null;
             case ErrorExpr ignored -> null;
@@ -1119,6 +1160,80 @@ public final class Parser {
         return null;
     }
 
+    /** Следом за {@code try} стоит {@code ?} или {@code !} — то есть это короткая форма. */
+    private boolean shortTryAhead() {
+        TokenType next = peek(1).type();
+        return next == TokenType.QUESTION || next == TokenType.NOT;
+    }
+
+    /**
+     * {@code try? выражение} и {@code try! выражение}.
+     * <p>
+     * Операнд разбирается с силой унарного оператора: обращение и вызов крепче
+     * ({@code try? config.port()} — это {@code try?} вокруг всего вызова), а сложение
+     * слабее ({@code try? f() + 1} — это {@code (try? f()) + 1}).
+     */
+    private Expr shortTry() {
+        Token keyword = advance(); // try
+        Token sign = advance();    // ? или !
+        TryStyle style = sign.type() == TokenType.QUESTION ? TryStyle.OPTIONAL : TryStyle.FORCED;
+        if (sign.span().start() != keyword.span().end()) {
+            // Двусмысленности с тернарным оператором тут нет — после 'try' левого
+            // операнда для '?' не существует, — но одинаковая запись двух разных вещей
+            // сбивает читателя, а он здесь главный.
+            diagnostics.error(keyword.span().to(sign.span()),
+                    "'" + style.text() + "' пишется слитно, без пробела");
+        }
+        Expr inner = expression(Operators.UNARY);
+        return new TryExpr(inner, style, keyword.span().to(inner.span()));
+    }
+
+    /**
+     * Работа с ресурсом: {@code use (src = io.open(from), dst = io.create(to)) { ... }}.
+     * <p>
+     * Слева от {@code =} — имя, а не произвольная цель: {@code use} заводит имя
+     * в своей области, как {@code for (x in ...)}, а не пишет в чужое значение.
+     * Ресурсов может быть сколько угодно, но хотя бы один — {@code use ()} не значит
+     * ничего.
+     */
+    private Stmt useStatement() {
+        Token keyword = advance(); // use
+        expect(TokenType.LPAREN, "открывающую скобку '(' после 'use'");
+
+        List<UseStmt.Binding> resources = new ArrayList<>();
+        do {
+            if (!check(TokenType.WORD)) {
+                diagnostics.error(peek().span(), "в 'use' ожидалось имя, под которым ресурс"
+                        + " ляжет в переменную, найдено " + describe(peek()));
+                synchronize();
+                return new ErrorStmt(keyword.span());
+            }
+            Token name = advance();
+            for (UseStmt.Binding existing : resources) {
+                if (existing.name().equals(name.text())) {
+                    diagnostics.error(name.span(), "имя '" + name.text()
+                            + "' в этом 'use' уже занято");
+                }
+            }
+            expect(TokenType.ASSIGN, "знак '=' после имени ресурса");
+            Expr value = expression(0);
+            if (value instanceof ErrorExpr) {
+                synchronize();
+                return new ErrorStmt(keyword.span().to(value.span()));
+            }
+            resources.add(new UseStmt.Binding(name.text(), name.span(), value,
+                    name.span().to(value.span())));
+        } while (match(TokenType.COMMA));
+
+        expect(TokenType.RPAREN, "закрывающую скобку ')' после списка ресурсов");
+        BlockStmt body = requiredBlock("тело 'use'");
+        if (body == null) {
+            synchronize();
+            return new ErrorStmt(keyword.span());
+        }
+        return new UseStmt(resources, body, keyword.span().to(body.span()));
+    }
+
     /** {@code catch} или {@code finally} без своего {@code try}. */
     private Stmt orphanHandler() {
         Token keyword = advance();
@@ -1136,10 +1251,32 @@ public final class Parser {
      * В Java она разрешена и служит источником багов, которых не видно при чтении.
      */
     private void forbidInFinally(Token keyword) {
-        if (finallyDepth > 0) {
-            diagnostics.error(keyword.span(), "'" + keyword.text() + "' в блоке 'finally' запрещён: "
-                    + "он молча погасил бы ошибку, которая сейчас летит наружу."
-                    + " Выходите из тела 'try' или из 'catch'");
+        if (finallyDepth == 0 && deferDepth == 0) {
+            return;
+        }
+        String where = finallyDepth > 0 ? "блоке 'finally'" : "теле 'defer'";
+        diagnostics.error(keyword.span(), "'" + keyword.text() + "' в " + where + " запрещён: "
+                + "он молча погасил бы ошибку, которая сейчас летит наружу."
+                + " Выходите из тела 'try' или из 'catch'");
+    }
+
+    /**
+     * Отложенное действие: {@code defer file.close()}.
+     * <p>
+     * Тело — одна инструкция или блок, как у {@code if}: {@code defer} обычно
+     * и есть один вызов, и требовать вокруг него скобки значило бы делать частый
+     * случай многословным. Границу тут угадывать не приходится — за {@code defer}
+     * не следует ничего, что могло бы к нему прилипнуть.
+     */
+    private Stmt deferStatement() {
+        Token keyword = advance(); // defer
+        blockHasDefer = true;
+        deferDepth++;
+        try {
+            Stmt body = body("'defer'");
+            return new DeferStmt(body, keyword.span().to(body.span()));
+        } finally {
+            deferDepth--;
         }
     }
 
@@ -1152,6 +1289,10 @@ public final class Parser {
     private BlockStmt block() {
         Token open = advance(); // {
         List<Stmt> statements = new ArrayList<>();
+        // Флаг свой на каждый блок: 'defer' во вложенном блоке принадлежит ему,
+        // а не внешнему, — на то и правило «выход из своей области».
+        boolean outerDefer = blockHasDefer;
+        blockHasDefer = false;
         skipSeparators();
         while (!check(TokenType.RBRACE) && !check(TokenType.EOF)) {
             int before = index;
@@ -1160,7 +1301,9 @@ public final class Parser {
             skipSeparators();
         }
         Token close = expect(TokenType.RBRACE, "закрывающую скобку '}'");
-        return new BlockStmt(statements, open.span().to(close.span()));
+        boolean deferred = blockHasDefer;
+        blockHasDefer = outerDefer;
+        return new BlockStmt(statements, deferred, open.span().to(close.span()));
     }
 
     /**
@@ -1324,7 +1467,7 @@ public final class Parser {
     private static boolean isStatementBoundary(TokenType type) {
         return switch (type) {
             case RBRACE, IF, ELSE, WHILE, FOR, BREAK, CONTINUE, CONST, FUN, CLASS, TRAIT,
-                 IMPORT, RETURN, THROW, TRY, CATCH, FINALLY -> true;
+                 IMPORT, RETURN, THROW, TRY, CATCH, FINALLY, DEFER, USE -> true;
             default -> false;
         };
     }
@@ -1461,6 +1604,16 @@ public final class Parser {
             }
             case FUN -> {
                 return functionExpr();
+            }
+            case TRY -> {
+                if (shortTryAhead()) {
+                    return shortTry();
+                }
+                diagnostics.error(token.span(), "'try' в позиции выражения пишется коротко: "
+                        + "'try? выражение' даёт null при ошибке, 'try! выражение' объявляет"
+                        + " ошибку невозможной. Конструкция с блоком — это инструкция");
+                advance();
+                return new ErrorExpr(token.span());
             }
             default -> {
                 diagnostics.error(token.span(), "ожидалось выражение, найдено " + describe(token));

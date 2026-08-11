@@ -1,6 +1,7 @@
 package ru.wds.wdl.stdlib;
 
 import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.embed.NativeClass;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.source.Span;
@@ -73,6 +74,27 @@ public final class Io implements Library {
 
         scope.define(Files.CLASS.name(), Files.CLASS);
         scope.defineConstant("SEPARATOR", StringValue.of(java.io.File.separator));
+
+        // Классы потоков собираются здесь, а не статическим полем: они обещают трейт
+        // Closeable, а он объявлен прелюдией и принадлежит запуску.
+        NativeClass reader = Streams.reader(scope);
+        NativeClass writer = Streams.writer(scope);
+        scope.define(reader.name(), reader);
+        scope.define(writer.name(), writer);
+
+        // Открытый поток — то, ради чего в языке есть use: дескриптор держится,
+        // пока не позовут close(), в отличие от read/write, которые всё делают внутри.
+        scope.define("open", BuiltinFunction.of("open", Arity.exactly(1),
+                (context, arguments, span) ->
+                        Streams.open(Files.pathOf(arguments.get(0), span), reader, context, span)));
+
+        scope.define("create", BuiltinFunction.of("create", Arity.exactly(1),
+                (context, arguments, span) ->
+                        Streams.create(Files.pathOf(arguments.get(0), span), writer, context, span)));
+
+        scope.define("appendTo", BuiltinFunction.of("appendTo", Arity.exactly(1),
+                (context, arguments, span) ->
+                        Streams.append(Files.pathOf(arguments.get(0), span), writer, context, span)));
 
         scope.define("read", one("read", (path, span) ->
                 StringValue.of(Files.io(span, () ->

@@ -6,8 +6,10 @@ import ru.wds.wdl.resolve.MethodSlot;
 import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.value.TraitValue;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -66,6 +68,13 @@ final class WdlTrait implements TraitValue {
     @Override
     public String name() {
         return shape.name();
+    }
+
+    @Override
+    public List<String> requiredMethods() {
+        List<String> names = new ArrayList<>(shape.requiredMethods().size());
+        shape.requiredMethods().forEach(requirement -> names.add(requirement.name()));
+        return List.copyOf(names);
     }
 
     @Override

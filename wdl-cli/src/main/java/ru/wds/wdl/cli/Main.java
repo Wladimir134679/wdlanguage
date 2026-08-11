@@ -19,6 +19,7 @@ import ru.wds.wdl.runtime.ExecutionContext;
 import ru.wds.wdl.runtime.Interpreter;
 import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.runtime.WdlError;
+import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.stdlib.Std;
 import ru.wds.wdl.stdlib.Sys;
@@ -78,6 +79,14 @@ public final class Main implements Callable<Integer> {
     @Option(names = {"--repl"}, description = "Запустить интерактивный режим REPL")
     private boolean repl;
 
+    /**
+     * Java-стек нужен не автору скрипта, а тому, кто чинит движок или библиотеку,
+     * — поэтому он под флагом и печатается только там, где вообще есть: у ошибок,
+     * прилетевших из Java.
+     */
+    @Option(names = {"--debug"}, description = "Показывать Java-стек у ошибок из библиотек")
+    private boolean showJavaTrace;
+
     @Parameters(index = "0", arity = "0..1", paramLabel = "<файл>", description = "Файл скрипта .wdl для выполнения")
     private Path scriptFile;
 
@@ -97,7 +106,7 @@ public final class Main implements Callable<Integer> {
     @Override
     public Integer call() {
         if (repl) {
-            return repl();
+            return repl(showJavaTrace);
         }
 
         if (scriptFile == null) {
@@ -186,7 +195,7 @@ public final class Main implements Callable<Integer> {
             // в скрипте — и в том файле, которому это место принадлежит. С импортом
             // файлов много, и смещение в каждом из них указывает на своё. Ниже —
             // путь по скрипту: он про вызовы, а не про строку, где рвануло.
-            System.err.println(report(e, source));
+            System.err.println(report(e, source, showJavaTrace));
             return EXIT_SCRIPT_ERROR;
         } finally {
             // Встроенные модули могли завести живое — клиента, соединение, поток.
@@ -202,12 +211,18 @@ public final class Main implements Callable<Integer> {
      * Java-стек сюда не попадает вовсе: он описывал бы путь по методам интерпретатора,
      * который автору скрипта бесполезен.
      */
-    private static String report(WdlError error, Source fallback) {
+    private static String report(WdlError error, Source fallback, boolean withJavaTrace) {
         Source failed = error.source() != null ? error.source() : fallback;
         StringBuilder sb = new StringBuilder(256);
         sb.append(new Diagnostics(failed).render(error.toDiagnostic()));
         for (String frame : error.trace()) {
             sb.append(System.lineSeparator()).append("  ").append(frame);
+        }
+        if (withJavaTrace && error instanceof WdlRuntimeError runtime && runtime.javaCause() != null) {
+            sb.append(System.lineSeparator()).append("  --- стек Java ---");
+            for (StackTraceElement element : runtime.javaCause().getStackTrace()) {
+                sb.append(System.lineSeparator()).append("  ").append(element);
+            }
         }
         return sb.toString();
     }
@@ -221,7 +236,7 @@ public final class Main implements Callable<Integer> {
     /**
      * Интерактивный режим: строка — выражение — значение.
      */
-    private static int repl() {
+    private static int repl(boolean withJavaTrace) {
         System.out.println("wdl " + version() + " — интерактивный режим. Выход: :q или Ctrl+D.");
         Interpreter interpreter = new Interpreter();
         // У строки, набранной в REPL, файла нет, поэтому и каталога у неё нет:
@@ -250,7 +265,7 @@ public final class Main implements Callable<Integer> {
             if (line.isBlank()) {
                 continue;
             }
-            evaluateLine(line, interpreter, context, modules);
+            evaluateLine(line, interpreter, context, withJavaTrace);
         }
     }
 
@@ -258,7 +273,7 @@ public final class Main implements Callable<Integer> {
      * Выполняет строку REPL.
      */
     private static void evaluateLine(String line, Interpreter interpreter, ExecutionContext context,
-                                     ModuleUnits modules) {
+                                     boolean withJavaTrace) {
         Source source = Source.ofString(line);
         List<Token> tokens = Lexer.tokenize(source, new Diagnostics(source));
 
@@ -271,7 +286,7 @@ public final class Main implements Callable<Integer> {
                     System.out.println(value);
                 }
             } catch (WdlError e) {
-                System.err.println(report(e, source));
+                System.err.println(report(e, source, withJavaTrace));
             }
             return;
         }
@@ -290,7 +305,7 @@ public final class Main implements Callable<Integer> {
             // класс живёт в области сеанса, а наследоваться можно в пределах ввода.
             interpreter.run(program, resolution, context);
         } catch (WdlError e) {
-            System.err.println(report(e, source));
+            System.err.println(report(e, source, withJavaTrace));
         }
     }
 

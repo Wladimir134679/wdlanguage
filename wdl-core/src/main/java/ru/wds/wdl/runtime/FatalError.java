@@ -3,6 +3,8 @@ package ru.wds.wdl.runtime;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
 
+import java.util.List;
+
 /**
  * Выполнение больше не может продолжаться — и скрипт с этим ничего сделать не может.
  * <p>
@@ -21,8 +23,11 @@ import ru.wds.wdl.source.Span;
  */
 public final class FatalError extends WdlError {
 
-    private FatalError(String message, Span span, Source source) {
+    private final transient WdlError reason;
+
+    private FatalError(String message, Span span, Source source, WdlError reason) {
         super(message, span, source);
+        this.reason = reason;
     }
 
     /**
@@ -31,7 +36,7 @@ public final class FatalError extends WdlError {
      * Три строки на цикл против «приложение висит, и сделать с этим нечего».
      */
     static FatalError interrupted(Span span) {
-        return new FatalError("выполнение прервано", span, null);
+        return new FatalError("выполнение прервано", span, null, null);
     }
 
     /**
@@ -43,7 +48,7 @@ public final class FatalError extends WdlError {
      */
     static FatalError stackExhausted() {
         return new FatalError("стек вызовов исчерпан: рекурсия оказалась глубже, "
-                + "чем выдерживает поток. Проверьте условие выхода из рекурсии", Span.NONE, null);
+                + "чем выдерживает поток. Проверьте условие выхода из рекурсии", Span.NONE, null, null);
     }
 
     /**
@@ -53,7 +58,30 @@ public final class FatalError extends WdlError {
      */
     static FatalError tooDeep(Span span, String what) {
         return new FatalError("слишком глубокая рекурсия: вложенных вызовов больше "
-                + ExecutionContext.MAX_CALL_DEPTH + ". " + what, span, null);
+                + ExecutionContext.MAX_CALL_DEPTH + ". " + what, span, null, null);
+    }
+
+    /**
+     * Утверждение {@code try!} не выполнилось.
+     * <p>
+     * Ошибка не подавлена, а признана дефектом скрипта: ловить её обработчиком
+     * неправильно, поэтому наружу идёт остановка выполнения — с исходной ошибкой
+     * в {@link #reason()} и с её же местом, чтобы подчёркивание указывало туда,
+     * где на самом деле не сложилось.
+     */
+    static FatalError assertionFailed(WdlError reason) {
+        return new FatalError("здесь ошибки быть не должно ('try!'), а случилась — "
+                + describe(reason), reason.span(), reason.source(), reason);
+    }
+
+    private static String describe(WdlError reason) {
+        String kind = reason.kindName();
+        return kind == null ? reason.getMessage() : kind + ": " + reason.getMessage();
+    }
+
+    /** Ошибка, из-за которой выполнение остановлено, или {@code null}. */
+    public WdlError reason() {
+        return reason;
     }
 
     @Override
@@ -61,6 +89,12 @@ public final class FatalError extends WdlError {
         if (source() != null || known == null) {
             return this;
         }
-        return new FatalError(getMessage(), span(), known);
+        return new FatalError(getMessage(), span(), known, reason);
+    }
+
+    /** Путь по скрипту берётся у причины: у самой остановки его нет. */
+    @Override
+    public List<String> trace() {
+        return reason == null ? super.trace() : reason.trace();
     }
 }

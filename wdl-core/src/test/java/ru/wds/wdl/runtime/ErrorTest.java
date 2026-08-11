@@ -11,6 +11,7 @@ import ru.wds.wdl.parser.Parser;
 import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
+import ru.wds.wdl.value.Arity;
 
 import java.util.concurrent.TimeUnit;
 
@@ -315,10 +316,281 @@ class ErrorTest {
     }
 
     @Test
+    @DisplayName("трейс есть и у ошибки, пойманной внутри той же функции")
+    void traceSurvivesLocalCatch() {
+        // Границы вызова такая ошибка не пересекает — а кадры вокруг есть,
+        // и обработчик вправе их видеть.
+        assertEquals("2 в inner (<script>:4:16)", printed("""
+                fun inner() {
+                    try { println(1 / 0) } catch (e) { println(len(e.trace), " ", e.trace[0]) }
+                }
+                fun outer() => inner()
+                outer()
+                """));
+    }
+
+    @Test
     @DisplayName("у ошибки на верхнем уровне трейса нет: вызовов не было")
     void noTraceWithoutCalls() {
         assertEquals("0", printed("try { println(1 / 0) } catch (e) { println(len(e.trace)) }"));
         assertTrue(errorOf("println(1 / 0)").trace().isEmpty());
+    }
+
+    // --- то, что прилетело из Java -------------------------------------------
+
+    /**
+     * Запускает скрипт, положив в область видимости функцию, которая ведёт себя как
+     * чужая библиотека: бросает обычное исключение Java, а не ошибку скрипта.
+     */
+    private static String withMisbehavingLibrary(String code) {
+        StringBuilder output = new StringBuilder();
+        Source source = Source.ofString(code);
+        Diagnostics diagnostics = new Diagnostics(source);
+        Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
+        assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
+        Resolution resolution = Resolver.resolve(program, diagnostics);
+
+        ExecutionContext context = ExecutionContext.fresh(output::append);
+        context.scope().define("query", BuiltinFunction.of("query", Arity.any(),
+                (ignoredContext, ignoredArguments, ignoredSpan) -> {
+                    throw new IllegalStateException("база недоступна");
+                }));
+        new Interpreter().run(Unit.of(source, program, resolution), context);
+        return oneLine(output);
+    }
+
+    @Test
+    @DisplayName("чужое исключение становится JavaException с местом в скрипте")
+    void foreignExceptionIsWrapped() {
+        assertEquals("JavaException java.lang.IllegalStateException база недоступна true",
+                withMisbehavingLibrary("""
+                try {
+                    query("select 1")
+                } catch (e is JavaException) {
+                    println(e.kind, " ", e.javaClass, " ", e.message, " ",
+                            len(e.javaTrace()) > 0)
+                }
+                """));
+    }
+
+    @Test
+    @DisplayName("JavaException — не ошибка движка: catch по RuntimeError её не видит")
+    void javaExceptionIsNotRuntimeError() {
+        assertEquals("не движок", withMisbehavingLibrary("""
+                try {
+                    try {
+                        query("select 1")
+                    } catch (e is RuntimeError) {
+                        println("не сюда")
+                    }
+                } catch (e is Exception) {
+                    println("не движок")
+                }
+                """));
+    }
+
+    // --- короткие формы ------------------------------------------------------
+
+    @Test
+    @DisplayName("try? даёт null при ошибке и значение без неё")
+    void optionalTry() {
+        assertEquals("null 4 30", printed("""
+                println(try? [1][9], " ", try? 2 + 2, " ", (try? [1][9]) == null ? 30 : 0)
+                """));
+    }
+
+    @Test
+    @DisplayName("try! пропускает значение, а на ошибке останавливает выполнение")
+    void forcedTry() {
+        assertEquals("4", printed("println(try! 2 + 2)"));
+
+        FatalError fatal = assertThrows(FatalError.class, () -> printed("x = try! [1][9]"));
+        assertTrue(fatal.getMessage().contains("здесь ошибки быть не должно"), fatal.getMessage());
+        // Причина сохранена: по ней видно, что именно не сложилось.
+        assertEquals("IndexError", fatal.reason().kindName());
+    }
+
+    @Test
+    @DisplayName("короткие формы не гасят то, что не ловится")
+    void shortFormsDoNotSwallowFatal() {
+        Thread.currentThread().interrupt();
+        try {
+            assertThrows(FatalError.class, () -> printed("x = try? runForever()\nfun runForever() { for (;;) { } }"));
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    // --- defer ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("отложенное выполняется в обратном порядке на выходе из области")
+    void deferRunsInReverse() {
+        assertEquals("тело второй первый после", printed("""
+                {
+                    defer print("первый ")
+                    defer print("второй ")
+                    print("тело ")
+                }
+                println("после")
+                """));
+    }
+
+    @Test
+    @DisplayName("область у defer — блок, поэтому в цикле он срабатывает на каждом проходе")
+    void deferRunsEveryIteration() {
+        assertEquals("открыт a закрыт a открыт b закрыт b", printed("""
+                for (name in ["a", "b"]) {
+                    defer print("закрыт ", name, " ")
+                    print("открыт ", name, " ")
+                }
+                """));
+    }
+
+    @Test
+    @DisplayName("отложенное выполняется при return, break и на пути ошибки")
+    void deferRunsOnEveryExit() {
+        assertEquals("прибрано значение", printed("""
+                fun f() {
+                    defer print("прибрано ")
+                    return "значение";
+                }
+                println(f())
+                """));
+
+        assertEquals("прибрано после", printed("""
+                for (i in [1, 2]) {
+                    defer print("прибрано ")
+                    break
+                }
+                println("после")
+                """));
+
+        assertEquals("прибрано", printedBeforeFailure("""
+                {
+                    defer println("прибрано")
+                    println(1 / 0)
+                }
+                """, WdlRuntimeError.class));
+    }
+
+    @Test
+    @DisplayName("записывается только то, до чего дошло выполнение")
+    void deferIsRecordedAfterTheFact() {
+        // Ровно то, чем defer отличается от finally: блока «а был ли ресурс» не нужно.
+        assertEquals("до", printedBeforeFailure("""
+                {
+                    print("до")
+                    println(1 / 0)
+                    defer println(" не записан")
+                }
+                """, WdlRuntimeError.class));
+    }
+
+    @Test
+    @DisplayName("ошибка из defer не затирает ту, ради которой мы шли наружу")
+    void deferErrorIsSuppressed() {
+        assertEquals("основная 1 из defer", printed("""
+                try {
+                    defer throw new Exception("из defer");
+                    throw new Exception("основная")
+                } catch (e) {
+                    println(e.message, " ", len(e.suppressed), " ", e.suppressed[0].message)
+                }
+                """));
+    }
+
+    @Test
+    @DisplayName("отложенное на верхнем уровне файла выполняется, когда файл дочитан")
+    void deferAtFileLevel() {
+        assertEquals("тело конец", printed("""
+                defer println("конец")
+                println("тело")
+                """));
+    }
+
+    // --- ресурсы -------------------------------------------------------------
+
+    /** Класс-ресурс, который рассказывает о себе печатью. */
+    private static final String RESOURCE = """
+            class Res(name) with Closeable {
+                fun close() => print("закрыт ", name, " ")
+            }
+            """;
+
+    @Test
+    @DisplayName("Closeable — обычный трейт: забыли close, и это ошибка на строке class")
+    void closeableIsAnOrdinaryTrait() {
+        assertTrue(errorOf("class Broken(name) with Closeable")
+                .getMessage().contains("нет метода 'close'"));
+    }
+
+    @Test
+    @DisplayName("use закрывает ресурсы в обратном порядке")
+    void useClosesInReverse() {
+        assertEquals("тело закрыт второй закрыт первый", printed(RESOURCE + """
+                use (a = new Res("первый"), b = new Res("второй")) {
+                    print("тело ")
+                }
+                """));
+    }
+
+    @Test
+    @DisplayName("use закрывает ресурс и на пути ошибки, и при return")
+    void useClosesOnEveryExit() {
+        assertEquals("закрыт f", printedBeforeFailure(RESOURCE + """
+                use (f = new Res("f")) {
+                    println(1 / 0)
+                }
+                """, WdlRuntimeError.class));
+
+        assertEquals("закрыт f готово", printed(RESOURCE + """
+                fun read() {
+                    use (f = new Res("f")) {
+                        return "готово";
+                    }
+                }
+                println(read())
+                """));
+    }
+
+    @Test
+    @DisplayName("значение без Closeable в use — ошибка до выполнения тела")
+    void useChecksTheContract() {
+        WdlRuntimeError error = errorOf("""
+                class Point(x)
+                use (p = new Point(1)) {
+                    println("не сюда")
+                }
+                """);
+        assertTrue(error.getMessage().contains("не подмешивает трейт 'Closeable'"), error.getMessage());
+    }
+
+    @Test
+    @DisplayName("если бросил сам захват, закрывается только взятое левее")
+    void failedAcquisitionClosesWhatIsHeld() {
+        assertEquals("закрыт первый", printedBeforeFailure(RESOURCE + """
+                use (a = new Res("первый"), b = new Res("второй")[9]) {
+                    println("не сюда")
+                }
+                """, WdlRuntimeError.class));
+    }
+
+    @Test
+    @DisplayName("ошибка при закрытии не затирает ту, ради которой мы шли наружу")
+    void closeErrorIsSuppressed() {
+        assertEquals("из тела 1", printed("""
+                class Bad() with Closeable {
+                    fun close() { throw new Exception("из close"); }
+                }
+                try {
+                    use (f = new Bad()) {
+                        throw new Exception("из тела")
+                    }
+                } catch (e) {
+                    println(e.message, " ", len(e.suppressed))
+                }
+                """));
     }
 
     @Test

@@ -47,22 +47,61 @@ public final class WdlRuntimeError extends WdlError {
      * дописанного о ней знания незачем.
      */
     private transient List<String> trace;
+    /**
+     * Исходное исключение Java, если ошибка прилетела из библиотеки, — иначе {@code null}.
+     * <p>
+     * Стек у него уже собран, и выбрасывать эту информацию нельзя: тому, кто чинит
+     * библиотеку, нужна именно она. Скрипту он отдаётся методом {@code javaTrace()},
+     * а не полем, — см. {@link ErrorKind#JAVA}.
+     */
+    private final transient Throwable javaCause;
+    /** Модуль, из которого прилетело чужое исключение, или {@code null}. */
+    private final transient String module;
 
     public WdlRuntimeError(Span span, String message) {
-        this(span, message, ErrorKind.RUNTIME, null, null, null);
+        this(span, message, ErrorKind.RUNTIME, null, null, null, null, null);
     }
 
     /** Ошибка движка с указанным классом: {@code new WdlRuntimeError(ErrorKind.INDEX, span, ...)}. */
     public WdlRuntimeError(ErrorKind kind, Span span, String message) {
-        this(span, message, Objects.requireNonNull(kind, "kind"), null, null, null);
+        this(span, message, Objects.requireNonNull(kind, "kind"), null, null, null, null, null);
     }
 
     private WdlRuntimeError(Span span, String message, ErrorKind kind, Value payload,
-                            Source source, List<String> trace) {
+                            Source source, List<String> trace, Throwable javaCause, String module) {
         super(message, span, source);
         this.kind = kind;
         this.payload = payload;
         this.trace = trace;
+        this.javaCause = javaCause;
+        this.module = module;
+    }
+
+    /**
+     * Чужое исключение, пойманное на границе вызова.
+     * <p>
+     * Оборачивается всё, что прилетело из Java и не стало ошибкой скрипта само:
+     * приложение вправе положить в область видимости что угодно, и для автора скрипта
+     * это не должно выглядеть как крах движка.
+     *
+     * @param module имя модуля, из которого прилетело, или {@code null}, если оно неизвестно
+     */
+    static WdlRuntimeError fromJava(Span span, Throwable cause, String module) {
+        Objects.requireNonNull(cause, "cause");
+        String message = cause.getMessage();
+        return new WdlRuntimeError(span,
+                message == null || message.isBlank() ? cause.getClass().getName() : message,
+                ErrorKind.JAVA, null, null, null, cause, module);
+    }
+
+    /** Исходное исключение Java или {@code null}. */
+    public Throwable javaCause() {
+        return javaCause;
+    }
+
+    /** Модуль, из которого прилетело чужое исключение, или {@code null}. */
+    public String module() {
+        return module;
     }
 
     /**
@@ -74,7 +113,7 @@ public final class WdlRuntimeError extends WdlError {
      */
     static WdlRuntimeError thrown(Span span, Value error, String message) {
         return new WdlRuntimeError(span, message, null, Objects.requireNonNull(error, "error"),
-                null, null);
+                null, null, null, null);
     }
 
     /** Класс ошибки движка или {@code null}, если ошибку бросил скрипт своим классом. */
@@ -130,6 +169,7 @@ public final class WdlRuntimeError extends WdlError {
         if (source() != null || known == null) {
             return this;
         }
-        return new WdlRuntimeError(span(), getMessage(), kind, payload, known, trace);
+        return new WdlRuntimeError(span(), getMessage(), kind, payload, known, trace,
+                javaCause, module);
     }
 }

@@ -16,7 +16,7 @@
 | [Функции](functions.md) | объявление, `=>`, `return`, анонимные, замыкания, области видимости вызова |
 | [Единое обращение](access.md) | почему `a.b` и `a["b"]` — одна операция, и что из этого следует |
 | [Классы](classes.md) | `class` и `trait`, `new`, `this` и `super`, наследование, требования трейтов, `is` |
-| [Ошибки](errors.md) — **частично** | иерархия `Exception`, `throw`, `try`/`catch`/`finally` и трассировка работают; `try?`/`try!`, `defer`, `use` и `Closeable` — ещё проект |
+| [Ошибки и ресурсы](errors.md) | иерархия `Exception`, `throw`, `try`/`catch`/`finally`, `try?`/`try!`, `defer`, `use` и `Closeable`, трассировка |
 | [Модули](modules.md) | `import` и `import ... as`, пути, область действия импорта, наследование через файлы |
 | [Встраивание](embedding.md) | как приложение добавляет в язык свои функции, классы и библиотеки |
 
@@ -45,6 +45,8 @@ wdl examples/classes.wdl                    # классы: поля, метод
 wdl examples/inheritance.wdl                # наследование, super, полиморфизм
 wdl examples/traits.wdl                     # трейты: контракты и готовые реализации
 wdl examples/errors.wdl                     # ошибки: throw, try/catch/finally, трейс
+wdl examples/resources.wdl                  # ресурсы: defer, use, трейт Closeable
+wdl examples/testing/errors.wdl             # тесты на самом языке: проверки по ошибкам
 wdl examples/modules/plain.wdl              # модули: import и import ... as
 wdl examples/modules/late.wdl               # плагин загружается по требованию
 wdl examples/stdlib.wdl                     # стандартная библиотека: pow, File, Random

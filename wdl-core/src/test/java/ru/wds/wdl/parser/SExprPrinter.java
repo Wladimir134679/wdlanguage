@@ -100,6 +100,12 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
         return sb.append(')').toString();
     }
 
+    /** {@code try? f()} → {@code (try? (call f))}: форма записи здесь и есть смысл. */
+    @Override
+    public String visitTryExpr(TryExpr expr, Void context) {
+        return "(" + expr.style().text() + " " + visit(expr.inner(), context) + ")";
+    }
+
     @Override
     public String visitError(ErrorExpr expr, Void context) {
         return "<ошибка>";

@@ -44,6 +44,10 @@ public enum TokenType {
     CATCH("catch"),
     /** Блок, который выполняется при любом выходе из {@code try}. */
     FINALLY("finally"),
+    /** Отложенное действие: {@code defer file.close()}. Область — блок, а не функция. */
+    DEFER("defer"),
+    /** Работа с ресурсом: {@code use (f = io.open(path)) { ... }}. */
+    USE("use"),
     MATCH("match"),
     CASE("case"),
     CLASS("class"),

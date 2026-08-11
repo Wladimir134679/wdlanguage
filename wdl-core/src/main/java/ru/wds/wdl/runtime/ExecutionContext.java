@@ -72,10 +72,19 @@ public final class ExecutionContext implements CallContext {
      * Классы ошибок этого запуска. Общий на весь запуск по той же причине, что
      * и {@link #linker}: снят он один раз, с корневой области, до первой строки скрипта.
      */
-    private final Exceptions exceptions;
+    private final PreludeTypes exceptions;
+    /**
+     * Отложенные действия текущей области или {@code null}, если их в ней нет.
+     * <p>
+     * Принадлежит области, а не контексту: вложенный контекст той же области
+     * (итерация цикла, тело {@code if}) делит список с внешним, а новый блок
+     * с {@code defer} заводит свой — см. {@link Deferred}.
+     */
+    private final Deferred deferred;
 
     private ExecutionContext(Environment scope, Output output, Frame frame, Unit unit,
-                             Modules modules, Linker linker, Exceptions exceptions) {
+                             Modules modules, Linker linker, PreludeTypes exceptions,
+                             Deferred deferred) {
         this.scope = Objects.requireNonNull(scope, "scope");
         this.output = Objects.requireNonNull(output, "output");
         this.frame = frame;
@@ -83,6 +92,7 @@ public final class ExecutionContext implements CallContext {
         this.modules = Objects.requireNonNull(modules, "modules");
         this.linker = Objects.requireNonNull(linker, "linker");
         this.exceptions = Objects.requireNonNull(exceptions, "exceptions");
+        this.deferred = deferred;
     }
 
     /**
@@ -110,15 +120,15 @@ public final class ExecutionContext implements CallContext {
      * Здесь же выполняется {@linkplain Prelude прелюдия}: иерархия классов ошибок
      * появляется в области видимости до первой строки скрипта, как и встроенные функции.
      * <p>
-     * Сразу после этого классы снимаются в {@linkplain Exceptions реестр запуска}.
+     * Сразу после этого классы снимаются в {@linkplain PreludeTypes реестр запуска}.
      * Дальше скрипт волен делать с этими именами что угодно — движок берёт классы
      * из реестра, а не из области.
      */
     public static ExecutionContext of(Environment scope, Output output) {
-        Exceptions exceptions = new Exceptions();
+        PreludeTypes exceptions = new PreludeTypes();
         ExecutionContext context = new ExecutionContext(scope, output, null, Unit.none(),
                 new Modules(new ModuleUnits(ModuleSource.none()), NativeModules.none(), scope),
-                new Linker(), exceptions);
+                new Linker(), exceptions, null);
         Prelude.installTo(context);
         exceptions.captureFrom(scope);
         return context;
@@ -137,7 +147,7 @@ public final class ExecutionContext implements CallContext {
      */
     public ExecutionContext withModules(ModuleUnits units) {
         return new ExecutionContext(scope, output, frame, unit,
-                new Modules(units, modules.natives(), scope), linker, exceptions);
+                new Modules(units, modules.natives(), scope), linker, exceptions, deferred);
     }
 
     /**
@@ -154,7 +164,7 @@ public final class ExecutionContext implements CallContext {
      */
     public ExecutionContext withNativeModules(NativeModules natives) {
         return new ExecutionContext(scope, output, frame, unit,
-                new Modules(modules.units(), natives, scope), linker, exceptions);
+                new Modules(modules.units(), natives, scope), linker, exceptions, deferred);
     }
 
     /**
@@ -208,11 +218,13 @@ public final class ExecutionContext implements CallContext {
                 ? running.modules
                 : new Modules(new ModuleUnits(ModuleSource.none()), NativeModules.none(), scope);
         Linker shapes = running != null ? running.linker : new Linker();
-        Exceptions errors = running != null ? running.exceptions : new Exceptions();
+        PreludeTypes errors = running != null ? running.exceptions : new PreludeTypes();
         Unit callerUnit = running != null ? running.unit : Unit.none();
         Frame parent = running != null ? running.frame : null;
+        // Отложенное вызванной функции не наследуется: 'defer' принадлежит своей области,
+        // а тело вызова — это другая область в другом файле.
         return new ExecutionContext(scope, caller::write,
-                Frame.of(function, callSite, callerUnit, parent), unit, known, shapes, errors);
+                Frame.of(function, callSite, callerUnit, parent), unit, known, shapes, errors, null);
     }
 
     public Environment scope() {
@@ -230,7 +242,7 @@ public final class ExecutionContext implements CallContext {
     }
 
     /** Классы ошибок этого запуска: по ним движок отвечает на {@code catch (e is ...)}. */
-    Exceptions exceptions() {
+    PreludeTypes exceptions() {
         return exceptions;
     }
 
@@ -257,13 +269,14 @@ public final class ExecutionContext implements CallContext {
 
     /** Тот же контекст, но выполняющий другой файл. */
     public ExecutionContext withUnit(Unit newUnit) {
-        return new ExecutionContext(scope, output, frame, newUnit, modules, linker, exceptions);
+        return new ExecutionContext(scope, output, frame, newUnit, modules, linker, exceptions,
+                deferred);
     }
 
     /** Тот же контекст, но знающий план объявлений разобранной программы. */
     public ExecutionContext withResolution(Resolution newResolution) {
         return new ExecutionContext(scope, output, frame, unit.withResolution(newResolution),
-                modules, linker, exceptions);
+                modules, linker, exceptions, deferred);
     }
 
     public Output output() {
@@ -282,7 +295,21 @@ public final class ExecutionContext implements CallContext {
 
     /** Тот же контекст, но с другим окружением: вход в блок, функцию, итерацию. */
     public ExecutionContext withScope(Environment newScope) {
-        return new ExecutionContext(newScope, output, frame, unit, modules, linker, exceptions);
+        return new ExecutionContext(newScope, output, frame, unit, modules, linker, exceptions,
+                deferred);
+    }
+
+    /**
+     * Тот же контекст, но с собственным списком отложенных действий: вход в блок,
+     * у которого есть {@code defer}.
+     */
+    ExecutionContext withDeferred(Deferred own) {
+        return new ExecutionContext(scope, output, frame, unit, modules, linker, exceptions, own);
+    }
+
+    /** Отложенные действия текущей области или {@code null}. */
+    Deferred deferred() {
+        return deferred;
     }
 
     /** Контекст вложенной области видимости. */

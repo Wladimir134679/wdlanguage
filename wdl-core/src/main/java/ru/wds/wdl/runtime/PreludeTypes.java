@@ -8,35 +8,46 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * Классы ошибок этого запуска: {@link ErrorKind} → значение класса из
- * {@linkplain Prelude прелюдии}.
+ * Типы {@linkplain Prelude прелюдии} этого запуска: классы ошибок и трейт
+ * {@code Closeable}.
  * <p>
  * Реестр нужен по той же причине, что {@code Modules} и {@code Linker}, — он
- * принадлежит запуску, а не области видимости. Классы прелюдии лежат в корневой
+ * принадлежит запуску, а не области видимости. Типы прелюдии лежат в корневой
  * области рядом с {@code println}, и скрипт вправе их перекрыть: пространство имён
- * одно, и исключений из этого правила язык не заводит. Но <b>движок</b> берёт класс
+ * одно, и исключений из этого правила язык не заводит. Но <b>движок</b> берёт их
  * отсюда, а не поиском имени, поэтому {@code IndexError = 5} ломает только тот скрипт,
  * который это сделал, а не сам механизм ошибок.
  * <p>
  * Снимок делается один раз, сразу после выполнения прелюдии, — до первой строки
  * пользовательского кода.
  */
-final class Exceptions {
+final class PreludeTypes {
 
-    private final Map<ErrorKind, ClassValue> classes = new EnumMap<>(ErrorKind.class);
+    private static final String CLOSEABLE = "Closeable";
 
-    /** Запоминает классы прелюдии, объявленные в этой области. */
+    private final Map<ErrorKind, ClassValue> errors = new EnumMap<>(ErrorKind.class);
+    private TraitValue closeable;
+
+    /** Запоминает типы прелюдии, объявленные в этой области. */
     void captureFrom(Environment scope) {
         for (ErrorKind kind : ErrorKind.values()) {
             if (scope.lookup(kind.title()) instanceof ClassValue declared) {
-                classes.put(kind, declared);
+                errors.put(kind, declared);
             }
+        }
+        if (scope.lookup(CLOSEABLE) instanceof TraitValue declared) {
+            closeable = declared;
         }
     }
 
     /** Класс ошибки движка или {@code null}, если прелюдия в этом запуске не выполнялась. */
     ClassValue classOf(ErrorKind kind) {
-        return classes.get(kind);
+        return errors.get(kind);
+    }
+
+    /** Трейт {@code Closeable} или {@code null}, если прелюдии не было. */
+    TraitValue closeable() {
+        return closeable;
     }
 
     /**
@@ -50,7 +61,7 @@ final class Exceptions {
      * путём остаётся реестр.
      */
     boolean matches(ErrorKind kind, Value target) {
-        ClassValue declared = classes.get(kind);
+        ClassValue declared = errors.get(kind);
         if (declared != null) {
             return declared.conformsTo(target);
         }

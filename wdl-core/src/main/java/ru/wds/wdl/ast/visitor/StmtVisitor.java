@@ -49,6 +49,12 @@ public interface StmtVisitor<R, C> {
 
     R visitTry(TryStmt stmt, C context);
 
+    /** Отложенное действие: выполняется на выходе из своей области видимости. */
+    R visitDefer(DeferStmt stmt, C context);
+
+    /** Работа с ресурсом: значение закрывается на любом выходе из тела. */
+    R visitUse(UseStmt stmt, C context);
+
     R visitErrorStmt(ErrorStmt stmt, C context);
 
     /** Точка входа: направляет инструкцию нужному методу. */
@@ -71,6 +77,8 @@ public interface StmtVisitor<R, C> {
             case ReturnStmt s -> visitReturn(s, context);
             case ThrowStmt s -> visitThrow(s, context);
             case TryStmt s -> visitTry(s, context);
+            case DeferStmt s -> visitDefer(s, context);
+            case UseStmt s -> visitUse(s, context);
             case ErrorStmt s -> visitErrorStmt(s, context);
         };
     }

@@ -47,6 +47,9 @@ public interface ExprVisitor<R, C> {
     /** Литерал функции. Объявление {@code fun имя(...)} приходит сюда же — через {@code FunDeclStmt}. */
     R visitFunction(FunctionExpr expr, C context);
 
+    /** Короткая форма обработки ошибки: {@code try?} и {@code try!}. */
+    R visitTryExpr(TryExpr expr, C context);
+
     /**
      * Узел-заглушка на месте синтаксической ошибки. Реализовать обязательно:
      * инструменты (форматтер, подсветка, LSP) работают и с битым деревом,
@@ -68,6 +71,7 @@ public interface ExprVisitor<R, C> {
             case ArrayExpr e -> visitArray(e, context);
             case ObjectExpr e -> visitObject(e, context);
             case FunctionExpr e -> visitFunction(e, context);
+            case TryExpr e -> visitTryExpr(e, context);
             case ErrorExpr e -> visitError(e, context);
         };
     }

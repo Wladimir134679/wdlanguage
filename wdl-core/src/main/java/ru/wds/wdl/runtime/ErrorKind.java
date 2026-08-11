@@ -10,7 +10,7 @@ package ru.wds.wdl.runtime;
  * <p>
  * Перечисление, а не строка, потому что имена здесь — не текст, а часть языка:
  * им соответствуют классы {@linkplain Prelude прелюдии}, и разойтись эти два списка
- * не должны. Проверяет соответствие {@link Exceptions#captureFrom}.
+ * не должны. Проверяет соответствие {@link PreludeTypes#captureFrom}.
  * <p>
  * Библиотеки заводят свои классы ошибок сами и сюда не попадают: {@code IoError}
  * принадлежит {@code sys.io}, а не движку.
@@ -45,7 +45,16 @@ public enum ErrorKind {
     DECLARATION("DeclarationError", RUNTIME),
 
     /** Модуль не найден, ошибка разбора модуля, упавшая фабрика библиотеки. */
-    IMPORT("ImportError", RUNTIME);
+    IMPORT("ImportError", RUNTIME),
+
+    /**
+     * То, что прилетело из Java и не стало ошибкой скрипта само.
+     * <p>
+     * Не под {@link #RUNTIME}: ошибся не движок, а библиотека, которую положило
+     * в область видимости приложение, — и {@code catch (e is RuntimeError)} не должен
+     * ловить чужой {@code NullPointerException} заодно с делением на ноль.
+     */
+    JAVA("JavaException", EXCEPTION);
 
     private final String title;
     private final ErrorKind parent;

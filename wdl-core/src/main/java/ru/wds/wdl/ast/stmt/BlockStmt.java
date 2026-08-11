@@ -20,13 +20,22 @@ import java.util.Objects;
  * всегда блок, в позиции выражения — всегда объект.
  *
  * @param statements инструкции в порядке записи
+ * @param hasDefer   есть ли в этом блоке отложенные действия — см. {@link DeferStmt}.
+ *                   Ставится при разборе, потому что там это известно даром, а выполнению
+ *                   иначе пришлось бы заводить список отложенного на каждый блок,
+ *                   хотя блоков с {@code defer} — единицы на скрипт
  * @param span       место в исходнике вместе со скобками
  */
-public record BlockStmt(List<Stmt> statements, Span span) implements Stmt {
+public record BlockStmt(List<Stmt> statements, boolean hasDefer, Span span) implements Stmt {
 
     public BlockStmt {
         statements = List.copyOf(Objects.requireNonNull(statements, "statements"));
         Objects.requireNonNull(span, "span");
+    }
+
+    /** Блок без отложенных действий — самый частый случай. */
+    public BlockStmt(List<Stmt> statements, Span span) {
+        this(statements, false, span);
     }
 
     public boolean isEmpty() {

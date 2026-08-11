@@ -4,11 +4,19 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import ru.wds.wdl.ast.Program;
+import ru.wds.wdl.ast.expr.BinaryExpr;
+import ru.wds.wdl.ast.expr.CallExpr;
 import ru.wds.wdl.ast.expr.NewExpr;
+import ru.wds.wdl.ast.expr.TryExpr;
+import ru.wds.wdl.ast.expr.TryStyle;
 import ru.wds.wdl.ast.stmt.AssignStmt;
+import ru.wds.wdl.ast.stmt.BlockStmt;
+import ru.wds.wdl.ast.stmt.DeferStmt;
+import ru.wds.wdl.ast.stmt.ExprStmt;
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.ast.stmt.ThrowStmt;
 import ru.wds.wdl.ast.stmt.TryStmt;
+import ru.wds.wdl.ast.stmt.UseStmt;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.source.Source;
@@ -187,5 +195,127 @@ class ErrorParserTest {
     @DisplayName("throw без выражения называет причину один раз")
     void brokenThrow() {
         assertTrue(problems("throw )").contains("ожидалось выражение"));
+    }
+
+    // --- короткие формы try? и try! ------------------------------------------
+
+    @Test
+    @DisplayName("try? и try! — выражения, а не конструкция с блоком")
+    void shortFormsAreExpressions() {
+        AssignStmt optional = assertInstanceOf(AssignStmt.class, single("n = try? parse(text)"));
+        assertEquals(TryStyle.OPTIONAL,
+                assertInstanceOf(TryExpr.class, optional.value()).style());
+
+        AssignStmt forced = assertInstanceOf(AssignStmt.class, single("port = try! config()"));
+        assertEquals(TryStyle.FORCED, assertInstanceOf(TryExpr.class, forced.value()).style());
+    }
+
+    @Test
+    @DisplayName("операнд короткой формы — вызов целиком, но не соседнее сложение")
+    void shortFormBindsLikeUnary() {
+        AssignStmt whole = assertInstanceOf(AssignStmt.class, single("n = try? config.port()"));
+        TryExpr wrapped = assertInstanceOf(TryExpr.class, whole.value());
+        assertInstanceOf(CallExpr.class, wrapped.inner());
+
+        // 'try? f() + 1' — это '(try? f()) + 1': сложение слабее унарной силы.
+        AssignStmt sum = assertInstanceOf(AssignStmt.class, single("n = try? f() + 1"));
+        BinaryExpr plus = assertInstanceOf(BinaryExpr.class, sum.value());
+        assertInstanceOf(TryExpr.class, plus.left());
+    }
+
+    @Test
+    @DisplayName("try? отдельной инструкцией — это вызов с проглоченной ошибкой")
+    void shortFormIsAStatement() {
+        ExprStmt statement = assertInstanceOf(ExprStmt.class, single("try? save()"));
+        assertInstanceOf(TryExpr.class, statement.expr());
+    }
+
+    @Test
+    @DisplayName("короткая форма пишется слитно")
+    void shortFormIsWrittenTogether() {
+        assertTrue(problems("n = try ? f()").contains("пишется слитно"));
+        assertTrue(problems("n = try ! f()").contains("пишется слитно"));
+    }
+
+    @Test
+    @DisplayName("голый try в позиции выражения объясняет, чего от него ждут")
+    void bareTryInExpression() {
+        assertTrue(problems("n = try { f() }").contains("в позиции выражения пишется коротко"));
+    }
+
+    // --- defer ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("блок помечается флагом, если в нём есть отложенное действие")
+    void blockKnowsAboutDefer() {
+        BlockStmt withDefer = assertInstanceOf(BlockStmt.class, single("{ defer close(); work() }"));
+        assertTrue(withDefer.hasDefer());
+        assertInstanceOf(DeferStmt.class, withDefer.statements().get(0));
+
+        assertFalse(assertInstanceOf(BlockStmt.class, single("{ work() }")).hasDefer());
+    }
+
+    @Test
+    @DisplayName("defer вложенного блока принадлежит ему, а не внешнему")
+    void deferBelongsToItsOwnBlock() {
+        BlockStmt outer = assertInstanceOf(BlockStmt.class, single("{ { defer close() } work() }"));
+        assertFalse(outer.hasDefer(), "внешний блок отложенного не заводил");
+        assertTrue(assertInstanceOf(BlockStmt.class, outer.statements().get(0)).hasDefer());
+    }
+
+    @Test
+    @DisplayName("тело defer — одна инструкция или блок")
+    void deferBodyIsStatementOrBlock() {
+        assertInstanceOf(DeferStmt.class,
+                assertInstanceOf(BlockStmt.class, single("{ defer f() }")).statements().get(0));
+        assertInstanceOf(DeferStmt.class,
+                assertInstanceOf(BlockStmt.class, single("{ defer { f(); g() } }")).statements().get(0));
+    }
+
+    // --- use -----------------------------------------------------------------
+
+    @Test
+    @DisplayName("use разбирает список ресурсов в порядке захвата")
+    void useBindsResourcesInOrder() {
+        UseStmt statement = assertInstanceOf(UseStmt.class,
+                single("use (src = open(from), dst = create(to)) { copy(src, dst) }"));
+        assertEquals(2, statement.resources().size());
+        assertEquals("src", statement.resources().get(0).name());
+        assertEquals("dst", statement.resources().get(1).name());
+        assertEquals(1, statement.body().statements().size());
+    }
+
+    @Test
+    @DisplayName("тело use — всегда блок, а список ресурсов не бывает пустым")
+    void useNeedsBlockAndResources() {
+        assertTrue(problems("use (f = open(p)) f.close()").contains("блоком в фигурных скобках"));
+        assertTrue(problems("use () { a() }").contains("ожидалось имя"));
+    }
+
+    @Test
+    @DisplayName("слева от '=' в use стоит имя, а не обращение")
+    void useBindsNamesOnly() {
+        assertTrue(problems("use (a.b = open(p)) { c() }").contains("знак '='"));
+    }
+
+    @Test
+    @DisplayName("два ресурса под одним именем — ошибка")
+    void useRejectsDuplicateNames() {
+        assertTrue(problems("use (f = open(a), f = open(b)) { c() }").contains("уже занято"));
+    }
+
+    @Test
+    @DisplayName("return, break и continue в теле defer запрещены при разборе")
+    void noEscapeFromDefer() {
+        assertTrue(problems("""
+                fun f() {
+                    defer return 1;
+                }
+                """).contains("'return' в теле 'defer' запрещён"));
+        assertTrue(problems("""
+                for (i in [1]) {
+                    defer break
+                }
+                """).contains("'break' в теле 'defer' запрещён"));
     }
 }
