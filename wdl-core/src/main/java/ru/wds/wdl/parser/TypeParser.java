@@ -1,6 +1,7 @@
 package ru.wds.wdl.parser;
 
 import ru.wds.wdl.ast.expr.BodyStyle;
+import ru.wds.wdl.ast.expr.CallExpr;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.BlockStmt;
@@ -118,13 +119,14 @@ final class TypeParser {
     }
 
     /**
-     * Имя типа в заголовке класса: {@code Shape} или {@code m.Shape}, где {@code m} —
-     * имя именованного импорта.
+     * Имя типа в обработчике {@code catch}: {@code Shape} или {@code m.Shape},
+     * где {@code m} — имя именованного импорта.
      * <p>
-     * Больше одной точки не принимается, и это не экономия: слева от точки здесь
-     * стоит имя импорта, известное до выполнения, а не значение, из которого можно
-     * доставать содержимое дальше. Модуль модуля не бывает — импорт разворачивает
-     * файл целиком.
+     * Больше одной точки здесь не принимается — в отличие от заголовка класса,
+     * где стоит {@link #typeExpression выражение}. Причина не в разборе, а в том,
+     * что {@code catch} перебирает свои типы на каждой ошибке: вычислять там цепочку
+     * с вызовами значило бы звать чужой код на пути обработки уже случившейся
+     * ошибки — ровно в тот момент, когда лишним побочным эффектам верить нельзя.
      *
      * @return {@code null}, если имени нет; об ошибке уже сказано
      */
@@ -153,23 +155,64 @@ final class TypeParser {
         return new TypeName(first.text(), name.text(), first.span().to(name.span()));
     }
 
-    /** Родитель и аргументы его заголовка: {@code : Shape("круг")}. Скобки необязательны. */
-    private ClassDeclStmt.Superclass superclass() {
-        Token colon = cursor.advance(); // :
-        TypeName parent = typeName("класса-родителя");
-        if (parent == null) {
+    /**
+     * Ссылка на тип в заголовке класса: цепочка обращений и вызовов, дающая класс
+     * или трейт.
+     * <p>
+     * Разбирается силой {@link Operators#ACCESS}, поэтому в цепочку попадают только
+     * {@code .имя}, {@code [ключ]} и {@code (аргументы)} — то есть ровно способы
+     * достать значение из другого значения. Любой бинарный оператор слабее и цепочку
+     * обрывает: {@code class A : x + y} не разберётся, и это правильно — складывать
+     * классы незачем, а внятная ошибка лучше вычисления неизвестно чего.
+     * <p>
+     * Начинается цепочка всегда с имени. Не из-за разбора — {@code prefix()} принял бы
+     * и литерал, — а из-за сообщения: «ожидалось имя класса-родителя» на месте
+     * {@code : 42} полезнее, чем «наследоваться можно только от класса» при выполнении.
+     *
+     * @return {@code null}, если имени нет; об ошибке уже сказано
+     */
+    private Expr typeExpression(String what) {
+        if (!cursor.check(TokenType.WORD)) {
+            diagnostics.error(cursor.peek().span(),
+                    "ожидалось имя " + what + ", найдено " + describe(cursor.peek()));
             return null;
         }
-        List<Expr> arguments = new ArrayList<>();
-        Span end = parent.span();
-        if (cursor.check(TokenType.LPAREN)) {
-            end = parser.argumentList(arguments).span();
-        }
-        return new ClassDeclStmt.Superclass(parent.alias(), parent.name(), arguments,
-                colon.span().to(end));
+        return parser.expression(Operators.ACCESS);
     }
 
-    /** Подмешанные трейты: {@code with Printable, m.Counted}. Их может быть сколько угодно. */
+    /**
+     * Родитель и аргументы его заголовка: {@code : Shape("круг")}, {@code : m.Shape},
+     * {@code : registry.classes["Shape"](1)}.
+     * <p>
+     * <b>Последние скобки цепочки — аргументы заголовка, а не вызов.</b> Разобрать
+     * их отдельно нельзя: {@code Shape("круг")} — это уже готовый {@link CallExpr},
+     * и решение принимается здесь, расщеплением. Иначе основная форма записи
+     * означала бы «вызвать Shape и наследоваться от того, что вернулось».
+     * Вызову внутри цепочки это не мешает: у {@code registry.all()["Shape"]}
+     * последняя операция — обращение, и скобки достаются {@code all}.
+     */
+    private ClassDeclStmt.Superclass superclass() {
+        Token colon = cursor.advance(); // :
+        Expr type = typeExpression("класса-родителя");
+        if (type == null) {
+            return null;
+        }
+        List<Expr> arguments = List.of();
+        if (type instanceof CallExpr call) {
+            arguments = call.arguments();
+            type = call.callee();
+        }
+        return new ClassDeclStmt.Superclass(type, arguments, colon.span().to(cursor.lastSpan()));
+    }
+
+    /**
+     * Подмешанные трейты: {@code with Printable, m.Counted, plugins["Logged"]}.
+     * Их может быть сколько угодно.
+     * <p>
+     * Скобки здесь, в отличие от {@link #superclass()}, — обычный вызов: передавать
+     * трейту нечего, конструктора у него нет, поэтому {@code with make()} однозначно
+     * значит «вызвать и подмешать результат».
+     */
     private List<ClassDeclStmt.TraitRef> traitList() {
         if (!cursor.check(TokenType.WITH)) {
             return List.of();
@@ -177,16 +220,20 @@ final class TypeParser {
         cursor.advance(); // with
         List<ClassDeclStmt.TraitRef> traits = new ArrayList<>();
         do {
-            TypeName trait = typeName("трейта");
-            if (trait == null) {
+            Expr type = typeExpression("трейта");
+            if (type == null) {
                 break;
             }
+            ClassDeclStmt.TraitRef trait = new ClassDeclStmt.TraitRef(type, type.span());
             for (ClassDeclStmt.TraitRef existing : traits) {
+                // Сравниваются записи, а не значения: одинаковый текст — почти наверняка
+                // описка, а разный текст может дать один трейт, и это выяснится только
+                // при выполнении. Повтор там не ошибка — таблицы всё равно плоские.
                 if (existing.title().equals(trait.title())) {
                     diagnostics.error(trait.span(), "трейт '" + trait.title() + "' подмешан дважды");
                 }
             }
-            traits.add(new ClassDeclStmt.TraitRef(trait.alias(), trait.name(), trait.span()));
+            traits.add(trait);
         } while (cursor.match(TokenType.COMMA));
         return traits;
     }

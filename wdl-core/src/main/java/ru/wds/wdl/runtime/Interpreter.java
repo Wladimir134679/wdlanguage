@@ -518,8 +518,7 @@ public final class Interpreter
         if (parent == null) {
             return null;
         }
-        Value value = typeValue(parent.alias(), parent.name(), parent.title(), "класс",
-                parent.span(), context);
+        Value value = typeValue(parent.type(), parent.title(), "класс", parent.span(), context);
         if (value instanceof WdlClass klass) {
             return klass;
         }
@@ -541,8 +540,8 @@ public final class Interpreter
     private List<WdlTrait> mixinsOf(ClassDeclStmt stmt, ExecutionContext context) {
         List<WdlTrait> traits = new ArrayList<>(stmt.traits().size());
         for (ClassDeclStmt.TraitRef reference : stmt.traits()) {
-            Value value = typeValue(reference.alias(), reference.name(), reference.title(),
-                    "трейт", reference.span(), context);
+            Value value = typeValue(reference.type(), reference.title(), "трейт",
+                    reference.span(), context);
             if (value instanceof WdlTrait trait) {
                 traits.add(trait);
                 continue;
@@ -559,11 +558,59 @@ public final class Interpreter
     }
 
     /**
-     * Значение имени типа: простого или квалифицированного.
+     * Значение ссылки на тип в заголовке класса.
      * <p>
-     * {@code m.Shape} читается тем же кодом, что и любое обращение через точку:
-     * слева от точки — значение-модуль, справа — его имя. Особого синтаксиса для
-     * модулей не понадобилось и здесь.
+     * Ссылка — обычное выражение, и вычисляется она обычным образом: {@code m.Shape}
+     * и {@code registry.classes["Shape"]} проходят тем же кодом, что и любое
+     * обращение по ключу. Особого синтаксиса для модулей не понадобилось и здесь.
+     * <p>
+     * Собственных сообщений при этом два, и оба про <b>ненайденное имя</b> —
+     * то есть про случай, когда вычислять уже нечего. Общее «переменная не определена»
+     * здесь хуже своего: человек написал заголовок класса, и подсказка нужна про
+     * заголовок класса — что связывать можно объявленное выше или импортированное.
+     * Дальше по цепочке подсказывать уже нечего, и работает обычная диагностика
+     * обращения: «у модуля нет имени X» точнее всего, что можно придумать отсюда.
+     */
+    private Value typeValue(Expr type, String title, String what, Span span,
+                            ExecutionContext context) {
+        if (type instanceof VariableExpr variable) {
+            Value value = context.scope().lookup(variable.name());
+            if (value == null) {
+                throw new WdlRuntimeError(ErrorKind.NAME, span, "неизвестный " + what + " '" + title
+                        + "': наследоваться и подмешивать можно то, что объявлено в этом же"
+                        + " файле или импортировано выше по тексту");
+            }
+            return value;
+        }
+        // Не найдено самое левое имя цепочки — почти всегда это забытый или неверно
+        // названный импорт, и сказать про него надо раньше, чем про обращение к null.
+        if (root(type) instanceof VariableExpr base && context.scope().lookup(base.name()) == null) {
+            throw new WdlRuntimeError(ErrorKind.NAME, span, "неизвестный " + what + " '" + title
+                    + "': проверьте, что выше есть 'import ... as " + base.name()
+                    + "' и что в том модуле объявлен этот тип");
+        }
+        return valueOf(type, context);
+    }
+
+    /** Самое левое звено цепочки обращений и вызовов: {@code a} у {@code a.b()[0]}. */
+    private static Expr root(Expr type) {
+        Expr current = type;
+        while (true) {
+            switch (current) {
+                case AccessExpr access -> current = access.target();
+                case CallExpr call -> current = call.callee();
+                default -> {
+                    return current;
+                }
+            }
+        }
+    }
+
+    /**
+     * Значение имени типа в обработчике {@code catch}: простого или квалифицированного.
+     * <p>
+     * Отдельно от заголовка класса: там ссылка — выражение, а здесь имя, и вычислять
+     * цепочку с вызовами на пути обработки уже случившейся ошибки язык не станет.
      */
     private Value typeValue(String alias, String name, String title, String what,
                             Span span, ExecutionContext context) {

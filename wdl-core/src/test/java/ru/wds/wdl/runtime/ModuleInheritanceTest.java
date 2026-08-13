@@ -364,6 +364,34 @@ class ModuleInheritanceTest {
     }
 
     @Test
+    @DisplayName("именованный импорт передаётся дальше: наследование через два имени")
+    void aliasIsPassedThrough() {
+        // Модуль модуля бывает: 'import ... as m' внутри файла кладёт значение-модуль
+        // в его же члены, и наружу оно уходит вместе со всем остальным. Поэтому
+        // в заголовке класса и стоит выражение — цепочке тут неоткуда взять предел.
+        assertEquals("фигура круг" + NL, run("""
+                import lib.re as r
+                class Circle : r.s.Shape("круг")
+                println(new Circle().text())
+                """, Map.of(
+                "lib/re", "import base as s",
+                "lib/base", "class Shape(title) { def text() => \"фигура \" + title }")));
+    }
+
+    @Test
+    @DisplayName("класс модуля достаётся из его же реестра — обычным обращением по ключу")
+    void typeFromModuleRegistry() {
+        assertEquals("фигура круг|true" + NL, run("""
+                import lib.re as r
+                class Circle : r.classes["Shape"]("круг")
+                println(new Circle().text(), "|", new Circle() is r.classes["Shape"])
+                """, Map.of("lib/re", """
+                class Shape(title) { def text() => "фигура " + title }
+                classes = {"Shape": Shape}
+                """)));
+    }
+
+    @Test
     @DisplayName("развёрнутый импорт передаётся дальше: модуль отдаёт и то, что развернул сам")
     void spreadImportIsPassedThrough() {
         assertEquals("фигура круг" + NL, run("""

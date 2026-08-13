@@ -13,3 +13,10 @@ class Shape(title) {
 
     def area() => 0
 }
+
+// Модуль вправе отдавать типы не только под их именами: класс — обычное значение,
+// и в реестре ему не хуже, чем в переменной.
+kinds = {"shape": Shape}
+contracts = {"countable": Countable}
+
+def kindFor(name) => kinds[name]

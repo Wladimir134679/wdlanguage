@@ -20,7 +20,7 @@ wdl-cli/build/install/wdl/bin/wdl examples/modules/plain.wdl
 | [scoped.wdl](scoped.wdl) | импорт внутри функции и внутри блока — и его исчезновение на выходе |
 | [once.wdl](once.wdl) | модуль выполняется один раз за запуск; общее живое состояние; `is` между двумя импортами |
 | [nested.wdl](nested.wdl) | модуль импортирует соседа по короткому имени |
-| [inherit.wdl](inherit.wdl) | наследование и трейты через файлы: `: Shape`, `: s.Shape`, `with s.Countable`, `super`, `is`, наследник внутри функции |
+| [inherit.wdl](inherit.wdl) | наследование и трейты через файлы: `: Shape`, `: s.Shape`, `with s.Countable`, `super`, `is`, родитель выражением (`s.kinds["shape"]`, `s.kindFor("shape")(...)`), наследник внутри функции |
 | [late.wdl](late.wdl) | модуля нет на диске, и скрипт всё равно работает; плагин с классом и трейтом загружается по требованию |
 
 Модули лежат в [lib/](lib): `geometry` (константа, функция, класс), `counter`

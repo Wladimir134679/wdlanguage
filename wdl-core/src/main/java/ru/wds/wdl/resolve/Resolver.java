@@ -1,6 +1,8 @@
 package ru.wds.wdl.resolve;
 
 import ru.wds.wdl.ast.Program;
+import ru.wds.wdl.ast.expr.Expr;
+import ru.wds.wdl.ast.expr.VariableExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.ast.stmt.TraitDeclStmt;
@@ -37,7 +39,10 @@ import java.util.Set;
  * <p>
  * <b>Чего он не делает.</b> Класс, чей родитель или трейт в этом файле не объявлен,
  * до выполнения не трогается совсем: имя придёт из {@code import} или от приложения,
- * и связать его заранее нечем. Такой класс появляется на своей строке — как класс
+ * и связать его заранее нечем. То же и с ссылкой, записанной выражением
+ * ({@code m.Shape}, {@code registry.classes["Shape"]}): в заголовке класса стоит
+ * выражение, а по выражению не видно, кто от кого зависит, — сопоставить с текстом
+ * можно только простое имя. Такой класс появляется на своей строке — как класс
  * внутри блока, — а «неизвестный класс», «это трейт, а не класс», требования трейтов
  * и число аргументов родителю называет выполнение.
  * <p>
@@ -130,30 +135,44 @@ public final class Resolver {
     /**
      * Родитель этого файла и сам запланирован.
      * <p>
-     * Квалифицированное имя ({@code m.Shape}) — всегда «нет»: слева от точки стоит
-     * имя импорта, а модуль выполняется своей инструкцией, до которой очередь
-     * ещё не дошла.
+     * Всё, кроме простого имени, — «нет». {@code m.Shape} и любая другая цепочка
+     * ({@code registry.classes["Shape"]}) требуют вычисления, а вычислять до первой
+     * инструкции нечего и незачем: модуль выполняется своей инструкцией, до которой
+     * очередь ещё не дошла, а обращение по ключу может позвать чужой код.
      */
     private boolean parentReady(ClassDeclStmt klass) {
         ClassDeclStmt.Superclass parent = klass.parent();
         if (parent == null) {
             return true;
         }
-        if (parent.alias() != null) {
+        String name = simpleName(parent.type());
+        if (name == null) {
             return false;
         }
         // Трейт в позиции родителя — ошибка, но назовёт её выполнение: там видно
         // значение, а не только имя, и сообщение получается одно на все случаи.
-        return types.get(parent.name()) instanceof ClassDeclStmt declared && schedule(declared);
+        return types.get(name) instanceof ClassDeclStmt declared && schedule(declared);
     }
 
     /** Все подмешанные трейты объявлены в этом файле. Трейты планируются все, проверять их нечего. */
     private boolean traitsReady(ClassDeclStmt klass) {
         for (ClassDeclStmt.TraitRef reference : klass.traits()) {
-            if (reference.alias() != null || !(types.get(reference.name()) instanceof TraitDeclStmt)) {
+            String name = simpleName(reference.type());
+            if (name == null || !(types.get(name) instanceof TraitDeclStmt)) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Имя, если ссылка на тип — это одно слово, иначе {@code null}.
+     * <p>
+     * Здесь и проходит вся граница между «известно из текста» и «известно
+     * при выполнении». Имя можно сопоставить с объявлением в этом же файле,
+     * не выполнив ни строчки; выражение — нельзя, каким бы простым оно ни выглядело.
+     */
+    private static String simpleName(Expr type) {
+        return type instanceof VariableExpr variable ? variable.name() : null;
     }
 }

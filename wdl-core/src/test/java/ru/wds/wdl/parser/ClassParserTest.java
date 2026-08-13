@@ -89,11 +89,11 @@ class ClassParserTest {
         ClassDeclStmt basket = classOf(
                 "class Basket(items, limit = 10) : Store(\"склад\") with Printable, Counted");
 
-        assertEquals("Store", basket.parent().name());
+        assertEquals("Store", SExprPrinter.print(basket.parent().type()));
         assertEquals(1, basket.parent().arguments().size());
         assertEquals(2, basket.traits().size());
-        assertEquals("Printable", basket.traits().get(0).name());
-        assertEquals("Counted", basket.traits().get(1).name());
+        assertEquals("Printable", SExprPrinter.print(basket.traits().get(0).type()));
+        assertEquals("Counted", SExprPrinter.print(basket.traits().get(1).type()));
     }
 
     @Test
@@ -129,8 +129,7 @@ class ClassParserTest {
     void qualifiedParent() {
         ClassDeclStmt circle = classOf("class Circle(r) : m.Shape(\"круг\")");
 
-        assertEquals("m", circle.parent().alias());
-        assertEquals("Shape", circle.parent().name());
+        assertEquals("(get m \"Shape\")", SExprPrinter.print(circle.parent().type()));
         assertEquals("m.Shape", circle.parent().title());
         assertEquals(1, circle.parent().arguments().size());
     }
@@ -140,9 +139,8 @@ class ClassParserTest {
     void qualifiedTrait() {
         ClassDeclStmt bag = classOf("class Bag(items) with Loud, m.Countable");
 
-        assertNull(bag.traits().get(0).alias());
-        assertEquals("m", bag.traits().get(1).alias());
-        assertEquals("Countable", bag.traits().get(1).name());
+        assertEquals("Loud", SExprPrinter.print(bag.traits().get(0).type()));
+        assertEquals("(get m \"Countable\")", SExprPrinter.print(bag.traits().get(1).type()));
         assertEquals("m.Countable", bag.traits().get(1).title());
     }
 
@@ -153,18 +151,70 @@ class ClassParserTest {
         assertTrue(errorOf("class A(x) with m.Loud, m.Loud").contains("подмешан дважды"));
     }
 
+    // --- ссылка на тип — выражение -------------------------------------------
+
     @Test
-    @DisplayName("второй точки в имени типа не бывает: слева от неё имя импорта, а не значение")
-    void twoDotsInTypeName() {
-        assertTrue(errorOf("class A(x) : a.b.C()").contains("уже полное имя"));
-        assertTrue(errorOf("class A(x) with a.b.C").contains("уже полное имя"));
+    @DisplayName("вложенность любой глубины: class A : w.m.C")
+    void nestedTypeName() {
+        ClassDeclStmt a = classOf("class A(x) : w.m.C(1)");
+
+        assertEquals("(get (get w \"m\") \"C\")", SExprPrinter.print(a.parent().type()));
+        assertEquals("w.m.C", a.parent().title());
+        assertEquals(1, a.parent().arguments().size());
+    }
+
+    @Test
+    @DisplayName("родителя можно достать по ключу — и трейт тоже")
+    void typeFromKey() {
+        ClassDeclStmt a = classOf("class A(x) : registry[\"Shape\"](\"круг\") with plugins.all[0]");
+
+        assertEquals("(get registry \"Shape\")", SExprPrinter.print(a.parent().type()));
+        assertEquals(1, a.parent().arguments().size());
+        assertEquals("(get (get plugins \"all\") 0)", SExprPrinter.print(a.traits().get(0).type()));
+    }
+
+    @Test
+    @DisplayName("последние скобки родителя — аргументы заголовка, а вызов внутри цепочки обычный")
+    void lastCallIsArguments() {
+        // ': make()' — родитель make без аргументов, иначе ': Shape("круг")' значило бы
+        // «вызвать Shape», а это основная форма записи.
+        ClassDeclStmt plain = classOf("class A(x) : make()");
+        assertEquals("make", SExprPrinter.print(plain.parent().type()));
+        assertTrue(plain.parent().arguments().isEmpty());
+
+        // Здесь последняя операция — обращение, поэтому скобки достаются all().
+        ClassDeclStmt inner = classOf("class B(x) : registry.all()[\"Shape\"]");
+        assertEquals("(get (call (get registry \"all\")) \"Shape\")",
+                SExprPrinter.print(inner.parent().type()));
+        assertTrue(inner.parent().arguments().isEmpty());
+    }
+
+    @Test
+    @DisplayName("трейту скобки не аргументы: у него нет конструктора, значит это вызов")
+    void traitParenthesesAreACall() {
+        ClassDeclStmt a = classOf("class A(x) with make()");
+        assertEquals("(call make)", SExprPrinter.print(a.traits().get(0).type()));
+    }
+
+    @Test
+    @DisplayName("оператор в позиции типа не разбирается: складывать классы незачем")
+    void operatorIsNotATypeReference() {
+        // Цепочка обрывается на '+', и '{' там, где ждали тело класса, уже не подходит.
+        assertFalse(errorOf("class A(x) : first + second { }").isEmpty());
+    }
+
+    @Test
+    @DisplayName("ссылка на тип начинается с имени")
+    void typeReferenceStartsWithName() {
+        assertTrue(errorOf("class A(x) : 42").contains("ожидалось имя класса-родителя"));
+        assertTrue(errorOf("class A(x) with \"Loud\"").contains("ожидалось имя трейта"));
     }
 
     @Test
     @DisplayName("после точки в имени типа обязательно имя")
     void nameAfterDotIsRequired() {
-        assertTrue(errorOf("class A(x) : m.()").contains("ожидалось имя класса-родителя"));
-        assertTrue(errorOf("class A(x) with m.").contains("ожидалось имя трейта"));
+        assertTrue(errorOf("class A(x) : m.()").contains("после точки ожидалось имя поля"));
+        assertTrue(errorOf("class A(x) with m.").contains("после точки ожидалось имя поля"));
     }
 
     // --- заголовок трейта ----------------------------------------------------

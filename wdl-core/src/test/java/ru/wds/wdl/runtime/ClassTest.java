@@ -690,4 +690,94 @@ class ClassTest {
                 new Priced(1)
                 """).getMessage().contains("переменная 'Priced' не определена"));
     }
+
+    // --- родитель и трейт выражением -----------------------------------------
+
+    @Test
+    @DisplayName("родителя можно достать по ключу, и это обычное обращение")
+    void parentFromKey() {
+        assertEquals("основа круг", printed("""
+                class Base(title) { def text() => "основа " + title }
+                registry = {"Base": Base}
+
+                class Circle : registry["Base"]("круг")
+                println(new Circle().text())
+                """));
+    }
+
+    @Test
+    @DisplayName("трейт тоже достаётся выражением, вместе со своим требованием")
+    void traitFromKey() {
+        assertEquals("[метка] есть", printed("""
+                trait Logged { def log() => "[" + tag() + "] " def tag() }
+                traits = {"Logged": Logged}
+
+                class Note with traits["Logged"] {
+                    def tag() => "метка"
+                    def text() => log() + "есть"
+                }
+                println(new Note().text())
+                """));
+    }
+
+    @Test
+    @DisplayName("требование трейта, взятого выражением, проверяется там же — на строке class")
+    void traitFromKeyKeepsItsRequirement() {
+        assertTrue(errorOf("""
+                trait Logged { def tag() }
+                traits = {"Logged": Logged}
+                class Note with traits["Logged"] { }
+                """).getMessage().contains("не выполняет требование трейта 'Logged'"));
+    }
+
+    @Test
+    @DisplayName("последние скобки — аргументы заголовка, а не вызов родителя")
+    void lastParenthesesAreArguments() {
+        // ': Base(...)' — это родитель Base с аргументами, и так оно и остаётся, каким бы
+        // ни было выражение слева. Чтобы позвать функцию и наследоваться от результата,
+        // скобок пишут двое: первые — вызов, вторые — аргументы заголовка.
+        assertEquals("основа своя основа взятая", printed("""
+                class Base(title) { def text() => "основа " + title }
+                def maker() => Base
+
+                class Own : Base("своя")
+                class Taken : maker()("взятая")
+                println(new Own().text(), " ", new Taken().text())
+                """));
+    }
+
+    @Test
+    @DisplayName("родство считается по форме: два пути к одному классу дают одну родню")
+    void expressionKeepsIdentity() {
+        assertEquals("true true", printed("""
+                class Base(title) { }
+                registry = {"Base": Base}
+
+                class ByName : Base("именем")
+                class ByKey : registry["Base"]("ключом")
+                println(new ByName() is Base, " ", new ByKey() is Base)
+                """));
+    }
+
+    @Test
+    @DisplayName("класс с выражением-родителем появляется на своей строке, а не заранее")
+    void expressionParentIsNotHoisted() {
+        // Простое имя резолвер расставляет заранее, выражение — нет: по нему не видно,
+        // кто от кого зависит, а вычислять его до первой инструкции нечего.
+        assertTrue(errorOf("""
+                class Base(title) { }
+                registry = {"Base": Base}
+                new Later("рано")
+                class Later(title) : registry["Base"](title)
+                """).getMessage().contains("переменная 'Later' не определена"));
+    }
+
+    @Test
+    @DisplayName("выражение дало не класс — ошибка называет запись целиком")
+    void expressionMustGiveAClass() {
+        assertTrue(errorOf("""
+                registry = {"Base": 42}
+                class A : registry["Base"]()
+                """).getMessage().contains("'registry[\"Base\"]'"));
+    }
 }

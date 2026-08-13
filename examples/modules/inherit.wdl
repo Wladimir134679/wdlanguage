@@ -42,6 +42,29 @@ println("Square is Shape: ", sq is Shape)      // то же самое: импо
 println("Bag is s.Countable: ", new Bag([]) is s.Countable)
 println("Circle is Countable: ", new Circle(1) is Countable)   // трейт не подмешан
 
+// --- родитель и трейт выражением ---------------------------------------------
+
+// В заголовке класса стоит выражение, а не имя с точкой. Поэтому родителя можно
+// взять откуда угодно: из вложенного модуля, из реестра, из результата вызова.
+
+class ByKey(side) : s.kinds["shape"]("квадрат из реестра") with s.contracts["countable"] {
+    def area() => side * side
+    def count() => 4
+}
+println(new ByKey(3).describe())
+
+// Скобок здесь двое, и они разные: первые вызывают kindFor, вторые — аргументы
+// заголовка родителя. Одни последние скобки всегда достаются заголовку, иначе
+// ': Shape("круг")' значило бы «вызвать Shape».
+class ByCall(radius) : s.kindFor("shape")("круг из фабрики") {
+    def area() => 3 * radius * radius
+}
+println(new ByCall(2).describe())
+
+// Родство считается по форме, а не по тому, как до класса дотянулись.
+println("ByKey is s.Shape: ", new ByKey(1) is s.Shape)
+println("ByCall is Shape: ", new ByCall(1) is Shape)
+
 // --- то же самое внутри функции ----------------------------------------------
 
 // Класс связывается с родителем в тот момент, когда объявление выполняется.
