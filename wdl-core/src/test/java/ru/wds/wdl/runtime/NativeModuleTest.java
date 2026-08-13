@@ -207,7 +207,7 @@ class NativeModuleTest {
     void factoryNotCalledWithoutImport() {
         AtomicInteger calls = new AtomicInteger();
         assertEquals("работаем" + NL, run("""
-                fun unused() {
+                def unused() {
                     import sys.math as m
                     return m.LIMIT;
                 }

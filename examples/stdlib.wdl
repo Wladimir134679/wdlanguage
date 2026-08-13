@@ -55,7 +55,7 @@ println(new Random(7).pick(["болт", "гайка", "шайба"]))
 
 // --- встроенный класс — обычное значение -------------------------------------
 
-fun describe(cls, path) => new cls(path).name()
+def describe(cls, path) => new cls(path).name()
 println(describe(File, "каталог/файл.txt"))
 
 kinds = [File]

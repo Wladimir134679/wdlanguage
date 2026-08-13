@@ -201,7 +201,7 @@ public final class NativeClass implements ClassValue {
 
         @Override
         public String display() {
-            return "fun " + name();
+            return "def " + name();
         }
     }
 

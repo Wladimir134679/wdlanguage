@@ -7,7 +7,7 @@ import sys.io as io
 // Отложенное действие пишется рядом с захватом и выполняется на выходе
 // из своей области — из блока, а не из функции.
 
-fun order() {
+def order() {
     defer println("  третьим записан — первым выполнен")
     defer println("  вторым записан — вторым выполнен")
     println("  тело")
@@ -25,7 +25,7 @@ for (name in ["первый", "второй"]) {
 }
 
 // Выполняется при любом выходе — в том числе через return.
-fun withCleanup() {
+def withCleanup() {
     defer println("  прибрано")
     return "значение";
 }
@@ -38,9 +38,9 @@ println(withCleanup())
 
 class Connection(host) with Closeable {
 
-    fun send(text) => println("  ", host, " ← ", text)
+    def send(text) => println("  ", host, " ← ", text)
 
-    fun close() => println("  закрыто соединение с ", host)
+    def close() => println("  закрыто соединение с ", host)
 }
 
 // --- use -----------------------------------------------------------------

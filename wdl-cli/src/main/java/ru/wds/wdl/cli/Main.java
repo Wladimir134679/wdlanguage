@@ -55,7 +55,7 @@ import java.util.concurrent.Callable;
         description = "wdl — встраиваемый скриптовый язык для JVM",
         footer = "%nСкрипт — это присваивания, константы (const LIMIT = 10)%n"
                 + "и вызовы (println, print, typeof, len), ветвления и циклы,%n"
-                + "свои функции: fun имя(a, b) => a + b, классы и трейты.%n"
+                + "свои функции: def имя(a, b) => a + b, классы и трейты.%n"
                 + "Модули подключаются через import lib.math или import lib.math as m;%n"
                 + "путь считается от каталога файла, где написан import.%n"
                 + "Встроенные модули: sys.io (файлы), sys.json, sys.net.http, std."

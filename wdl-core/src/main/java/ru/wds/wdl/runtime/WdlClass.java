@@ -53,7 +53,7 @@ final class WdlClass implements ClassValue {
      * <p>
      * Отдельного слова {@code static} нет и не нужно — класс это значение, значение
      * это контейнер, запись по ключу уже работает. Здесь же лежат фабрики, объявленные
-     * формой {@code fun User.of(...)}: это место записи, а не особый вид члена.
+     * формой {@code def User.of(...)}: это место записи, а не особый вид члена.
      */
     private final MapValue statics = new MapValue();
     /**

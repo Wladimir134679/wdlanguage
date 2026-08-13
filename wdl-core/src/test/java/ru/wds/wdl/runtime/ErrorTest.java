@@ -141,14 +141,14 @@ class ErrorTest {
     @DisplayName("несколько типов в одном обработчике")
     void severalTypesInOneHandler() {
         assertEquals("index arithmetic", printed("""
-                fun kindOf(f) {
+                def kindOf(f) {
                     try {
                         f()
                     } catch (e is IndexError, ArithmeticError) {
                         return e is IndexError ? "index" : "arithmetic";
                     }
                 }
-                println(kindOf(fun() => [1][9]), " ", kindOf(fun() => 1 / 0))
+                println(kindOf(def() => [1][9]), " ", kindOf(def() => 1 / 0))
                 """));
     }
 
@@ -183,7 +183,7 @@ class ErrorTest {
         assertEquals("тело конец", printed("try { print(\"тело \") } finally { println(\"конец\") }"));
 
         assertEquals("конец 1", printed("""
-                fun f() {
+                def f() {
                     try { return 1; } finally { print("конец ") }
                 }
                 println(f())
@@ -279,7 +279,7 @@ class ErrorTest {
     @DisplayName("повторный бросок пойманной ошибки места и трейса не затирает")
     void rethrowKeepsPlace() {
         assertEquals("true", printed("""
-                fun deep() { throw new Exception("ой"); }
+                def deep() { throw new Exception("ой"); }
 
                 first = ""
                 try {
@@ -303,9 +303,9 @@ class ErrorTest {
         // Кадр называет функцию и место её вызова — то есть строку вызывающего,
         // а не ту, на которой рвануло: где рвануло, показывает сама ошибка.
         assertEquals("3 в a (<script>:2:12) в b (<script>:3:12)", printed("""
-                fun a() => 1 / 0
-                fun b() => a()
-                fun c() => b()
+                def a() => 1 / 0
+                def b() => a()
+                def c() => b()
 
                 try {
                     c()
@@ -321,10 +321,10 @@ class ErrorTest {
         // Границы вызова такая ошибка не пересекает — а кадры вокруг есть,
         // и обработчик вправе их видеть.
         assertEquals("2 в inner (<script>:4:16)", printed("""
-                fun inner() {
+                def inner() {
                     try { println(1 / 0) } catch (e) { println(len(e.trace), " ", e.trace[0]) }
                 }
-                fun outer() => inner()
+                def outer() => inner()
                 outer()
                 """));
     }
@@ -415,7 +415,7 @@ class ErrorTest {
     void shortFormsDoNotSwallowFatal() {
         Thread.currentThread().interrupt();
         try {
-            assertThrows(FatalError.class, () -> printed("x = try? runForever()\nfun runForever() { for (;;) { } }"));
+            assertThrows(FatalError.class, () -> printed("x = try? runForever()\ndef runForever() { for (;;) { } }"));
         } finally {
             Thread.interrupted();
         }
@@ -451,7 +451,7 @@ class ErrorTest {
     @DisplayName("отложенное выполняется при return, break и на пути ошибки")
     void deferRunsOnEveryExit() {
         assertEquals("прибрано значение", printed("""
-                fun f() {
+                def f() {
                     defer print("прибрано ")
                     return "значение";
                 }
@@ -514,7 +514,7 @@ class ErrorTest {
     /** Класс-ресурс, который рассказывает о себе печатью. */
     private static final String RESOURCE = """
             class Res(name) with Closeable {
-                fun close() => print("закрыт ", name, " ")
+                def close() => print("закрыт ", name, " ")
             }
             """;
 
@@ -545,7 +545,7 @@ class ErrorTest {
                 """, WdlRuntimeError.class));
 
         assertEquals("закрыт f готово", printed(RESOURCE + """
-                fun read() {
+                def read() {
                     use (f = new Res("f")) {
                         return "готово";
                     }
@@ -581,7 +581,7 @@ class ErrorTest {
     void closeErrorIsSuppressed() {
         assertEquals("из тела 1", printed("""
                 class Bad() with Closeable {
-                    fun close() { throw new Exception("из close"); }
+                    def close() { throw new Exception("из close"); }
                 }
                 try {
                     use (f = new Bad()) {
@@ -597,8 +597,8 @@ class ErrorTest {
     @DisplayName("непойманная ошибка доносит трейс до хозяина запуска")
     void hostSeesTheTrace() {
         WdlRuntimeError error = errorOf("""
-                fun inner() => 1 / 0
-                fun outer() => inner()
+                def inner() => 1 / 0
+                def outer() => inner()
                 outer()
                 """);
         assertEquals(2, error.trace().size(), error.trace().toString());

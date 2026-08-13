@@ -6,7 +6,7 @@
 import lib.shapes            // отсюда и ниже видны Shape и Countable
 
 class Circle(radius) : Shape("круг") {
-    fun area() => 3 * radius * radius
+    def area() => 3 * radius * radius
 }
 
 // describe() написан в модуле, area() — здесь: метод родителя видит переопределение.
@@ -14,13 +14,13 @@ println(new Circle(2).describe())
 
 // super уходит в родителя из модуля.
 class Ring(radius) : Circle(radius) {
-    fun text() => super.text() + " с дыркой"
+    def text() => super.text() + " с дыркой"
 }
 println(new Ring(1).text())
 
 // Трейт из модуля подмешивается так же, как свой.
 class Bag(items) with Countable {
-    fun count() => len(items)
+    def count() => len(items)
 }
 println("в сумке ", new Bag([1, 2, 3]).count())
 
@@ -28,8 +28,8 @@ println("в сумке ", new Bag([1, 2, 3]).count())
 import lib.shapes as s
 
 class Square(side) : s.Shape("квадрат") with s.Countable {
-    fun area() => side * side
-    fun count() => 4
+    def area() => side * side
+    def count() => 4
 }
 
 sq = new Square(5)
@@ -48,10 +48,10 @@ println("Circle is Countable: ", new Circle(1) is Countable)   // трейт н�
 // Поэтому импорт и наследник могут стоять хоть в теле функции, хоть в ветке if —
 // и модуль до этого вызова не загрузится.
 
-fun describeDot() {
+def describeDot() {
     import lib.shapes
     class Dot : Shape("точка") {
-        fun area() => 0
+        def area() => 0
     }
     return new Dot().describe();
 }

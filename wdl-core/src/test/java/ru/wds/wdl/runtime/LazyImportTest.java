@@ -73,7 +73,7 @@ class LazyImportTest {
         Watched source = new Watched(Map.of());
 
         assertEquals("скрипт работает, плагин ещё не нужен" + NL, run("""
-                fun loadPlugin() {
+                def loadPlugin() {
                     import plugins.generated
                     return start();
                 }
@@ -94,7 +94,7 @@ class LazyImportTest {
         // Строго говоря, здесь это делает сам тест — но так же выглядит и генератор
         // кода, и загрузка плагина из базы.
         String code = """
-                fun usePlugin() {
+                def usePlugin() {
                     import plugins.greeter as p
                     return p.hello("мир");
                 }
@@ -103,9 +103,9 @@ class LazyImportTest {
                 """;
         assertEquals("до появления модуля" + NL, run(code, source));
 
-        generated.put("plugins/greeter", "fun hello(who) => \"привет, \" + who");
+        generated.put("plugins/greeter", "def hello(who) => \"привет, \" + who");
         assertEquals("привет, мир" + NL, run("""
-                fun usePlugin() {
+                def usePlugin() {
                     import plugins.greeter as p
                     return p.hello("мир");
                 }
@@ -119,10 +119,10 @@ class LazyImportTest {
     void inheritFromLateModule() {
         Map<String, String> generated = new HashMap<>();
         Watched source = new Watched(generated);
-        generated.put("plugins/shapes", "class Shape(title) { fun text() => \"фигура \" + title }");
+        generated.put("plugins/shapes", "class Shape(title) { def text() => \"фигура \" + title }");
 
         assertEquals("фигура круг" + NL, run("""
-                fun describe() {
+                def describe() {
                     import plugins.shapes
                     class Circle : Shape("круг")
                     return new Circle().text();
@@ -137,14 +137,14 @@ class LazyImportTest {
     void moduleImportsAreLazyToo() {
         Watched source = new Watched(Map.of(
                 "lib/front", """
-                        fun deep() {
+                        def deep() {
                             import back
                             return back();
                         }
 
-                        fun shallow() => "мелко"
+                        def shallow() => "мелко"
                         """,
-                "lib/back", "fun back() => \"глубоко\""));
+                "lib/back", "def back() => \"глубоко\""));
 
         assertEquals("мелко" + NL, run("""
                 import lib.front as f
@@ -161,7 +161,7 @@ class LazyImportTest {
         Watched source = new Watched(Map.of());
 
         WdlRuntimeError error = assertThrows(WdlRuntimeError.class, () -> run("""
-                fun loadPlugin() {
+                def loadPlugin() {
                     import plugins.generated
                     return 1;
                 }

@@ -40,7 +40,7 @@ class FunctionParserTest {
     }
 
     private static FunctionExpr declaration(String code) {
-        return assertInstanceOf(FunDeclStmt.class, single(code)).function();
+        return assertInstanceOf(DefDeclStmt.class, single(code)).function();
     }
 
     private static Diagnostics diagnose(String code) {
@@ -61,9 +61,9 @@ class FunctionParserTest {
     @Test
     @DisplayName("все формы тела дают одно дерево: блок, инструкция, стрелка")
     void bodyFormsAgree() {
-        FunctionExpr block = declaration("fun сумма(a, b) { return a + b; }");
-        FunctionExpr statement = declaration("fun сумма(a, b) return a + b;");
-        FunctionExpr arrow = declaration("fun сумма(a, b) => a + b");
+        FunctionExpr block = declaration("def сумма(a, b) { return a + b; }");
+        FunctionExpr statement = declaration("def сумма(a, b) return a + b;");
+        FunctionExpr arrow = declaration("def сумма(a, b) => a + b");
 
         assertEquals("сумма", block.name());
         assertEquals(2, block.params().size());
@@ -81,16 +81,16 @@ class FunctionParserTest {
     @Test
     @DisplayName("форма записи тела сохраняется — она нужна форматтеру")
     void bodyStyleIsRemembered() {
-        assertEquals(BodyStyle.ARROW, declaration("fun f(a) => a").style());
-        assertEquals(BodyStyle.STATEMENT, declaration("fun f(a) return a;").style());
-        assertEquals(BodyStyle.STATEMENT, declaration("fun f(a) { return a; }").style());
+        assertEquals(BodyStyle.ARROW, declaration("def f(a) => a").style());
+        assertEquals(BodyStyle.STATEMENT, declaration("def f(a) return a;").style());
+        assertEquals(BodyStyle.STATEMENT, declaration("def f(a) { return a; }").style());
     }
 
     @Test
     @DisplayName("перенос строки на разбор не влияет")
     void newlineDoesNotMatter() {
-        FunctionExpr oneLine = declaration("fun f(a, b) return a + b;");
-        FunctionExpr twoLines = declaration("fun f(a, b)\n    return a + b;");
+        FunctionExpr oneLine = declaration("def f(a, b) return a + b;");
+        FunctionExpr twoLines = declaration("def f(a, b)\n    return a + b;");
         assertEquals(oneLine.style(), twoLines.style());
         assertEquals(oneLine.params().size(), twoLines.params().size());
     }
@@ -98,16 +98,16 @@ class FunctionParserTest {
     @Test
     @DisplayName("функция без параметров и с висячей запятой")
     void parameterListEdges() {
-        assertEquals(0, declaration("fun f() => 1").params().size());
-        assertEquals(2, declaration("fun f(a, b,) => 1").params().size());
+        assertEquals(0, declaration("def f() => 1").params().size());
+        assertEquals(2, declaration("def f(a, b,) => 1").params().size());
     }
 
     @Test
     @DisplayName("объявление внутри функции и внутри блока — обычная инструкция")
     void declarationNests() {
-        FunctionExpr outer = declaration("fun снаружи() { fun внутри() => 1\n return внутри(); }");
+        FunctionExpr outer = declaration("def снаружи() { def внутри() => 1\n return внутри(); }");
         BlockStmt body = assertInstanceOf(BlockStmt.class, outer.body());
-        assertInstanceOf(FunDeclStmt.class, body.statements().get(0));
+        assertInstanceOf(DefDeclStmt.class, body.statements().get(0));
         assertInstanceOf(ReturnStmt.class, body.statements().get(1));
     }
 
@@ -116,8 +116,8 @@ class FunctionParserTest {
     @Test
     @DisplayName("значение по умолчанию попадает в дерево вместе с параметром")
     void defaultValueIsPartOfParameter() {
-        FunctionExpr function = declaration("fun total(price, count = 1) => price * count");
-        assertEquals("(fun total price (count 1))", SExprPrinter.print(function));
+        FunctionExpr function = declaration("def total(price, count = 1) => price * count");
+        assertEquals("(def total price (count 1))", SExprPrinter.print(function));
         assertFalse(function.params().get(0).hasDefault());
         assertTrue(function.params().get(1).hasDefault());
     }
@@ -125,54 +125,54 @@ class FunctionParserTest {
     @Test
     @DisplayName("по умолчанию — выражение, а не литерал: приоритеты те же, запятая не рвёт список")
     void defaultValueIsFullExpression() {
-        assertEquals("(fun f a (b (+ 1 (* 2 3))))",
-                SExprPrinter.print(declaration("fun f(a, b = 1 + 2 * 3) => a")));
-        assertEquals("(fun f (a (call now)) (b (array 1 2)))",
-                SExprPrinter.print(declaration("fun f(a = now(), b = [1, 2]) => a")));
-        assertEquals(2, declaration("fun f(a = 1, b = 2,) => a").params().size());
+        assertEquals("(def f a (b (+ 1 (* 2 3))))",
+                SExprPrinter.print(declaration("def f(a, b = 1 + 2 * 3) => a")));
+        assertEquals("(def f (a (call now)) (b (array 1 2)))",
+                SExprPrinter.print(declaration("def f(a = now(), b = [1, 2]) => a")));
+        assertEquals(2, declaration("def f(a = 1, b = 2,) => a").params().size());
     }
 
     @Test
     @DisplayName("значение по умолчанию видит параметры слева")
     void defaultValueSeesEarlierParameters() {
-        assertEquals("(fun f a (b (* a 2)))",
-                SExprPrinter.print(declaration("fun f(a, b = a * 2) => b")));
+        assertEquals("(def f a (b (* a 2)))",
+                SExprPrinter.print(declaration("def f(a, b = a * 2) => b")));
     }
 
     @Test
     @DisplayName("одинаково у объявления и у анонимной функции — узел-то один")
     void defaultValueWorksForAnonymous() {
-        AssignStmt assign = assertInstanceOf(AssignStmt.class, single("double = fun(x, by = 2) => x * by"));
+        AssignStmt assign = assertInstanceOf(AssignStmt.class, single("double = def(x, by = 2) => x * by"));
         FunctionExpr function = assertInstanceOf(FunctionExpr.class, assign.value());
-        assertEquals("(fun double x (by 2))", SExprPrinter.print(function));
+        assertEquals("(def double x (by 2))", SExprPrinter.print(function));
     }
 
     @Test
     @DisplayName("обязательный параметр после необязательного — ошибка разбора")
     void requiredCannotFollowOptional() {
-        String message = errorOf("fun f(a, b = 10, c) => a");
+        String message = errorOf("def f(a, b = 10, c) => a");
         assertTrue(message.contains("параметр 'c' без значения по умолчанию"), message);
         assertTrue(message.contains("после параметра со значением по умолчанию"), message);
         // Обратный порядок законен, как и все параметры со значениями.
-        parse("fun f(a, b = 10, c = 20) => a");
-        parse("fun f(a = 1) => a");
+        parse("def f(a, b = 10, c = 20) => a");
+        parse("def f(a = 1) => a");
     }
 
     @Test
     @DisplayName("ссылка на параметр правее — ошибка: иначе молча взялась бы внешняя переменная")
     void defaultValueCannotLookRight() {
-        assertTrue(errorOf("fun f(a = b, b = 1) => a").contains("связывается позже"));
-        assertTrue(errorOf("fun f(a, b = c * 2, c = 1) => b").contains("параметр 'c'"));
-        assertTrue(errorOf("fun f(a = a) => a").contains("ссылается на сам параметр"));
+        assertTrue(errorOf("def f(a = b, b = 1) => a").contains("связывается позже"));
+        assertTrue(errorOf("def f(a, b = c * 2, c = 1) => b").contains("параметр 'c'"));
+        assertTrue(errorOf("def f(a = a) => a").contains("ссылается на сам параметр"));
         // Обращение спрятано глубоко в выражении — всё равно находится
-        assertTrue(errorOf("fun f(a = [1, {k: b}], b = 2) => a").contains("связывается позже"));
+        assertTrue(errorOf("def f(a = [1, {k: b}], b = 2) => a").contains("связывается позже"));
     }
 
     @Test
     @DisplayName("одноимённый параметр внутри вложенной функции — свой и претензий не вызывает")
     void nestedFunctionHasItsOwnNames() {
-        parse("fun f(a = fun(b) => b, b = 1) => a");
-        parse("fun f(a = fun(x) { return x; }, x = 1) => a");
+        parse("def f(a = def(b) => b, b = 1) => a");
+        parse("def f(a = def(x) { return x; }, x = 1) => a");
     }
 
     // --- анонимные функции ---------------------------------------------------
@@ -180,11 +180,11 @@ class FunctionParserTest {
     @Test
     @DisplayName("анонимная функция — выражение, и кладётся куда угодно")
     void anonymousIsExpression() {
-        AssignStmt assign = assertInstanceOf(AssignStmt.class, single("f = fun(a) => a"));
+        AssignStmt assign = assertInstanceOf(AssignStmt.class, single("f = def(a) => a"));
         assertInstanceOf(FunctionExpr.class, assign.value());
 
         ObjectExpr object = assertInstanceOf(ObjectExpr.class,
-                assertInstanceOf(AssignStmt.class, single("o = {плюс: fun(a, b) => a + b}")).value());
+                assertInstanceOf(AssignStmt.class, single("o = {плюс: def(a, b) => a + b}")).value());
         assertInstanceOf(FunctionExpr.class, object.entries().get(0).value());
     }
 
@@ -192,7 +192,7 @@ class FunctionParserTest {
     @DisplayName("тело-стрелка не съедает запятую списка аргументов")
     void arrowStopsAtComma() {
         CallExpr call = assertInstanceOf(CallExpr.class,
-                assertInstanceOf(ExprStmt.class, single("применить(fun(x) => x * 2, 5)")).expr());
+                assertInstanceOf(ExprStmt.class, single("применить(def(x) => x * 2, 5)")).expr());
         assertEquals(2, call.arguments().size());
         assertInstanceOf(FunctionExpr.class, call.arguments().get(0));
     }
@@ -200,7 +200,7 @@ class FunctionParserTest {
     @Test
     @DisplayName("после => фигурная скобка — литерал объекта, а не блок")
     void braceAfterArrowIsObject() {
-        FunctionExpr function = declaration("fun точка(x, y) => {x: x, y: y}");
+        FunctionExpr function = declaration("def точка(x, y) => {x: x, y: y}");
         ReturnStmt body = assertInstanceOf(ReturnStmt.class, function.body());
         assertInstanceOf(ObjectExpr.class, body.value());
     }
@@ -208,19 +208,19 @@ class FunctionParserTest {
     @Test
     @DisplayName("анонимной достаётся имя переменной — только ради диагностики")
     void anonymousBorrowsTargetName() {
-        AssignStmt assign = assertInstanceOf(AssignStmt.class, single("f = fun(a) => a"));
+        AssignStmt assign = assertInstanceOf(AssignStmt.class, single("f = def(a) => a"));
         assertEquals("f", assertInstanceOf(FunctionExpr.class, assign.value()).name());
 
         // Составное присваивание и запись в поле имени не дают: там нет объявления.
         ObjectExpr object = assertInstanceOf(ObjectExpr.class,
-                assertInstanceOf(AssignStmt.class, single("o = {к: fun() => 1}")).value());
+                assertInstanceOf(AssignStmt.class, single("o = {к: def() => 1}")).value());
         assertNull(assertInstanceOf(FunctionExpr.class, object.entries().get(0).value()).name());
     }
 
     @Test
     @DisplayName("анонимная функция сама по себе — инструкция, которая ничего не делает")
     void anonymousAloneIsNotAStatement() {
-        assertTrue(errorOf("fun(a) => a").contains("ничего не делает"));
+        assertTrue(errorOf("def(a) => a").contains("ничего не делает"));
     }
 
     // --- return --------------------------------------------------------------
@@ -228,11 +228,11 @@ class FunctionParserTest {
     @Test
     @DisplayName("return со значением и без него")
     void returnWithAndWithoutValue() {
-        FunctionExpr withValue = declaration("fun f() { return 1; }");
+        FunctionExpr withValue = declaration("def f() { return 1; }");
         BlockStmt body = assertInstanceOf(BlockStmt.class, withValue.body());
         assertTrue(assertInstanceOf(ReturnStmt.class, body.statements().get(0)).hasValue());
 
-        FunctionExpr bare = declaration("fun f() { return; }");
+        FunctionExpr bare = declaration("def f() { return; }");
         BlockStmt bareBody = assertInstanceOf(BlockStmt.class, bare.body());
         ReturnStmt statement = assertInstanceOf(ReturnStmt.class, bareBody.statements().get(0));
         assertFalse(statement.hasValue());
@@ -242,7 +242,7 @@ class FunctionParserTest {
     @Test
     @DisplayName("точка с запятой обязательна: без неё следующая строка не приклеивается молча")
     void semicolonIsRequired() {
-        String message = errorOf("fun f() { return 1\nprintln(\"после\") }");
+        String message = errorOf("def f() { return 1\nprintln(\"после\") }");
         assertTrue(message.contains("';'"), message);
         assertTrue(message.contains("return"), message);
     }
@@ -253,17 +253,17 @@ class FunctionParserTest {
         assertTrue(errorOf("return 5;").contains("только внутри функции"));
         assertTrue(errorOf("while (true) { return 5; }").contains("только внутри функции"));
         // А внутри функции — в любой вложенности
-        parse("fun f(x) { while (true) { if (x) { return 1; } } return 0; }");
+        parse("def f(x) { while (true) { if (x) { return 1; } } return 0; }");
     }
 
     @Test
     @DisplayName("из цикла нельзя выйти через границу функции")
     void loopDoesNotCrossFunctionBoundary() {
-        assertTrue(errorOf("while (true) { fun f() { break } }").contains("только внутри цикла"));
-        assertTrue(errorOf("for (x in [1]) { fun f() => 1\n fun g() { continue } }")
+        assertTrue(errorOf("while (true) { def f() { break } }").contains("только внутри цикла"));
+        assertTrue(errorOf("for (x in [1]) { def f() => 1\n def g() { continue } }")
                 .contains("только внутри цикла"));
         // Свой цикл внутри функции — пожалуйста
-        parse("while (true) { fun f() { while (true) { break } } }");
+        parse("while (true) { def f() { while (true) { break } } }");
     }
 
     // --- ошибки и восстановление ---------------------------------------------
@@ -271,13 +271,13 @@ class FunctionParserTest {
     @Test
     @DisplayName("одноимённые параметры — ошибка с указанием на второй")
     void duplicateParameter() {
-        assertTrue(errorOf("fun f(a, b, a) => a").contains("параметр 'a' уже объявлен"));
+        assertTrue(errorOf("def f(a, b, a) => a").contains("параметр 'a' уже объявлен"));
     }
 
     @Test
     @DisplayName("мусор в списке параметров не уносит остальной файл")
     void recoversFromBrokenParameters() {
-        Diagnostics diagnostics = diagnose("fun f(a, 5, b) => a\nx = 1");
+        Diagnostics diagnostics = diagnose("def f(a, 5, b) => a\nx = 1");
         assertTrue(diagnostics.hasErrors());
         assertTrue(diagnostics.renderAll().contains("имя параметра"), diagnostics.renderAll());
     }
@@ -285,14 +285,14 @@ class FunctionParserTest {
     @Test
     @DisplayName("отсутствующее тело — ошибка на месте, а не молчание")
     void missingBody() {
-        assertTrue(errorOf("fun f(a)").contains("тело"));
-        assertTrue(errorOf("fun f(a);").contains("тело"));
+        assertTrue(errorOf("def f(a)").contains("тело"));
+        assertTrue(errorOf("def f(a);").contains("тело"));
     }
 
     @Test
     @DisplayName("после испорченного объявления разбор продолжается")
     void recoversAfterBrokenDeclaration() {
-        Diagnostics diagnostics = diagnose("fun f(a) => = =\nx = 1");
+        Diagnostics diagnostics = diagnose("def f(a) => = =\nx = 1");
         assertTrue(diagnostics.hasErrors());
         // Вторая строка разобралась: ошибка ровно одна, про первую строку.
         assertEquals(1, diagnostics.errorCount(), diagnostics.renderAll());

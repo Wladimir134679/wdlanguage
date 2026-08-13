@@ -138,7 +138,7 @@ class StatementParserTest {
     @DisplayName("анонимная функция получает имя константы — как и при присваивании")
     void constNamesAnonymousFunction() {
         ConstDeclStmt stmt = assertInstanceOf(ConstDeclStmt.class,
-                single("const add = fun(a, b) => a + b"));
+                single("const add = def(a, b) => a + b"));
 
         assertEquals("add", assertInstanceOf(FunctionExpr.class, stmt.value()).name());
     }

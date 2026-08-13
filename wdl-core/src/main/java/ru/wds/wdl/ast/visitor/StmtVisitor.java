@@ -35,7 +35,7 @@ public interface StmtVisitor<R, C> {
 
     R visitConstDecl(ConstDeclStmt stmt, C context);
 
-    R visitFunDecl(FunDeclStmt stmt, C context);
+    R visitDefDecl(DefDeclStmt stmt, C context);
 
     R visitClassDecl(ClassDeclStmt stmt, C context);
 
@@ -70,7 +70,7 @@ public interface StmtVisitor<R, C> {
             case BreakStmt s -> visitBreak(s, context);
             case ContinueStmt s -> visitContinue(s, context);
             case ConstDeclStmt s -> visitConstDecl(s, context);
-            case FunDeclStmt s -> visitFunDecl(s, context);
+            case DefDeclStmt s -> visitDefDecl(s, context);
             case ClassDeclStmt s -> visitClassDecl(s, context);
             case TraitDeclStmt s -> visitTraitDecl(s, context);
             case ImportStmt s -> visitImport(s, context);

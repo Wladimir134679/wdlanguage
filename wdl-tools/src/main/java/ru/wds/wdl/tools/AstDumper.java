@@ -139,7 +139,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
-    public Void visitFunDecl(FunDeclStmt stmt, Integer depth) {
+    public Void visitDefDecl(DefDeclStmt stmt, Integer depth) {
         line(depth, "объявление функции " + stmt.name(), stmt.span());
         return visit(stmt.function(), depth + 1);
     }

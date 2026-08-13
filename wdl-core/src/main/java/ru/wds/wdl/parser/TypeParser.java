@@ -253,14 +253,14 @@ final class TypeParser {
 
     /** Один член: метод, конструктор, фабрика или — только в трейте — требование. */
     private void member(Members members, boolean hasParent, boolean isClass) {
-        if (!cursor.check(TokenType.FUN)) {
+        if (!cursor.check(TokenType.DEF)) {
             diagnostics.error(cursor.peek().span(), "в теле " + (isClass ? "класса" : "трейта")
                     + " допустимы только объявления функций, а здесь " + describe(cursor.peek())
                     + ". Начальные значения полей задаются в заголовке");
             cursor.synchronize();
             return;
         }
-        Token keyword = cursor.advance(); // fun
+        Token keyword = cursor.advance(); // def
         if (!cursor.check(TokenType.WORD)) {
             diagnostics.error(cursor.peek().span(),
                     "ожидалось имя метода, найдено " + describe(cursor.peek()));
@@ -320,7 +320,7 @@ final class TypeParser {
     }
 
     /**
-     * Фабрика: {@code fun User.of(name, password)}.
+     * Фабрика: {@code def User.of(name, password)}.
      * <p>
      * Имя слева обязано совпасть с самим классом — иначе это не «способ создания,
      * записанный рядом с классом», а запись в чужое значение, для которой есть
@@ -366,8 +366,8 @@ final class TypeParser {
      * Тело члена: блок или {@code => выражение}, и ничего третьего.
      * <p>
      * Тело одной инструкцией без скобок здесь запрещено, в отличие от {@code if}
-     * и циклов, и причина в требованиях трейта: у {@code fun report()} тела нет,
-     * а следующей строкой идёт {@code fun full() => ...}. Разреши мы инструкцию
+     * и циклов, и причина в требованиях трейта: у {@code def report()} тела нет,
+     * а следующей строкой идёт {@code def full() => ...}. Разреши мы инструкцию
      * без скобок — второе объявление молча стало бы телом первого.
      *
      * @return {@code null}, если тела нет; для трейта это требование, для класса ошибка

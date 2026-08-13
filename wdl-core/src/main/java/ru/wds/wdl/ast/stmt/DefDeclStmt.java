@@ -6,9 +6,9 @@ import ru.wds.wdl.source.Span;
 import java.util.Objects;
 
 /**
- * Объявление функции: {@code fun сумма(a, b) => a + b}.
+ * Объявление функции: {@code def сумма(a, b) => a + b}.
  * <p>
- * Отдельный вид инструкции, а не сахар над присваиванием {@code сумма = fun(a, b) ...},
+ * Отдельный вид инструкции, а не сахар над присваиванием {@code сумма = def(a, b) ...},
  * хотя пространство имён в языке одно и результат почти тот же. Разница в двух вещах,
  * и обе существенные. Во-первых, объявление <b>заводит</b> имя в текущей области,
  * а присваивание ищет его снаружи и меняет там, где нашло. Во-вторых, объявления
@@ -21,11 +21,11 @@ import java.util.Objects;
  * а не копию полей, поэтому создание функции остаётся в одном месте интерпретатора.
  *
  * @param function объявляемая функция; её {@link FunctionExpr#name()} и есть имя
- * @param span     место в исходнике от {@code fun} до конца тела
+ * @param span     место в исходнике от {@code def} до конца тела
  */
-public record FunDeclStmt(FunctionExpr function, Span span) implements Stmt {
+public record DefDeclStmt(FunctionExpr function, Span span) implements Stmt {
 
-    public FunDeclStmt {
+    public DefDeclStmt {
         Objects.requireNonNull(function, "function");
         Objects.requireNonNull(span, "span");
         if (function.name() == null) {

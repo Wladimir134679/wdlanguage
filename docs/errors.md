@@ -12,7 +12,7 @@
 на границе с приложением.
 
 ```wdl
-fun loadTimeout(path) {
+def loadTimeout(path) {
     try {
         return parseNumber(io.read(path));
     } catch (e is ParseError) {
@@ -70,9 +70,9 @@ FatalError                       ← вне Exception: не ловится ни�
 ```wdl
 class Exception(message = "", cause = null, kind = "", at = "", trace = [], suppressed = []) {
 
-    fun text() => kind == "" ? message : kind + ": " + message   // "IoError: файл не найден"
+    def text() => kind == "" ? message : kind + ": " + message   // "IoError: файл не найден"
 
-    fun report() { … }                                          // текст + место + трейс
+    def report() { … }                                          // текст + место + трейс
 }
 ```
 
@@ -199,7 +199,7 @@ try {
 class ParseError(raw) : Exception("не число: " + raw)
 
 class HttpError(code, url) : Exception("HTTP " + code + " от " + url) {
-    fun retriable() => code >= 500
+    def retriable() => code >= 500
 }
 
 class ConfigError(path, cause) : Exception("конфиг '" + path + "' не прочитан", cause)
@@ -223,10 +223,10 @@ try {
 по классу:
 
 ```wdl
-trait Retriable { fun delayMs() }
+trait Retriable { def delayMs() }
 
 class HttpError(code, url) : Exception("HTTP " + code) with Retriable {
-    fun delayMs() => 500 * code / 100
+    def delayMs() => 500 * code / 100
 }
 ```
 
@@ -316,7 +316,7 @@ job.wdl:14:9: ошибка: 'return' в блоке 'finally' запрещён: �
 ### Вложенность и перезаворачивание
 
 ```wdl
-fun loadConfig(path) {
+def loadConfig(path) {
     try {
         return parse(io.read(path));
     } catch (e is IoError, ParseError) {
@@ -367,7 +367,7 @@ port = try! config.port()             // «здесь ошибки быть не
 ## defer
 
 ```wdl
-fun process(path) {
+def process(path) {
     file = io.open(path)
     defer file.close()                 // выполнится на любом выходе из блока
 
@@ -427,7 +427,7 @@ for (name in names) {
 
 ```wdl
 trait Closeable {
-    fun close()                        // требование: класс обязан это уметь
+    def close()                        // требование: класс обязан это уметь
 }
 ```
 
@@ -438,12 +438,12 @@ trait Closeable {
 ```wdl
 class Connection(host, port) with Closeable {
 
-    fun Connection() {
+    def Connection() {
         this.socket = net.connect(host, port)
     }
 
-    fun send(text) => socket.write(text)
-    fun close() => socket.close()
+    def send(text) => socket.write(text)
+    def close() => socket.close()
 }
 ```
 
@@ -511,7 +511,7 @@ catch (e is ValueError) {
 Трейт мог бы требовать пару `open()`/`close()`, и `use` звал бы `open()` перед телом.
 Мы этого не делаем, и вот почему:
 
-* **открытие уже есть — это `new` и [фабрики](classes.md#фабрики-fun-userof)**.
+* **открытие уже есть — это `new` и [фабрики](classes.md#фабрики-def-userof)**.
   Второй способ инициализации означал бы объект в состоянии «создан, но не открыт»,
   по которому непонятно, что можно звать, а что нельзя. Сейчас у экземпляра одно
   состояние: он есть, значит он готов;
@@ -697,13 +697,13 @@ import sys.io as io
 
 class ConfigError(path, cause) : Exception("конфиг '" + path + "' не прочитан", cause)
 
-fun parseName(text) {
+def parseName(text) {
     if (text == "") throw new ValueError("имя пустое");
     if (len(text) > 32) throw new ValueError("имя длиннее 32 символов: " + len(text));
     return text;
 }
 
-fun loadName(path, fallback) {
+def loadName(path, fallback) {
     try {
         use (f = io.open(path)) {
             return parseName(f.read());

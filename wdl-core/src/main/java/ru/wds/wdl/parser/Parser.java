@@ -120,9 +120,9 @@ public final class Parser {
             case DEFER -> deferStatement();
             case USE -> useStatement();
             case CONST -> constDeclaration();
-            // 'fun' с именем — объявление. 'fun(' — анонимная функция, то есть выражение:
+            // 'def' с именем — объявление. 'def(' — анонимная функция, то есть выражение:
             // её разберёт simpleStatement и скажет, что такая инструкция ничего не делает.
-            case FUN -> cursor.peek(1).type() == TokenType.WORD ? funDeclaration() : simpleStatement();
+            case DEF -> cursor.peek(1).type() == TokenType.WORD ? defDeclaration() : simpleStatement();
             case CLASS -> types.classDeclaration();
             case TRAIT -> types.traitDeclaration();
             case IMPORT -> importStatement();
@@ -212,10 +212,10 @@ public final class Parser {
     }
 
     /**
-     * Даёт анонимной функции имя переменной, в которую её кладут: {@code f = fun(a) => a}.
+     * Даёт анонимной функции имя переменной, в которую её кладут: {@code f = def(a) => a}.
      * <p>
      * Только ради диагностики — «функция 'f' принимает ровно 1 аргумент» вместо
-     * «функция 'fun' ...». На поиск имени во время выполнения это не влияет никак:
+     * «функция 'def' ...». На поиск имени во время выполнения это не влияет никак:
      * функция и без того лежит в переменной, а не ищется по имени.
      */
     private static Expr named(Expr target, AssignOp op, Expr value) {
@@ -225,7 +225,7 @@ public final class Parser {
         return named(variable.name(), value);
     }
 
-    /** То же для {@code const f = fun(a) => a}, где имя известно и без разбора цели. */
+    /** То же для {@code const f = def(a) => a}, где имя известно и без разбора цели. */
     private static Expr named(String name, Expr value) {
         if (!(value instanceof FunctionExpr function) || function.name() != null) {
             return value;
@@ -351,9 +351,9 @@ public final class Parser {
 
     // --- функции -------------------------------------------------------------
 
-    /** Объявление: {@code fun имя(a, b) тело}. Имя проверено в {@link #statement()}. */
-    private Stmt funDeclaration() {
-        Token keyword = cursor.advance(); // fun
+    /** Объявление: {@code def имя(a, b) тело}. Имя проверено в {@link #statement()}. */
+    private Stmt defDeclaration() {
+        Token keyword = cursor.advance(); // def
         Token name = cursor.advance();    // имя
         FunctionExpr function = functionRest(keyword, name.text());
         if (function.body() instanceof ReturnStmt returned && returned.value() instanceof ErrorExpr) {
@@ -363,12 +363,12 @@ public final class Parser {
             cursor.synchronize();
             return new ErrorStmt(function.span());
         }
-        return new FunDeclStmt(function, function.span());
+        return new DefDeclStmt(function, function.span());
     }
 
-    /** Анонимная функция в позиции выражения: {@code fun(a, b) => a + b}. */
+    /** Анонимная функция в позиции выражения: {@code def(a, b) => a + b}. */
     private Expr functionExpr() {
-        Token keyword = cursor.advance(); // fun
+        Token keyword = cursor.advance(); // def
         return functionRest(keyword, null);
     }
 
@@ -377,7 +377,7 @@ public final class Parser {
      * кроме имени. Про границу области — {@link ParseState#inFunctionBody}.
      */
     private FunctionExpr functionRest(Token keyword, String name) {
-        List<FunctionExpr.Param> params = types.parameters("'fun'", true);
+        List<FunctionExpr.Param> params = types.parameters("'def'", true);
         return state.inFunctionBody(() -> {
             if (cursor.match(TokenType.FATARROW)) {
                 // Стрелка — это return, только записанный короче. В дереве так и лежит:
@@ -889,7 +889,7 @@ public final class Parser {
             case LBRACE -> {
                 return objectLiteral();
             }
-            case FUN -> {
+            case DEF -> {
                 return functionExpr();
             }
             case TRY -> {

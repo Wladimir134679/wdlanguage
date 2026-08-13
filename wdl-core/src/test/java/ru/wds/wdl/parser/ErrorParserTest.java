@@ -142,7 +142,7 @@ class ErrorParserTest {
     @DisplayName("return, break и continue в finally запрещены при разборе")
     void noEscapeFromFinally() {
         assertTrue(problems("""
-                fun f() {
+                def f() {
                     try { return 1; } finally { return 2; }
                 }
                 """).contains("'return' в блоке 'finally' запрещён"));
@@ -162,7 +162,7 @@ class ErrorParserTest {
     @DisplayName("функция внутри finally возвращает из себя самой — это не выход из finally")
     void returnInsideNestedFunctionIsFine() {
         assertInstanceOf(TryStmt.class, single("""
-                try { a() } finally { f = fun() { return 1; } }
+                try { a() } finally { f = def() { return 1; } }
                 """));
     }
 
@@ -308,7 +308,7 @@ class ErrorParserTest {
     @DisplayName("return, break и continue в теле defer запрещены при разборе")
     void noEscapeFromDefer() {
         assertTrue(problems("""
-                fun f() {
+                def f() {
                     defer return 1;
                 }
                 """).contains("'return' в теле 'defer' запрещён"));

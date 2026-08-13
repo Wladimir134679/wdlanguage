@@ -9,13 +9,13 @@ class ParseError(raw) : Exception("не число: " + raw)
 
 class ConfigError(path, cause) : Exception("конфиг '" + path + "' не прочитан", cause)
 
-fun parsePort(raw) {
+def parsePort(raw) {
     if (raw == "") throw new ParseError(raw);
     if (raw == "0") throw new ValueError("порт вне диапазона: 0");
     return 8080;
 }
 
-fun loadPort(raw, fallback) {
+def loadPort(raw, fallback) {
     try {
         return parsePort(raw);
     } catch (e is ParseError) {
@@ -59,7 +59,7 @@ try {
 // --- finally -------------------------------------------------------------
 // Выполняется при любом выходе — в том числе через return и через ошибку.
 
-fun withCleanup(fail) {
+def withCleanup(fail) {
     try {
         if (fail) throw new Exception("не вышло");
         return "готово";
@@ -89,11 +89,11 @@ println("try! на хорошем значении: ", try! parsePort("7000"))
 // Одна ошибка бывает и HttpError, и Retriable, а родитель у класса ровно один.
 
 trait Retriable {
-    fun delayMs()
+    def delayMs()
 }
 
 class HttpError(code) : Exception("HTTP " + code) with Retriable {
-    fun delayMs() => code >= 500 ? 1000 : 200
+    def delayMs() => code >= 500 ? 1000 : 200
 }
 
 try {
@@ -105,8 +105,8 @@ try {
 // --- путь по скрипту -----------------------------------------------------
 // Трейс собирается из кадров вызова: имя функции и место, откуда её позвали.
 
-fun inner() => 1 / 0
-fun middle() => inner()
+def inner() => 1 / 0
+def middle() => inner()
 
 try {
     middle()

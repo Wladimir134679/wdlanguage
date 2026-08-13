@@ -5,7 +5,7 @@ println("  [counter выполняется — эта строка печата�
 
 count = 0
 
-fun bump(step = 1) {
+def bump(step = 1) {
     count = count + step
     return count;
 }

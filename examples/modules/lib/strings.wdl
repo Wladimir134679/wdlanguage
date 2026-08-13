@@ -4,6 +4,6 @@
 
 import geometry as g
 
-fun describePoint(point) => "точка " + point.text() + ", длина " + point.length()
+def describePoint(point) => "точка " + point.text() + ", длина " + point.length()
 
-fun describeCircle(radius) => "круг радиуса " + radius + ", площадь " + g.area(radius)
+def describeCircle(radius) => "круг радиуса " + radius + ", площадь " + g.area(radius)

@@ -8,7 +8,7 @@
 //     import lib.test as t
 //
 //     suite = new t.Suite("арифметика")
-//     suite.test("сложение", fun() {
+//     suite.test("сложение", def() {
 //         t.assertEquals(4, 2 + 2)
 //     })
 //     suite.run()
@@ -21,20 +21,20 @@
 class AssertionError(message) : Exception(message)
 
 /** Провалить проверку с готовым текстом. */
-fun fail(message) {
+def fail(message) {
     throw new AssertionError(message);
 }
 
 // --- проверки ------------------------------------------------------------
 
 /** Значение истинно. */
-fun assertTrue(actual, what = "значение") {
+def assertTrue(actual, what = "значение") {
     if (!actual) fail(what + " должно быть истинным, а оно " + show(actual));
     return actual;
 }
 
 /** Значение ложно. */
-fun assertFalse(actual, what = "значение") {
+def assertFalse(actual, what = "значение") {
     if (actual) fail(what + " должно быть ложным, а оно " + show(actual));
     return actual;
 }
@@ -46,14 +46,14 @@ fun assertFalse(actual, what = "значение") {
  * но бесполезно для теста: ожидаемое значение в тесте всегда новое.
  * Поэтому здесь deepEquals.
  */
-fun assertEquals(expected, actual, what = "значение") {
+def assertEquals(expected, actual, what = "значение") {
     if (!deepEquals(expected, actual)) {
         fail(what + ": ожидалось " + show(expected) + ", получено " + show(actual));
     }
     return actual;
 }
 
-fun assertNotEquals(unexpected, actual, what = "значение") {
+def assertNotEquals(unexpected, actual, what = "значение") {
     if (deepEquals(unexpected, actual)) {
         fail(what + " не должно было равняться " + show(unexpected));
     }
@@ -61,25 +61,25 @@ fun assertNotEquals(unexpected, actual, what = "значение") {
 }
 
 /** Тождество: тот же самый объект, а не такой же. */
-fun assertSame(expected, actual, what = "значение") {
+def assertSame(expected, actual, what = "значение") {
     if (expected != actual) {
         fail(what + ": ожидался тот же объект " + show(expected) + ", получен " + show(actual));
     }
     return actual;
 }
 
-fun assertNull(actual, what = "значение") {
+def assertNull(actual, what = "значение") {
     if (actual != null) fail(what + " должно быть null, а оно " + show(actual));
     return actual;
 }
 
-fun assertNotNull(actual, what = "значение") {
+def assertNotNull(actual, what = "значение") {
     if (actual == null) fail(what + " не должно быть null");
     return actual;
 }
 
 /** Строка содержит подстроку. */
-fun assertContains(text, part, what = "текст") {
+def assertContains(text, part, what = "текст") {
     if (indexOf(text, part) < 0) {
         fail(what + " " + show(text) + " не содержит " + show(part));
     }
@@ -87,7 +87,7 @@ fun assertContains(text, part, what = "текст") {
 }
 
 /** Значение принадлежит классу или трейту. Тип приходит значением — класс это значение. */
-fun assertIs(type, actual, what = "значение") {
+def assertIs(type, actual, what = "значение") {
     if (!(actual is type)) {
         fail(what + " " + show(actual) + " не относится к " + show(type));
     }
@@ -98,10 +98,10 @@ fun assertIs(type, actual, what = "значение") {
  * Вызов бросает ошибку заданного класса. Возвращает саму ошибку — чтобы
  * следующей строкой проверить её сообщение или поле.
  *
- *     e = assertThrows(ValueError, fun() { throw new ValueError("плохо"); })
+ *     e = assertThrows(ValueError, def() { throw new ValueError("плохо"); })
  *     assertContains(e.message, "плохо")
  */
-fun assertThrows(type, body, what = "вызов") {
+def assertThrows(type, body, what = "вызов") {
     try {
         body()
     } catch (e) {
@@ -112,7 +112,7 @@ fun assertThrows(type, body, what = "вызов") {
 }
 
 /** Вызов бросает хоть что-нибудь ловимое. */
-fun assertFails(body, what = "вызов") {
+def assertFails(body, what = "вызов") {
     try {
         body()
     } catch (e) {
@@ -122,7 +122,7 @@ fun assertFails(body, what = "вызов") {
 }
 
 /** Вызов проходит без ошибки. Нужен там, где сама успешность и есть проверка. */
-fun assertOk(body, what = "вызов") {
+def assertOk(body, what = "вызов") {
     try {
         return body();
     } catch (e) {
@@ -141,13 +141,13 @@ fun assertOk(body, what = "вызов") {
 class Suite(name, checks = [], passed = 0, failed = 0, broken = 0, skipped = 0) {
 
     /** Добавляет проверку. Возвращает себя — чтобы набор собирался цепочкой. */
-    fun test(title, body) {
+    def test(title, body) {
         checks = checks + [{title: title, body: body, skip: false}]
         return this;
     }
 
     /** Та же запись, но проверка не выполняется: место для отложенного случая. */
-    fun skip(title, body) {
+    def skip(title, body) {
         checks = checks + [{title: title, body: body, skip: true}]
         return this;
     }
@@ -159,7 +159,7 @@ class Suite(name, checks = [], passed = 0, failed = 0, broken = 0, skipped = 0) 
      * а «упало по дороге» — сломанный тест, и у второго стоит показать место
      * и путь по скрипту.
      */
-    fun run() {
+    def run() {
         println()
         println("── ", name)
         for (check in checks) {
@@ -174,7 +174,7 @@ class Suite(name, checks = [], passed = 0, failed = 0, broken = 0, skipped = 0) 
         return failed + broken == 0;
     }
 
-    fun runOne(check) {
+    def runOne(check) {
         try {
             check.body()
             passed = passed + 1
@@ -192,7 +192,7 @@ class Suite(name, checks = [], passed = 0, failed = 0, broken = 0, skipped = 0) 
         }
     }
 
-    fun summary() {
+    def summary() {
         line = "  итого: " + passed + " ok"
         if (failed > 0) line = line + ", " + failed + " fail";
         if (broken > 0) line = line + ", " + broken + " err";
@@ -211,7 +211,7 @@ class Suite(name, checks = [], passed = 0, failed = 0, broken = 0, skipped = 0) 
  * и значения не совпадут. Пары «поля нет» и «поле равно null» этот способ
  * не различает, и для теста это честная цена.
  */
-fun deepEquals(left, right) {
+def deepEquals(left, right) {
     if (typeof(left) != typeof(right)) return false;
 
     if (typeof(left) == "array") {
@@ -234,7 +234,7 @@ fun deepEquals(left, right) {
 }
 
 /** Позиция подстроки или -1. Своего поиска в строке у языка пока нет. */
-fun indexOf(text, part) {
+def indexOf(text, part) {
     if (part == "") return 0;
     last = len(text) - len(part)
     for (start = 0; start <= last; start = start + 1) {
@@ -250,15 +250,15 @@ fun indexOf(text, part) {
     return -1;
 }
 
-fun contains(text, part) => indexOf(text, part) >= 0
+def contains(text, part) => indexOf(text, part) >= 0
 
 /** Значение для сообщения: строки в кавычках, остальное как печатается. */
-fun show(value) {
+def show(value) {
     if (typeof(value) == "string") return "\"" + value + "\"";
     return "" + value;
 }
 
-fun repeat(text, times) {
+def repeat(text, times) {
     out = ""
     for (i = 0; i < times; i = i + 1) {
         out = out + text

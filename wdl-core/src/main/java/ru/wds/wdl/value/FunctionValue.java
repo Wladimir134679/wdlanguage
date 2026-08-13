@@ -20,7 +20,7 @@ import java.util.List;
  */
 public non-sealed interface FunctionValue extends Value {
 
-    /** Имя для диагностики и печати; у анонимной функции — что-то вроде {@code "fun"}. */
+    /** Имя для диагностики и печати; у анонимной функции — что-то вроде {@code "def"}. */
     String name();
 
     Arity arity();
@@ -40,11 +40,11 @@ public non-sealed interface FunctionValue extends Value {
     }
 
     /**
-     * Печатается коротко — {@code fun println}. Сколько функция берёт аргументов,
+     * Печатается коротко — {@code def println}. Сколько функция берёт аргументов,
      * человек узнаёт в тот момент, когда это важно: из сообщения об ошибке вызова.
      */
     @Override
     default String display() {
-        return "fun " + name();
+        return "def " + name();
     }
 }

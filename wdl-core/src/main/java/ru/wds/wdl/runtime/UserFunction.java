@@ -131,7 +131,7 @@ public final class UserFunction implements FunctionValue {
 
     @Override
     public String display() {
-        return declaration.name() != null ? "fun " + declaration.name() : "fun";
+        return declaration.name() != null ? "def " + declaration.name() : "def";
     }
 
     @Override

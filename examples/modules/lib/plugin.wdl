@@ -9,12 +9,12 @@ println("  [lib/plugin выполняется — эта строка печат
 
 class Triangle(base, height) : Shape("треугольник") with Countable {
 
-    fun area() => base * height / 2
-    fun count() => 3
+    def area() => base * height / 2
+    def count() => 3
 
     // Фабрика — способ создания с именем. Через модуль она тоже видна:
     // p.Triangle.equilateral(2)
-    fun Triangle.equilateral(side) => new Triangle(side, side)
+    def Triangle.equilateral(side) => new Triangle(side, side)
 }
 
-fun make(base, height) => new Triangle(base, height)
+def make(base, height) => new Triangle(base, height)

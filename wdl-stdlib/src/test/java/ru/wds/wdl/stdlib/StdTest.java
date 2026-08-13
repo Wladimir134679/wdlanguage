@@ -218,7 +218,7 @@ class StdTest {
     @DisplayName("встроенный класс передаётся и лежит в массиве, как любой другой")
     void classIsAValue(@TempDir Path dir) {
         assertEquals("a.txt b.txt", printed("""
-                fun make(cls, path) => new cls(path)
+                def make(cls, path) => new cls(path)
                 kinds = [File]
                 println(make(File, "%s").name(), " ", new kinds[0]("%s").name())
                 """.formatted(script(dir.resolve("a.txt")), script(dir.resolve("b.txt")))));

@@ -44,7 +44,7 @@ public interface ExprVisitor<R, C> {
 
     R visitObject(ObjectExpr expr, C context);
 
-    /** Литерал функции. Объявление {@code fun имя(...)} приходит сюда же — через {@code FunDeclStmt}. */
+    /** Литерал функции. Объявление {@code def имя(...)} приходит сюда же — через {@code DefDeclStmt}. */
     R visitFunction(FunctionExpr expr, C context);
 
     /** Короткая форма обработки ошибки: {@code try?} и {@code try!}. */

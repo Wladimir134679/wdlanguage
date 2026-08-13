@@ -90,7 +90,7 @@ public final class ClassShape implements Shape {
         return traits;
     }
 
-    /** Тело {@code fun Имя()} или {@code null}. В таблицу методов конструктор не попадает. */
+    /** Тело {@code def Имя()} или {@code null}. В таблицу методов конструктор не попадает. */
     public FunctionExpr constructor() {
         return declaration.constructor();
     }

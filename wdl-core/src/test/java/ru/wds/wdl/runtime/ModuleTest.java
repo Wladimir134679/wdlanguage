@@ -62,9 +62,9 @@ class ModuleTest {
 
     private static final Map<String, String> MATH = Map.of("lib/math", """
             const PI = 3
-            fun add(a, b) => a + b
+            def add(a, b) => a + b
             class Point(x, y) {
-                fun sum() => x + y
+                def sum() => x + y
             }
             """);
 
@@ -119,7 +119,7 @@ class ModuleTest {
     @DisplayName("импорт внутри функции живёт только в ней")
     void importInsideFunctionIsLocal() {
         assertEquals("7" + NL, run("""
-                fun total() {
+                def total() {
                     import lib.math as m
                     return m.add(3, 4);
                 }
@@ -127,7 +127,7 @@ class ModuleTest {
                 """, MATH));
 
         WdlRuntimeError error = errorOf("""
-                fun total() {
+                def total() {
                     import lib.math
                     return add(3, 4);
                 }
@@ -144,7 +144,7 @@ class ModuleTest {
                 secret = 42
                 import lib.peek as p
                 p.show()
-                """, Map.of("lib/peek", "fun show() => secret"));
+                """, Map.of("lib/peek", "def show() => secret"));
 
         assertEquals("переменная 'secret' не определена", error.getMessage());
     }
@@ -155,7 +155,7 @@ class ModuleTest {
     @DisplayName("модуль выполняется один раз за запуск, сколько бы его ни импортировали")
     void moduleRunsOnce() {
         assertEquals("загрузка" + NL + "готово" + NL + "готово" + NL, run("""
-                fun once() {
+                def once() {
                     import counter as c
                     return "готово";
                 }
@@ -185,7 +185,7 @@ class ModuleTest {
                 println(first, "|", c.count)
                 """, Map.of("counter", """
                 count = 0
-                fun bump() { count = count + 1 }
+                def bump() { count = count + 1 }
                 """)));
     }
 
@@ -277,7 +277,7 @@ class ModuleTest {
                 import lib.bad as b
                 println("до")
                 b.boom()
-                """, Map.of("lib/bad", "fun boom() => 1 / 0"));
+                """, Map.of("lib/bad", "def boom() => 1 / 0"));
 
         assertEquals("деление на ноль", error.getMessage());
         assertNotNull(error.source(), "ошибке нужен файл, иначе её отрисуют по чужому исходнику");

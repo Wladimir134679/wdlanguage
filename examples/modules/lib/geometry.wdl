@@ -3,10 +3,10 @@
 
 const PI = 3.14159
 
-fun area(radius) => PI * radius * radius
+def area(radius) => PI * radius * radius
 
 class Point(x, y) {
-    fun length() => sqrt(x * x + y * y)
+    def length() => sqrt(x * x + y * y)
 
-    fun text() => "(" + x + ", " + y + ")"
+    def text() => "(" + x + ", " + y + ")"
 }

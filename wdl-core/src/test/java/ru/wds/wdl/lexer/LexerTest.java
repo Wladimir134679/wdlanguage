@@ -48,9 +48,9 @@ class LexerTest {
     @Test
     @DisplayName("имена, ключевые слова и позиции")
     void wordsAndKeywords() {
-        List<Token> tokens = lex("fun сумма(a) { return a }");
+        List<Token> tokens = lex("def сумма(a) { return a }");
 
-        assertEquals(List.of(TokenType.FUN, TokenType.WORD, TokenType.LPAREN, TokenType.WORD,
+        assertEquals(List.of(TokenType.DEF, TokenType.WORD, TokenType.LPAREN, TokenType.WORD,
                 TokenType.RPAREN, TokenType.LBRACE, TokenType.RETURN, TokenType.WORD, TokenType.RBRACE),
                 tokens.stream().map(Token::type).toList());
         assertEquals("сумма", tokens.get(1).text());
@@ -137,13 +137,13 @@ class LexerTest {
     @Test
     @DisplayName("перевод строки — обычный пробел: перенос не меняет поток токенов")
     void newlineIsWhitespace() {
-        List<TokenType> expected = List.of(TokenType.FUN, TokenType.WORD, TokenType.LPAREN, TokenType.WORD,
+        List<TokenType> expected = List.of(TokenType.DEF, TokenType.WORD, TokenType.LPAREN, TokenType.WORD,
                 TokenType.COMMA, TokenType.WORD, TokenType.RPAREN, TokenType.RETURN, TokenType.WORD,
                 TokenType.PLUS, TokenType.WORD);
 
-        assertEquals(expected, types("fun f(a, b)\n    return a + b"));
-        assertEquals(expected, types("fun f(a, b) return a + b"));
-        assertEquals(expected, types("fun\nf(\na,\nb\n)\nreturn\na\n+\nb\n"));
+        assertEquals(expected, types("def f(a, b)\n    return a + b"));
+        assertEquals(expected, types("def f(a, b) return a + b"));
+        assertEquals(expected, types("def\nf(\na,\nb\n)\nreturn\na\n+\nb\n"));
     }
 
     @Test

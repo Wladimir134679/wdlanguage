@@ -1,15 +1,15 @@
 // Модуль с классом и трейтом, от которых наследуются другие файлы.
 
 trait Countable {
-    fun count()
+    def count()
 }
 
 class Shape(title) {
-    fun text() => "фигура " + title
+    def text() => "фигура " + title
 
     // Зовёт area(), который переопределит потомок из другого файла:
     // поиск голого имени внутри метода идёт по классу экземпляра, а не по своему.
-    fun describe() => text() + ", площадь " + area()
+    def describe() => text() + ", площадь " + area()
 
-    fun area() => 0
+    def area() => 0
 }

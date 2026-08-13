@@ -6,25 +6,25 @@ import lib.test as t
 // --- проверяемый код -----------------------------------------------------
 // Обычные функции и классы: тест не требует ничего писать по-особому.
 
-fun sum(numbers) {
+def sum(numbers) {
     total = 0
     for (n in numbers) total = total + n;
     return total;
 }
 
-fun divide(a, b) {
+def divide(a, b) {
     if (b == 0) throw new ArithmeticError("делить на ноль нельзя");
     return a / b;
 }
 
 class Basket(items = []) {
 
-    fun add(item) {
+    def add(item) {
         items = items + [item]
         return this;
     }
 
-    fun total() => sum(items)
+    def total() => sum(items)
 }
 
 // --- набор ---------------------------------------------------------------
@@ -32,13 +32,13 @@ class Basket(items = []) {
 
 suite = new t.Suite("основы")
 
-suite.test("равенство чисел и строк", fun() {
+suite.test("равенство чисел и строк", def() {
     t.assertEquals(10, sum([1, 2, 3, 4]))
     t.assertEquals("привет", "при" + "вет")
     t.assertNotEquals(0, sum([1]))
 })
 
-suite.test("массивы и объекты сравниваются по значению", fun() {
+suite.test("массивы и объекты сравниваются по значению", def() {
     // Язык сравнивает их по ссылке — и правильно делает. Тесту нужно другое,
     // поэтому в движке есть deepEquals.
     t.assertEquals([1, [2, 3]], [1, [2, 3]])
@@ -46,46 +46,46 @@ suite.test("массивы и объекты сравниваются по зн�
     t.assertFalse([1, 2] == [1, 2], "два разных массива по ссылке не равны")
 })
 
-suite.test("истинность и null", fun() {
+suite.test("истинность и null", def() {
     t.assertTrue(sum([1]) > 0)
     t.assertFalse(sum([]) > 0)
     t.assertNull(null)
     t.assertNotNull(0, "ноль — не null")
 })
 
-suite.test("тождество отличается от равенства", fun() {
+suite.test("тождество отличается от равенства", def() {
     basket = new Basket()
     t.assertSame(basket, basket.add(1), "add возвращает тот же объект")
 })
 
-suite.test("подстрока", fun() {
+suite.test("подстрока", def() {
     t.assertContains("не удалось обратиться к файлу", "к файлу")
     t.assertEquals(2, t.indexOf("abcabc", "ca"))
     t.assertEquals(-1, t.indexOf("abc", "z"))
 })
 
-suite.test("принадлежность классу", fun() {
+suite.test("принадлежность классу", def() {
     t.assertIs(Basket, new Basket())
     t.assertIs(Exception, new ArithmeticError("x"))
 })
 
-suite.test("ожидаемая ошибка возвращается наружу", fun() {
+suite.test("ожидаемая ошибка возвращается наружу", def() {
     // assertThrows отдаёт саму ошибку — дальше её можно расспросить.
-    e = t.assertThrows(ArithmeticError, fun() => divide(1, 0))
+    e = t.assertThrows(ArithmeticError, def() => divide(1, 0))
     t.assertContains(e.message, "на ноль")
     t.assertEquals("ArithmeticError", e.kind)
 })
 
-suite.test("успешный вызов тоже бывает проверкой", fun() {
-    t.assertEquals(5, t.assertOk(fun() => divide(10, 2)))
+suite.test("успешный вызов тоже бывает проверкой", def() {
+    t.assertEquals(5, t.assertOk(def() => divide(10, 2)))
 })
 
-suite.test("класс собирается цепочкой", fun() {
+suite.test("класс собирается цепочкой", def() {
     basket = new Basket().add(2).add(3).add(5)
     t.assertEquals(10, basket.total())
 })
 
-suite.skip("отложенный случай виден в отчёте", fun() {
+suite.skip("отложенный случай виден в отчёте", def() {
     t.fail("сюда выполнение не дойдёт")
 })
 
@@ -96,11 +96,11 @@ ok = suite.run()
 
 broken = new t.Suite("нарочно сломанный набор")
 
-broken.test("проверка не сходится", fun() {
+broken.test("проверка не сходится", def() {
     t.assertEquals(4, 2 + 3, "сумма")
 })
 
-broken.test("тест падает по дороге", fun() {
+broken.test("тест падает по дороге", def() {
     numbers = [1, 2]
     println(numbers[9])
 })

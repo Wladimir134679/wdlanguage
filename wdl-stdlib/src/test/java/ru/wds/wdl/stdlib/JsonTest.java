@@ -136,7 +136,7 @@ class JsonTest {
     void functionsRejected() {
         assertTrue(errorOf("""
                 import sys.json as json
-                json.stringify({run: fun() => 1})
+                json.stringify({run: def() => 1})
                 """).getMessage().contains("функция"));
     }
 

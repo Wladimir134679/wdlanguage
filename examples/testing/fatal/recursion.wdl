@@ -8,7 +8,7 @@
 // finally при этом выполняется: закрыть начатое на пути наружу можно и нужно,
 // а вот подавить причину — нет.
 
-fun forever(n) => forever(n + 1)
+def forever(n) => forever(n + 1)
 
 try {
     try {

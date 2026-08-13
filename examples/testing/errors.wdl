@@ -12,41 +12,41 @@ class ParseError(raw) : Exception("не число: " + raw)
 class ConfigError(path, cause) : Exception("конфиг '" + path + "' не прочитан", cause)
 
 trait Retriable {
-    fun delayMs()
+    def delayMs()
 }
 
 class HttpError(code) : Exception("HTTP " + code) with Retriable {
-    fun delayMs() => code >= 500 ? 1000 : 200
+    def delayMs() => code >= 500 ? 1000 : 200
 }
 
 // === иерархия ============================================================
 
 hierarchy = new t.Suite("иерархия Exception")
 
-hierarchy.test("прелюдия объявлена до первой строки скрипта", fun() {
+hierarchy.test("прелюдия объявлена до первой строки скрипта", def() {
     t.assertEquals("class", typeof(Exception))
     t.assertEquals("class", typeof(IndexError))
     t.assertEquals("trait", typeof(Closeable))
 })
 
-hierarchy.test("ошибки движка наследуют RuntimeError, а тот — Exception", fun() {
+hierarchy.test("ошибки движка наследуют RuntimeError, а тот — Exception", def() {
     error = new IndexError("вне границ")
     t.assertIs(RuntimeError, error)
     t.assertIs(Exception, error)
 })
 
-hierarchy.test("своя ошибка — обычный наследник", fun() {
+hierarchy.test("своя ошибка — обычный наследник", def() {
     error = new ParseError("abc")
     t.assertIs(Exception, error)
     t.assertEquals("не число: abc", error.message)
     t.assertEquals("abc", error.raw, "своё поле никуда не делось")
 })
 
-hierarchy.test("ошибка — это объект, а не восьмой тип", fun() {
+hierarchy.test("ошибка — это объект, а не восьмой тип", def() {
     t.assertEquals("object", typeof(new Exception("ой")))
 })
 
-hierarchy.test("JavaException не под RuntimeError", fun() {
+hierarchy.test("JavaException не под RuntimeError", def() {
     // Ошибся не движок, а библиотека приложения: catch по RuntimeError
     // не должен ловить чужой NullPointerException заодно с делением на ноль.
     t.assertIs(Exception, new JavaException("оттуда"))
@@ -59,7 +59,7 @@ hierarchy.run()
 
 throwing = new t.Suite("throw и catch")
 
-throwing.test("своя ошибка ловится своим классом", fun() {
+throwing.test("своя ошибка ловится своим классом", def() {
     caught = null
     try {
         throw new ParseError("abc")
@@ -70,12 +70,12 @@ throwing.test("своя ошибка ловится своим классом", 
     t.assertEquals("ParseError", caught.kind)
 })
 
-throwing.test("бросить можно только экземпляр Exception", fun() {
-    e = t.assertThrows(TypeError, fun() { throw 5; })
+throwing.test("бросить можно только экземпляр Exception", def() {
+    e = t.assertThrows(TypeError, def() { throw 5; })
     t.assertContains(e.message, "только экземпляр Exception")
 })
 
-throwing.test("ловля по предку и по трейту — то же самое, что is", fun() {
+throwing.test("ловля по предку и по трейту — то же самое, что is", def() {
     byParent = false
     byTrait = false
     try { throw new HttpError(503) } catch (e is Exception) { byParent = true }
@@ -84,7 +84,7 @@ throwing.test("ловля по предку и по трейту — то же �
     t.assertTrue(byTrait, "поймано по трейту")
 })
 
-throwing.test("одна ошибка бывает и классом, и трейтом", fun() {
+throwing.test("одна ошибка бывает и классом, и трейтом", def() {
     // Родитель у класса ровно один, а трейтов сколько угодно — потому
     // «это можно повторить» и выражается трейтом, а не базовым классом.
     error = new HttpError(503)
@@ -93,14 +93,14 @@ throwing.test("одна ошибка бывает и классом, и трей
     t.assertEquals(1000, error.delayMs())
 })
 
-throwing.test("catch без типа ловит всё, что вообще ловится", fun() {
+throwing.test("catch без типа ловит всё, что вообще ловится", def() {
     kinds = []
     try { println(1 / 0) } catch (e) { kinds = kinds + [e.kind] }
     try { throw new ParseError("x") } catch (e) { kinds = kinds + [e.kind] }
     t.assertEquals(["ArithmeticError", "ParseError"], kinds)
 })
 
-throwing.test("берётся первый подходящий обработчик, сверху вниз", fun() {
+throwing.test("берётся первый подходящий обработчик, сверху вниз", def() {
     which = ""
     try {
         println(1 / 0)
@@ -114,20 +114,20 @@ throwing.test("берётся первый подходящий обработч
     t.assertEquals("второй", which)
 })
 
-throwing.test("несколько типов в одном обработчике", fun() {
-    fun kindOf(body) {
+throwing.test("несколько типов в одном обработчике", def() {
+    def kindOf(body) {
         try {
             body()
         } catch (e is IndexError, ArithmeticError) {
             return e.kind;
         }
     }
-    t.assertEquals("IndexError", kindOf(fun() => [1][9]))
-    t.assertEquals("ArithmeticError", kindOf(fun() => 1 / 0))
+    t.assertEquals("IndexError", kindOf(def() => [1][9]))
+    t.assertEquals("ArithmeticError", kindOf(def() => 1 / 0))
 })
 
-throwing.test("не пойманная своим классом ошибка летит дальше", fun() {
-    e = t.assertThrows(ArithmeticError, fun() {
+throwing.test("не пойманная своим классом ошибка летит дальше", def() {
+    e = t.assertThrows(ArithmeticError, def() {
         try {
             println(1 / 0)
         } catch (e is IndexError) {
@@ -143,7 +143,7 @@ throwing.run()
 
 kinds = new t.Suite("классы ошибок движка")
 
-fun kindOf(body) {
+def kindOf(body) {
     try {
         body()
     } catch (e) {
@@ -152,15 +152,15 @@ fun kindOf(body) {
     return "без ошибки";
 }
 
-kinds.test("каждая ошибка движка знает свой класс", fun() {
-    t.assertEquals("TypeError", kindOf(fun() => "a" - 1))
-    t.assertEquals("NameError", kindOf(fun() => unknownName))
-    t.assertEquals("IndexError", kindOf(fun() => [1][9]))
-    t.assertEquals("ArithmeticError", kindOf(fun() => 1 / 0))
-    t.assertEquals("CallError", kindOf(fun() => (5)()))
+kinds.test("каждая ошибка движка знает свой класс", def() {
+    t.assertEquals("TypeError", kindOf(def() => "a" - 1))
+    t.assertEquals("NameError", kindOf(def() => unknownName))
+    t.assertEquals("IndexError", kindOf(def() => [1][9]))
+    t.assertEquals("ArithmeticError", kindOf(def() => 1 / 0))
+    t.assertEquals("CallError", kindOf(def() => (5)()))
 })
 
-kinds.test("сообщение и место у пойманной ошибки на месте", fun() {
+kinds.test("сообщение и место у пойманной ошибки на месте", def() {
     try {
         println([1, 2][7])
     } catch (e is IndexError) {
@@ -169,8 +169,8 @@ kinds.test("сообщение и место у пойманной ошибки 
     }
 })
 
-kinds.test("три уровня грубости: класс, семейство, всё", fun() {
-    fun catchesAs(type) {
+kinds.test("три уровня грубости: класс, семейство, всё", def() {
+    def catchesAs(type) {
         try {
             println([1][9])
         } catch (e is type) {
@@ -191,22 +191,22 @@ kinds.run()
 
 finallySuite = new t.Suite("finally")
 
-finallySuite.test("выполняется при нормальном выходе", fun() {
+finallySuite.test("выполняется при нормальном выходе", def() {
     log = []
     try { log = log + ["тело"] } finally { log = log + ["finally"] }
     t.assertEquals(["тело", "finally"], log)
 })
 
-finallySuite.test("выполняется при return", fun() {
+finallySuite.test("выполняется при return", def() {
     log = []
-    fun body() {
+    def body() {
         try { return "значение"; } finally { log = log + ["finally"] }
     }
     t.assertEquals("значение", body())
     t.assertEquals(["finally"], log)
 })
 
-finallySuite.test("выполняется при break", fun() {
+finallySuite.test("выполняется при break", def() {
     log = []
     for (i in [1, 2, 3]) {
         try { break } finally { log = log + ["finally"] }
@@ -214,17 +214,17 @@ finallySuite.test("выполняется при break", fun() {
     t.assertEquals(["finally"], log)
 })
 
-finallySuite.test("выполняется на пути ошибки, которую никто не поймал", fun() {
+finallySuite.test("выполняется на пути ошибки, которую никто не поймал", def() {
     log = []
-    t.assertThrows(ArithmeticError, fun() {
+    t.assertThrows(ArithmeticError, def() {
         try { println(1 / 0) } finally { log = log + ["finally"] }
     })
     t.assertEquals(["finally"], log)
 })
 
-finallySuite.test("ошибка из обработчика летит наружу, а finally выполняется", fun() {
+finallySuite.test("ошибка из обработчика летит наружу, а finally выполняется", def() {
     log = []
-    e = t.assertThrows(ParseError, fun() {
+    e = t.assertThrows(ParseError, def() {
         try {
             throw new Exception("первая")
         } catch (other) {
@@ -237,7 +237,7 @@ finallySuite.test("ошибка из обработчика летит нару�
     t.assertEquals(["finally"], log)
 })
 
-finallySuite.test("ошибка в finally не затирает ту, ради которой мы шли наружу", fun() {
+finallySuite.test("ошибка в finally не затирает ту, ради которой мы шли наружу", def() {
     try {
         try {
             throw new Exception("основная")
@@ -257,22 +257,22 @@ finallySuite.run()
 
 short = new t.Suite("try? и try!")
 
-short.test("try? даёт null при ошибке и значение без неё", fun() {
+short.test("try? даёт null при ошибке и значение без неё", def() {
     t.assertNull(try? [1][9])
     t.assertEquals(4, try? 2 + 2)
 })
 
-short.test("try? заменяет собой пустой catch, но виден в строке", fun() {
+short.test("try? заменяет собой пустой catch, но виден в строке", def() {
     port = try? [1][9]
     t.assertEquals(8080, port == null ? 8080 : port)
 })
 
-short.test("try? связывает как унарная операция", fun() {
+short.test("try? связывает как унарная операция", def() {
     // 'try? f() + 1' — это '(try? f()) + 1': обращение и вызов крепче, сложение слабее.
     t.assertEquals(5, (try? 2 + 2) + 1)
 })
 
-short.test("try! пропускает значение", fun() {
+short.test("try! пропускает значение", def() {
     t.assertEquals(4, try! 2 + 2)
 })
 
@@ -282,7 +282,7 @@ short.run()
 
 chain = new t.Suite("cause и повторный бросок")
 
-chain.test("перезаворачивание сохраняет исходную ошибку", fun() {
+chain.test("перезаворачивание сохраняет исходную ошибку", def() {
     try {
         try {
             println(1 / 0)
@@ -296,8 +296,8 @@ chain.test("перезаворачивание сохраняет исходну
     }
 })
 
-chain.test("повторный бросок место и трейс не затирает", fun() {
-    fun deep() {
+chain.test("повторный бросок место и трейс не затирает", def() {
+    def deep() {
         throw new Exception("ой");
     }
     first = ""
@@ -314,7 +314,7 @@ chain.test("повторный бросок место и трейс не зат
     }
 })
 
-chain.test("report собирает всё, что об ошибке известно", fun() {
+chain.test("report собирает всё, что об ошибке известно", def() {
     try {
         try {
             println(1 / 0)
@@ -335,11 +335,11 @@ chain.run()
 
 tracing = new t.Suite("путь по скрипту")
 
-fun level1() => 1 / 0
-fun level2() => level1()
-fun level3() => level2()
+def level1() => 1 / 0
+def level2() => level1()
+def level3() => level2()
 
-tracing.test("по строке на вызов, от места броска наружу", fun() {
+tracing.test("по строке на вызов, от места броска наружу", def() {
     try {
         level3()
     } catch (e) {
@@ -351,7 +351,7 @@ tracing.test("по строке на вызов, от места броска н
     }
 })
 
-tracing.test("кадр называет функцию и место, откуда её позвали", fun() {
+tracing.test("кадр называет функцию и место, откуда её позвали", def() {
     try {
         level3()
     } catch (e) {
@@ -359,19 +359,19 @@ tracing.test("кадр называет функцию и место, откуд
     }
 })
 
-tracing.test("трейс есть и у ошибки, пойманной в той же функции", fun() {
+tracing.test("трейс есть и у ошибки, пойманной в той же функции", def() {
     // Границы вызова эта ошибка не пересекает — она брошена и поймана здесь же.
     // Но кадры вокруг есть, и обработчик вправе их видеть.
     try {
         println(1 / 0)
     } catch (e) {
         t.assertTrue(len(e.trace) > 0, "кадры вокруг никуда не делись")
-        t.assertContains(e.trace[0], "в fun", "самый внутренний кадр — эта лямбда")
+        t.assertContains(e.trace[0], "в def", "самый внутренний кадр — эта лямбда")
     }
 })
 
-tracing.test("у ошибки, брошенной скриптом, трейс тот же", fun() {
-    fun raise() {
+tracing.test("у ошибки, брошенной скриптом, трейс тот же", def() {
+    def raise() {
         throw new ParseError("abc");
     }
     try {

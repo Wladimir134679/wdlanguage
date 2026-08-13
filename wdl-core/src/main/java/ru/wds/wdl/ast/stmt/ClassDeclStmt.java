@@ -26,7 +26,7 @@ import java.util.Objects;
  *
  * @param parent      родитель или {@code null}; родитель ровно один — из-за конструктора,
  *                    а не из-за конфликтов имён
- * @param constructor тело {@code fun Point()} или {@code null}
+ * @param constructor тело {@code def Point()} или {@code null}
  */
 public record ClassDeclStmt(
         String name,
@@ -89,7 +89,7 @@ public record ClassDeclStmt(
     }
 
     /**
-     * Функция, живущая на классе, а не на экземпляре: {@code fun User.of(...)}.
+     * Функция, живущая на классе, а не на экземпляре: {@code def User.of(...)}.
      * <p>
      * Не отдельный вид члена, как {@code static} в Java, а <b>место записи</b>:
      * {@code User.of} — то же самое обращение по ключу, что {@code user.name},

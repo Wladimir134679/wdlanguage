@@ -84,8 +84,8 @@ class ClassTest {
     void methodSeesFields() {
         assertEquals("(30, 25)", printed("""
                 class Point(x = 0, y = 0) {
-                    fun move(dx, dy) { x += dx; y += dy }
-                    fun text() => "(" + x + ", " + y + ")"
+                    def move(dx, dy) { x += dx; y += dy }
+                    def text() => "(" + x + ", " + y + ")"
                 }
                 p = new Point(20, 30)
                 p.move(10, -5)
@@ -97,7 +97,7 @@ class ClassTest {
     @DisplayName("метод — значение и помнит свой объект")
     void methodRemembersInstance() {
         assertEquals("(1, 2)", printed("""
-                class Point(x, y) { fun text() => "(" + x + ", " + y + ")" }
+                class Point(x, y) { def text() => "(" + x + ", " + y + ")" }
                 handler = new Point(1, 2).text
                 println(handler())
                 """));
@@ -107,7 +107,7 @@ class ClassTest {
     @DisplayName("методы не попадают ни в перебор, ни в len: они живут в классе")
     void methodsAreNotFields() {
         assertEquals("x y 2", printed("""
-                class Point(x, y) { fun text() => x }
+                class Point(x, y) { def text() => x }
                 p = new Point(1, 2)
                 for (name in p) print(name, " ")
                 println(len(p))
@@ -118,9 +118,9 @@ class ClassTest {
     @DisplayName("поле перекрывает метод: подмена поведения у одного объекта законна")
     void fieldOverridesMethod() {
         assertEquals("по-своему 3", printed("""
-                class Point(x, y) { fun text() => "обычно" }
+                class Point(x, y) { def text() => "обычно" }
                 p = new Point(1, 2)
-                p.text = fun() => "по-своему"
+                p.text = def() => "по-своему"
                 println(p.text(), " ", len(p))
                 """));
     }
@@ -131,7 +131,7 @@ class ClassTest {
         // Плата за то, что отдельного вида значения у метода нет. Для языка это
         // ничего не меняет: функции и без того сравниваются по ссылке
         assertEquals("false true", printed("""
-                class Point(x, y) { fun text() => x }
+                class Point(x, y) { def text() => x }
                 p = new Point(1, 2)
                 f = p.text
                 println(p.text == p.text, " ", f == f)
@@ -153,8 +153,8 @@ class ClassTest {
     void nullFieldIsStillAField() {
         assertEquals("null 33", printed("""
                 class User(name, age = null) {
-                    fun show() => age
-                    fun grow() { age = 33 }
+                    def show() => age
+                    def grow() { age = 33 }
                 }
                 u = new User("wdeath")
                 print(u.show(), " ")
@@ -168,7 +168,7 @@ class ClassTest {
     void unknownNameGoesOutside() {
         assertEquals("ставка 7", printed("""
                 RATE = 7
-                class Order(sum) { fun show() { println("ставка ", RATE) } }
+                class Order(sum) { def show() { println("ставка ", RATE) } }
                 new Order(1).show()
                 """));
     }
@@ -180,8 +180,8 @@ class ClassTest {
     void parameterShadowsField() {
         assertEquals("привет, второй", printed("""
                 class User(name) {
-                    fun rename(name) { this.name = name }
-                    fun greet() => "привет, " + name
+                    def rename(name) { this.name = name }
+                    def greet() => "привет, " + name
                 }
                 u = new User("первый")
                 u.rename("второй")
@@ -194,7 +194,7 @@ class ClassTest {
     void localNameIsNotAField() {
         assertEquals("Box{\"width\": 3, \"height\": 4, \"area\": 12}", printed("""
                 class Box(width, height) {
-                    fun Box() {
+                    def Box() {
                         half = width * height / 2
                         this.area = half * 2
                     }
@@ -208,8 +208,8 @@ class ClassTest {
     void closureSeesFields() {
         assertEquals("10 20", printed("""
                 class Basket(rate) {
-                    fun report() {
-                        show = fun(n) => println(n * rate)
+                    def report() {
+                        show = def(n) => println(n * rate)
                         show(1)
                         show(2)
                     }
@@ -233,7 +233,7 @@ class ClassTest {
         assertEquals("2 0", printed("""
                 const count = 0
                 class Counter(count) {
-                    fun bump() { count += 1 }
+                    def bump() { count += 1 }
                 }
                 c = new Counter(1)
                 c.bump()
@@ -248,12 +248,12 @@ class ClassTest {
     void constructorRunsOnReadyObject() {
         assertEquals("0x4 = 0 3x4 = 12", printed("""
                 class Box(width, height) {
-                    fun Box() {
+                    def Box() {
                         if (width < 0) width = 0
                         if (height < 0) height = 0
                         this.area = width * height
                     }
-                    fun text() => width + "x" + height + " = " + area
+                    def text() => width + "x" + height + " = " + area
                 }
                 println(new Box(-3, 4).text(), " ", new Box(3, 4).text())
                 """));
@@ -264,7 +264,7 @@ class ClassTest {
     void constructorSeesWholeObject() {
         assertEquals("1 wdeath", printed("""
                 registry = []
-                class Session(user) { fun Session() { registry += [this] } }
+                class Session(user) { def Session() { registry += [this] } }
                 new Session("wdeath")
                 println(len(registry), " ", registry[0].user)
                 """));
@@ -274,7 +274,7 @@ class ClassTest {
     @DisplayName("число аргументов проверяется по заголовку, до входа в конструктор")
     void arityCheckedBeforeConstructor() {
         assertTrue(errorOf("""
-                class Point(x, y) { fun Point() { println("не должно печататься") } }
+                class Point(x, y) { def Point() { println("не должно печататься") } }
                 new Point(1)
                 """).getMessage().contains("принимает ровно 2 аргумента"));
     }
@@ -325,7 +325,7 @@ class ClassTest {
     @DisplayName("трейт — тоже значение со своим типом")
     void traitIsAValue() {
         assertEquals("trait Counted trait", printed("""
-                trait Counted(count = 0) { fun inc() { count += 1 } }
+                trait Counted(count = 0) { def inc() { count += 1 } }
                 println(Counted, " ", typeof(Counted))
                 """));
     }
@@ -337,14 +337,14 @@ class ClassTest {
     void inheritance() {
         assertEquals("круг площадью 78.53975 круг квадрат площадью 16", printed("""
                 class Shape(name) {
-                    fun area() => 0
-                    fun text() => name + " площадью " + area()
+                    def area() => 0
+                    def text() => name + " площадью " + area()
                 }
                 class Circle(radius) : Shape("круг") {
-                    fun area() => 3.14159 * radius * radius
+                    def area() => 3.14159 * radius * radius
                 }
                 class Square(side) : Shape("квадрат") {
-                    fun area() => side * side
+                    def area() => side * side
                 }
                 c = new Circle(5)
                 println(c.text(), " ", c.name, " ", new Square(4).text())
@@ -367,12 +367,12 @@ class ClassTest {
         // Внутри Shape.text() зовётся area() круга — это и есть виртуальность
         assertEquals("круг площадью 78.53975 (радиус 5)", printed("""
                 class Shape(name) {
-                    fun area() => 0
-                    fun text() => name + " площадью " + area()
+                    def area() => 0
+                    def text() => name + " площадью " + area()
                 }
                 class Circle(radius) : Shape("круг") {
-                    fun area() => 3.14159 * radius * radius
-                    fun text() => super.text() + " (радиус " + radius + ")"
+                    def area() => 3.14159 * radius * radius
+                    def text() => super.text() + " (радиус " + radius + ")"
                 }
                 println(new Circle(5).text())
                 """));
@@ -383,12 +383,12 @@ class ClassTest {
     void bareNameAndThisAgree() {
         assertEquals("25 25", printed("""
                 class Shape(name) {
-                    fun area() => 0
-                    fun text() => area() + " " + this.area()
+                    def area() => 0
+                    def text() => area() + " " + this.area()
                 }
                 class Square(side) : Shape("квадрат") {
-                    fun area() => side * side
-                    fun text() => super.text()
+                    def area() => side * side
+                    def text() => super.text()
                 }
                 println(new Square(5).text())
                 """));
@@ -398,10 +398,10 @@ class ClassTest {
     @DisplayName("super — обычное значение: тот же объект, только точка отсчёта другая")
     void superIsOrdinaryValue() {
         assertEquals("родитель true true Circle{\"name\": \"круг\", \"radius\": 5}", printed("""
-                class Shape(name) { fun text() => "родитель" }
+                class Shape(name) { def text() => "родитель" }
                 class Circle(radius) : Shape("круг") {
-                    fun text() => "потомок"
-                    fun show() {
+                    def text() => "потомок"
+                    def show() {
                         s = super
                         println(s.text(), " ", s == this, " ", s is Circle, " ", s)
                     }
@@ -414,9 +414,9 @@ class ClassTest {
     @DisplayName("конструкторы трёх уровней выполняются от корня вниз, каждый по разу")
     void constructorsRunRootFirst() {
         assertEquals("A B C", printed("""
-                class A(x) { fun A() { print("A") } }
-                class B(y) : A(1) { fun B() { print(" B") } }
-                class C(z) : B(2) { fun C() { print(" C") } }
+                class A(x) { def A() { print("A") } }
+                class B(y) : A(1) { def B() { print(" B") } }
+                class C(z) : B(2) { def C() { print(" C") } }
                 new C(3)
                 """));
     }
@@ -436,7 +436,7 @@ class ClassTest {
     void parentArgumentIsAlwaysEvaluated() {
         assertEquals("1", printed("""
                 calls = 0
-                fun mark() { calls += 1; return "имя"; }
+                def mark() { calls += 1; return "имя"; }
                 class Shape(name)
                 class Circle(radius, name = "свой") : Shape(mark())
                 new Circle(5)
@@ -487,16 +487,16 @@ class ClassTest {
         assertEquals("* 2 шт. из 10 Basket{\"count\": 2, \"items\": [\"болт\", \"гайка\"], \"limit\": 10}"
                 + " false true true", printed("""
                 trait Printable {
-                    fun text()
-                    fun print() => println("* ", text())
+                    def text()
+                    def print() => println("* ", text())
                 }
                 trait Counted(count = 0, limit) {
-                    fun inc() { count += 1 }
-                    fun full() => count >= limit
+                    def inc() { count += 1 }
+                    def full() => count >= limit
                 }
                 class Basket(items, limit = 10) with Printable, Counted {
-                    fun add(item) { items += [item]; inc() }
-                    fun text() => len(items) + " шт. из " + limit
+                    def add(item) { items += [item]; inc() }
+                    def text() => len(items) + " шт. из " + limit
                 }
                 b = new Basket([])
                 b.add("болт")
@@ -512,20 +512,20 @@ class ClassTest {
         // Именно при объявлении, а не при создании экземпляра: класс объявлен —
         // значит, он уже проверен, и до 'new' ошибке ждать незачем.
         String noField = errorOf("""
-                trait Counted(count = 0, limit) { fun inc() { count += 1 } }
+                trait Counted(count = 0, limit) { def inc() { count += 1 } }
                 class Bag(items) with Counted
                 """).getMessage();
         assertTrue(noField.contains("не выполняет требование трейта 'Counted'"), noField);
         assertTrue(noField.contains("нет поля 'limit'"), noField);
 
         assertTrue(errorOf("""
-                trait Printable { fun text() }
+                trait Printable { def text() }
                 class Bag(items) with Printable
                 """).getMessage().contains("нет метода 'text'"));
 
         assertTrue(errorOf("""
-                trait Printable { fun text() }
-                class Bag(items) with Printable { fun text(extra) => extra }
+                trait Printable { def text() }
+                class Bag(items) with Printable { def text(extra) => extra }
                 """).getMessage().contains("должен принимать"));
     }
 
@@ -536,8 +536,8 @@ class ClassTest {
         // на 'new': здесь до строки с созданием дело не доходит вовсе.
         StringBuilder output = new StringBuilder();
         assertThrows(WdlRuntimeError.class, () -> run("""
-                trait Printable { fun text() }
-                fun make() {
+                trait Printable { def text() }
+                def make() {
                     class Bag(items) with Printable
                     println("класс объявлен")
                     return new Bag([]);
@@ -552,10 +552,10 @@ class ClassTest {
     @DisplayName("требование закрывается предком или другим трейтом")
     void requirementsMetElsewhere() {
         assertEquals("есть есть", printed("""
-                trait Printable { fun text() }
-                trait Loud { fun text() => "есть" }
+                trait Printable { def text() }
+                trait Loud { def text() => "есть" }
                 class FromTrait(x) with Printable, Loud
-                class Base(x) { fun text() => "есть" }
+                class Base(x) { def text() => "есть" }
                 class FromParent(x) : Base(1) with Printable
                 println(new FromTrait(1).text(), " ", new FromParent(1).text())
                 """));
@@ -565,11 +565,11 @@ class ClassTest {
     @DisplayName("побеждает последний: родитель, потом трейты слева направо, потом класс")
     void lastWins() {
         assertEquals("тихо ГРОМКО по-своему", printed("""
-                trait Loud  { fun voice() => "ГРОМКО" }
-                trait Quiet { fun voice() => "тихо" }
+                trait Loud  { def voice() => "ГРОМКО" }
+                trait Quiet { def voice() => "тихо" }
                 class A(x) with Loud, Quiet
                 class B(x) with Quiet, Loud
-                class C(x) with Loud, Quiet { fun voice() => "по-своему" }
+                class C(x) with Loud, Quiet { def voice() => "по-своему" }
                 println(new A(1).voice(), " ", new B(1).voice(), " ", new C(1).voice())
                 """));
     }
@@ -578,7 +578,7 @@ class ClassTest {
     @DisplayName("значение поля трейта считается на каждом создании заново")
     void traitDefaultsAreFresh() {
         assertEquals("[1] [2]", printed("""
-                trait Log(entries = []) { fun add(x) { entries += [x] } }
+                trait Log(entries = []) { def add(x) { entries += [x] } }
                 class Task(name) with Log
                 a = new Task("первая")
                 b = new Task("вторая")
@@ -601,7 +601,7 @@ class ClassTest {
     @DisplayName("is отвечает про класс, предка и трейт, а для не-экземпляра — false")
     void isOperator() {
         assertEquals("true true true false false false", printed("""
-                trait Printable { fun print() => 1 }
+                trait Printable { def print() => 1 }
                 class Shape(name)
                 class Circle(radius) : Shape("круг") with Printable
                 class Point(x)
@@ -635,7 +635,7 @@ class ClassTest {
     @DisplayName("поле класса — обычная запись по ключу, методы через класс не читаются")
     void classIsAValue() {
         assertEquals("(0, 0) null", printed("""
-                class Point(x, y) { fun text() => "(" + x + ", " + y + ")" }
+                class Point(x, y) { def text() => "(" + x + ", " + y + ")" }
                 Point.zero = new Point(0, 0)
                 println(Point.zero.text(), " ", Point.text)
                 """));
@@ -645,8 +645,8 @@ class ClassTest {
     @DisplayName("класс можно передать и положить в массив: new берёт значение слева")
     void classCanBePassed() {
         assertEquals("(1, 2) (3, 4)", printed("""
-                class Point(x, y) { fun text() => "(" + x + ", " + y + ")" }
-                fun build(cls, a, b) => new cls(a, b)
+                class Point(x, y) { def text() => "(" + x + ", " + y + ")" }
+                def build(cls, a, b) => new cls(a, b)
                 kinds = [Point]
                 println(new kinds[0](1, 2).text(), " ", build(Point, 3, 4).text())
                 """));
@@ -657,10 +657,10 @@ class ClassTest {
     void factories() {
         assertEquals("wdeath-хеш гость-хеш", printed("""
                 class User(login, hash) {
-                    fun User.of(login, password) => new User(login, password + "-хеш")
-                    fun text() => hash
+                    def User.of(login, password) => new User(login, password + "-хеш")
+                    def text() => hash
                 }
-                User.guest = fun() => new User("гость", "гость-хеш")
+                User.guest = def() => new User("гость", "гость-хеш")
                 println(User.of("wdeath", "wdeath").text(), " ", User.guest().text())
                 """));
     }
@@ -671,8 +671,8 @@ class ClassTest {
         // Два вызова дают два значения класса с разными замыканиями — и один и тот же
         // класс: объявлен-то он в одном и том же месте текста
         assertEquals("10 20 true", printed("""
-                fun kind(rate) {
-                    class Priced(sum) { fun total() => sum * rate }
+                def kind(rate) {
+                    class Priced(sum) { def total() => sum * rate }
                     return Priced;
                 }
                 ten = kind(10)
@@ -685,7 +685,7 @@ class ClassTest {
     @DisplayName("имя класса из функции наружу не выходит — как и имя функции")
     void classInsideFunctionStaysInside() {
         assertTrue(errorOf("""
-                fun make() { class Priced(sum) fun ignored() => 1 }
+                def make() { class Priced(sum) def ignored() => 1 }
                 make()
                 new Priced(1)
                 """).getMessage().contains("переменная 'Priced' не определена"));

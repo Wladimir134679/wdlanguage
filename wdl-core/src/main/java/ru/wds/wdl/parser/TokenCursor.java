@@ -140,7 +140,7 @@ final class TokenCursor {
     /** Токен, дальше которого паническое восстановление не идёт. */
     private static boolean isStatementBoundary(TokenType type) {
         return switch (type) {
-            case RBRACE, IF, ELSE, WHILE, FOR, BREAK, CONTINUE, CONST, FUN, CLASS, TRAIT,
+            case RBRACE, IF, ELSE, WHILE, FOR, BREAK, CONTINUE, CONST, DEF, CLASS, TRAIT,
                  IMPORT, RETURN, THROW, TRY, CATCH, FINALLY, DEFER, USE -> true;
             default -> false;
         };

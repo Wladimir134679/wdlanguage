@@ -9,7 +9,7 @@ import sys.io as io
 
 class Probe(name, log) with Closeable {
 
-    fun close() {
+    def close() {
         log.push("закрыт " + name)
     }
 }
@@ -17,12 +17,12 @@ class Probe(name, log) with Closeable {
 /** Список с добавлением: массивы в языке неизменяемого размера, поэтому обёртка. */
 class Log(entries = []) {
 
-    fun push(entry) {
+    def push(entry) {
         entries = entries + [entry]
         return this;
     }
 
-    fun text() {
+    def text() {
         out = ""
         for (entry in entries) {
             out = out == "" ? entry : out + ", " + entry
@@ -35,7 +35,7 @@ class Log(entries = []) {
 
 deferring = new t.Suite("defer")
 
-deferring.test("выполняется в обратном порядке", fun() {
+deferring.test("выполняется в обратном порядке", def() {
     log = new Log()
     {
         defer log.push("первый")
@@ -45,7 +45,7 @@ deferring.test("выполняется в обратном порядке", fun(
     t.assertEquals("тело, второй, первый", log.text())
 })
 
-deferring.test("область — блок, а не функция", fun() {
+deferring.test("область — блок, а не функция", def() {
     // В Go defer привязан к функции, и такой цикл копил бы дескрипторы
     // до самого выхода. Привязка к блоку убирает эту ловушку по построению.
     log = new Log()
@@ -56,9 +56,9 @@ deferring.test("область — блок, а не функция", fun() {
     t.assertEquals("взят a, отпущен a, взят b, отпущен b", log.text())
 })
 
-deferring.test("выполняется при return", fun() {
+deferring.test("выполняется при return", def() {
     log = new Log()
-    fun body() {
+    def body() {
         defer log.push("прибрано")
         return "значение";
     }
@@ -66,9 +66,9 @@ deferring.test("выполняется при return", fun() {
     t.assertEquals("прибрано", log.text())
 })
 
-deferring.test("выполняется на пути ошибки", fun() {
+deferring.test("выполняется на пути ошибки", def() {
     log = new Log()
-    t.assertThrows(ArithmeticError, fun() {
+    t.assertThrows(ArithmeticError, def() {
         {
             defer log.push("прибрано")
             println(1 / 0)
@@ -77,12 +77,12 @@ deferring.test("выполняется на пути ошибки", fun() {
     t.assertEquals("прибрано", log.text())
 })
 
-deferring.test("записывается только то, до чего дошло выполнение", fun() {
+deferring.test("записывается только то, до чего дошло выполнение", def() {
     // Ровно то, чем defer отличается от finally: блок finally существует
     // независимо от того, дошло ли дело до захвата, и потому обрастает
     // проверками на null. Отложенного действия просто нет, пока open не вернулся.
     log = new Log()
-    t.assertThrows(ArithmeticError, fun() {
+    t.assertThrows(ArithmeticError, def() {
         {
             log.push("до")
             println(1 / 0)
@@ -92,7 +92,7 @@ deferring.test("записывается только то, до чего дош
     t.assertEquals("до", log.text())
 })
 
-deferring.test("ошибка из defer не затирает ту, ради которой мы шли наружу", fun() {
+deferring.test("ошибка из defer не затирает ту, ради которой мы шли наружу", def() {
     try {
         {
             defer throw new Exception("из defer");
@@ -111,15 +111,15 @@ deferring.run()
 
 contract = new t.Suite("трейт Closeable")
 
-contract.test("обычный трейт из прелюдии", fun() {
+contract.test("обычный трейт из прелюдии", def() {
     t.assertEquals("trait", typeof(Closeable))
     t.assertIs(Closeable, new Probe("p", new Log()))
 })
 
-contract.test("требование проверяется при объявлении класса", fun() {
+contract.test("требование проверяется при объявлении класса", def() {
     // Забыли close — ошибка на строке class, а не при первом use. Ради этого
     // трейты и заведены; никакого отдельного механизма для ресурсов нет.
-    e = t.assertFails(fun() {
+    e = t.assertFails(def() {
         // Класс внутри функции объявляется на каждом вызове — потому это и работает
         // как проверка: связывание происходит здесь и сейчас.
         class Broken(name) with Closeable
@@ -133,7 +133,7 @@ contract.run()
 
 using = new t.Suite("use")
 
-using.test("закрывает в обратном порядке", fun() {
+using.test("закрывает в обратном порядке", def() {
     log = new Log()
     use (first = new Probe("первый", log), second = new Probe("второй", log)) {
         log.push("тело")
@@ -141,9 +141,9 @@ using.test("закрывает в обратном порядке", fun() {
     t.assertEquals("тело, закрыт второй, закрыт первый", log.text())
 })
 
-using.test("закрывает на пути ошибки", fun() {
+using.test("закрывает на пути ошибки", def() {
     log = new Log()
-    t.assertThrows(ArithmeticError, fun() {
+    t.assertThrows(ArithmeticError, def() {
         use (probe = new Probe("p", log)) {
             println(1 / 0)
         }
@@ -151,9 +151,9 @@ using.test("закрывает на пути ошибки", fun() {
     t.assertEquals("закрыт p", log.text())
 })
 
-using.test("закрывает при return", fun() {
+using.test("закрывает при return", def() {
     log = new Log()
-    fun body() {
+    def body() {
         use (probe = new Probe("p", log)) {
             return "готово";
         }
@@ -162,9 +162,9 @@ using.test("закрывает при return", fun() {
     t.assertEquals("закрыт p", log.text())
 })
 
-using.test("значение без Closeable не принимается", fun() {
+using.test("значение без Closeable не принимается", def() {
     class Point(x)
-    e = t.assertThrows(TypeError, fun() {
+    e = t.assertThrows(TypeError, def() {
         use (p = new Point(1)) {
             t.fail("тело не должно выполняться")
         }
@@ -172,9 +172,9 @@ using.test("значение без Closeable не принимается", fun(
     t.assertContains(e.message, "не подмешивает трейт 'Closeable'")
 })
 
-using.test("если бросил сам захват, закрывается взятое левее", fun() {
+using.test("если бросил сам захват, закрывается взятое левее", def() {
     log = new Log()
-    t.assertThrows(IndexError, fun() {
+    t.assertThrows(IndexError, def() {
         use (first = new Probe("первый", log), second = [1][9]) {
             t.fail("тело не должно выполняться")
         }
@@ -182,9 +182,9 @@ using.test("если бросил сам захват, закрывается в
     t.assertEquals("закрыт первый", log.text())
 })
 
-using.test("ошибка при закрытии не затирает ту, ради которой мы шли наружу", fun() {
+using.test("ошибка при закрытии не затирает ту, ради которой мы шли наружу", def() {
     class Stubborn() with Closeable {
-        fun close() {
+        def close() {
             throw new Exception("из close");
         }
     }
@@ -206,7 +206,7 @@ files = new t.Suite("потоки sys.io")
 
 path = "build/testing-resources.txt"
 
-files.test("io.create и io.open отдают то, что умеет закрываться", fun() {
+files.test("io.create и io.open отдают то, что умеет закрываться", def() {
     use (out = io.create(path)) {
         out.writeLine("первая").writeLine("вторая")
     }
@@ -216,13 +216,13 @@ files.test("io.create и io.open отдают то, что умеет закры
     }
 })
 
-files.test("read отдаёт файл целиком", fun() {
+files.test("read отдаёт файл целиком", def() {
     use (src = io.open(path)) {
         t.assertContains(src.read(), "вторая")
     }
 })
 
-files.test("readLine отдаёт строки по одной, а конец — это null", fun() {
+files.test("readLine отдаёт строки по одной, а конец — это null", def() {
     use (src = io.open(path)) {
         t.assertEquals("первая", src.readLine())
         t.assertEquals("вторая", src.readLine())
@@ -230,14 +230,14 @@ files.test("readLine отдаёт строки по одной, а конец �
     }
 })
 
-files.test("после close поток говорит об этом прямо", fun() {
+files.test("после close поток говорит об этом прямо", def() {
     src = io.open(path)
     src.close()
-    e = t.assertThrows(RuntimeError, fun() => src.read())
+    e = t.assertThrows(RuntimeError, def() => src.read())
     t.assertContains(e.message, "поток уже закрыт")
 })
 
-files.test("закрыть дважды — не ошибка", fun() {
+files.test("закрыть дважды — не ошибка", def() {
     src = io.open(path)
     t.assertTrue(src.close(), "первый раз закрыл")
     t.assertFalse(src.close(), "второй раз закрывать было нечего")

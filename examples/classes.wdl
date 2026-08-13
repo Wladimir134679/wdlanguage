@@ -25,14 +25,14 @@ println(item.count, " ", item.color)
 
 class Point(x = 0, y = 0) {
 
-    fun move(dx, dy) {
+    def move(dx, dy) {
         x += dx                     // x — это поле: одна ячейка с this.x
         y += dy
     }
 
-    fun length() => sqrt(x * x + y * y)
+    def length() => sqrt(x * x + y * y)
 
-    fun text() => "(" + x + ", " + y + ")"
+    def text() => "(" + x + ", " + y + ")"
 }
 
 p = new Point(20, 30)
@@ -45,9 +45,9 @@ println(handler())                  // (30, 25)
 
 // Метод зовёт метод по голому имени — это тот же объект
 class Rect(w, h) {
-    fun area() => w * h
-    fun report() => "площадь " + area() + ", периметр " + perimeter()
-    fun perimeter() => 2 * (w + h)
+    def area() => w * h
+    def report() => "площадь " + area() + ", периметр " + perimeter()
+    def perimeter() => 2 * (w + h)
 }
 println(new Rect(3, 4).report())    // площадь 12, периметр 14
 
@@ -55,11 +55,11 @@ println(new Rect(3, 4).report())    // площадь 12, периметр 14
 
 class User(name, hash, age = null) {
 
-    fun rename(name) {              // параметр перекрыл поле...
+    def rename(name) {              // параметр перекрыл поле...
         this.name = name            // ...поэтому здесь без this никак
     }
 
-    fun greet() => "привет, " + name    // а тут перекрывать нечему
+    def greet() => "привет, " + name    // а тут перекрывать нечему
 }
 
 u = new User("первый", "хеш")
@@ -70,14 +70,14 @@ println(u.greet())                  // привет, wdeath
 
 class Box(width, height) {
 
-    fun Box() {
+    def Box() {
         // Поля уже записаны — правится поле, а не параметр
         if (width < 0) width = 0
         if (height < 0) height = 0
         this.area = width * height  // новое поле заводится явно, через this
     }
 
-    fun text() => width + "x" + height + " = " + area
+    def text() => width + "x" + height + " = " + area
 }
 
 println(new Box(3, 4).text())       // 3x4 = 12
@@ -94,10 +94,10 @@ println(u1.age, " ", u2.age)        // null 33
 // А другой набор данных — это фабрика с именем. Ей this не нужен: она создаёт
 class Account(login, hash) {
 
-    fun Account.of(login, password) => new Account(login, password + ":хеш")
-    fun Account.guest() => new Account("guest", "")
+    def Account.of(login, password) => new Account(login, password + ":хеш")
+    def Account.guest() => new Account("guest", "")
 
-    fun text() => login + " (" + hash + ")"
+    def text() => login + " (" + hash + ")"
 }
 
 a = Account.of("wdeath", "секрет")  // видно, каким способом создан объект
@@ -112,7 +112,7 @@ println(Point.zero.text())          // (0, 0)
 kinds = [Point, Item]
 println(new kinds[0](1, 2).text())  // new берёт обращение и один список аргументов
 
-fun build(cls, a, b) => new cls(a, b)
+def build(cls, a, b) => new cls(a, b)
 println(build(Point, 3, 4).text())
 
 println(typeof(Point), " ", typeof(new Point()), " ", new Point(1, 1) is Point)
@@ -122,9 +122,9 @@ println(typeof(Point), " ", typeof(new Point()), " ", new Point(1, 1) is Point)
 
 // Он замыкает свой вызов: у двух вызовов разные значения класса, но для 'is'
 // это один и тот же класс — объявлен-то он в одном и том же месте текста.
-fun priced(rate) {
+def priced(rate) {
     class Priced(amount) {
-        fun total() => amount * rate
+        def total() => amount * rate
     }
     return Priced;
 }

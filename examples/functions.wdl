@@ -5,38 +5,38 @@
 // объявления и это работает: сначала главное, потом вспомогательное.
 println("sum(2, 3) = ", sum(2, 3))
 
-fun sum(a, b) {
+def sum(a, b) {
     return a + b;
 }
 
 // Тело из одной инструкции — фигурные скобки не нужны
-fun twice(x) return x * 2;
+def twice(x) return x * 2;
 
 // Тело-выражение: => вместо return, и точка с запятой не нужна
-fun area(width, height) => width * height
+def area(width, height) => width * height
 
 println("twice(21) = ", twice(21))
 println("area(3, 4) = ", area(3, 4))
 
 // Функция без return не возвращает ничего — то есть null
-fun greet(name) {
+def greet(name) {
     println("Привет, ", name, "!")
 }
 println("greet вернула ", typeof(greet("wdl")))
 
 // --- рекурсия ---------------------------------------------------------------
 
-fun factorial(n) => n <= 1 ? 1 : n * factorial(n - 1)
+def factorial(n) => n <= 1 ? 1 : n * factorial(n - 1)
 println("5! = ", factorial(5))
 
 // Взаимная рекурсия: обе функции найдены до выполнения
-fun even(n) => n == 0 ? true : odd(n - 1)
-fun odd(n) => n == 0 ? false : even(n - 1)
+def even(n) => n == 0 ? true : odd(n - 1)
+def odd(n) => n == 0 ? false : even(n - 1)
 println("7 нечётное? ", odd(7))
 
 // --- return из глубины ------------------------------------------------------
 
-fun indexOf(values, what) {
+def indexOf(values, what) {
     for (i = 0; i < len(values); i += 1) {
         if (values[i] == what) {
             return i;            // выходит и из цикла, и из функции
@@ -50,25 +50,25 @@ println("индекс 'я' = ", indexOf(["а", "б", "в"], "я"))
 // --- функция это обычное значение -------------------------------------------
 
 operations = {
-    "+": fun(a, b) => a + b,
-    "-": fun(a, b) => a - b,
-    "*": fun(a, b) => a * b
+    "+": def(a, b) => a + b,
+    "-": def(a, b) => a - b,
+    "*": def(a, b) => a * b
 }
 for (sign in operations) {
     println("10 ", sign, " 4 = ", operations[sign](10, 4))
 }
 
 // Функция, принимающая функцию
-fun applyTwice(f, value) => f(f(value))
+def applyTwice(f, value) => f(f(value))
 println("twice дважды от 5 = ", applyTwice(twice, 5))
 
 // --- замыкания --------------------------------------------------------------
 
 // Возвращённая функция помнит область, в которой её объявили, — и переменную,
 // а не её снимок: каждый вызов tick видит изменение предыдущего.
-fun counter() {
+def counter() {
     count = 0
-    return fun() {
+    return def() {
         count += 1
         return count;
     };
@@ -84,7 +84,7 @@ println("другой тик: ", other())
 
 outer = "снаружи"
 
-fun work() {
+def work() {
     inner = "внутри"
     println("вижу внешнюю: ", outer)
     outer = "изменена изнутри"     // имя есть снаружи — меняется именно оно

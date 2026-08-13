@@ -12,7 +12,7 @@
       <option name="HAS_STRING_ESCAPES" value="true" />
       <option name="LINE_COMMENT_AT_START" value="false" />
     </options>
-    <keywords keywords="as;break;case;class;const;continue;do;else;for;fun;if;import;in;is;match;new;return;trait;while;with" ignore_case="false" />
+    <keywords keywords="as;break;case;class;const;continue;def;do;else;for;if;import;in;is;match;new;return;trait;while;with" ignore_case="false" />
     <keywords2 keywords="abs;len;pow;print;println;sqrt;typeof" ignore_case="false" />
     <keywords3 keywords="false;null;super;this;true" ignore_case="false" />
     <keywords4 keywords="File;Random" ignore_case="false" />

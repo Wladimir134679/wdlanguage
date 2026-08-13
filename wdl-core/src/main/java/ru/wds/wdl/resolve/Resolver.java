@@ -85,7 +85,7 @@ public final class Resolver {
 
     private void declare(Stmt statement) {
         // Одноимённых объявлений в файле бывает два: имя типа — обычное имя, и второе
-        // объявление перекрывает первое, как второе 'fun' с тем же именем. Побеждает
+        // объявление перекрывает первое, как второе 'def' с тем же именем. Побеждает
         // последнее — им же и связывается всё, что ссылается на это имя.
         switch (statement) {
             case ClassDeclStmt klass -> types.put(klass.name(), klass);

@@ -20,7 +20,7 @@
  * же момент, что у любого другого трейта. Ради этого трейты и заведены.
  */
 trait Closeable {
-    fun close()
+    def close()
 }
 
 /**
@@ -35,10 +35,10 @@ trait Closeable {
 class Exception(message = "", cause = null, kind = "", at = "", trace = [], suppressed = []) {
 
     /** Короткая строка для лога: "IndexError: индекс 5 вне границ массива размером 3". */
-    fun text() => kind == "" ? message : kind + ": " + message
+    def text() => kind == "" ? message : kind + ": " + message
 
     /** Всё, что об ошибке известно: текст, место, путь по скрипту и цепочка причин. */
-    fun report() {
+    def report() {
         out = text()
         if (at != "") out = out + " (" + at + ")";
         for (line in trace) out = out + "\n  " + line;

@@ -79,8 +79,8 @@ class ClassParserTest {
     @DisplayName("тела может не быть, и заголовка тоже")
     void bodyAndHeaderAreOptional() {
         assertTrue(classOf("class Marker").params().isEmpty());
-        assertEquals(1, traitOf("trait Printable { fun print() => 1 }").methods().size());
-        assertTrue(traitOf("trait Printable { fun print() => 1 }").params().isEmpty());
+        assertEquals(1, traitOf("trait Printable { def print() => 1 }").methods().size());
+        assertTrue(traitOf("trait Printable { def print() => 1 }").params().isEmpty());
     }
 
     @Test
@@ -214,36 +214,36 @@ class ClassParserTest {
     @Test
     @DisplayName("метод с именем класса — конструктор, и параметров он не принимает")
     void constructorIsMethodNamedLikeClass() {
-        ClassDeclStmt box = classOf("class Box(w, h) { fun Box() { this.area = w * h } }");
+        ClassDeclStmt box = classOf("class Box(w, h) { def Box() { this.area = w * h } }");
 
         assertNotNull(box.constructor());
         assertTrue(box.constructor().params().isEmpty());
         assertTrue(box.methods().isEmpty());
-        assertTrue(errorOf("class Box(w, h) { fun Box(a) { } }").contains("конструктор не принимает параметров"));
+        assertTrue(errorOf("class Box(w, h) { def Box(a) { } }").contains("конструктор не принимает параметров"));
     }
 
     @Test
     @DisplayName("фабрика объявляется на своём классе, и this в ней запрещён")
     void factories() {
         ClassDeclStmt user = classOf(
-                "class User(name, hash) { fun User.of(name, password) => new User(name, password) }");
+                "class User(name, hash) { def User.of(name, password) => new User(name, password) }");
 
         assertEquals(1, user.factories().size());
         assertEquals("of", user.factories().get(0).name());
         assertEquals("User.of", user.factories().get(0).function().title());
 
-        assertTrue(errorOf("class User(name) { fun Other.of() => 1 }")
+        assertTrue(errorOf("class User(name) { def Other.of() => 1 }")
                 .contains("фабрика объявляется на своём классе"));
-        assertTrue(errorOf("class User(name) { fun User.of() => this.name }")
+        assertTrue(errorOf("class User(name) { def User.of() => this.name }")
                 .contains("'this' недопустим внутри фабрики"));
-        assertTrue(errorOf("trait Printable { fun Printable.of() => 1 }")
+        assertTrue(errorOf("trait Printable { def Printable.of() => 1 }")
                 .contains("у трейта не бывает фабрик"));
     }
 
     @Test
     @DisplayName("тело члена — только блок или '=>': иначе требование съело бы следующее объявление")
     void memberBodyIsBraceOrArrow() {
-        TraitDeclStmt counted = traitOf("trait Counted(limit) { fun report() fun full() => limit }");
+        TraitDeclStmt counted = traitOf("trait Counted(limit) { def report() def full() => limit }");
 
         assertEquals(1, counted.requirements().size());
         assertEquals("report", counted.requirements().get(0).name());
@@ -255,21 +255,21 @@ class ClassParserTest {
     @Test
     @DisplayName("у требования проверяется и число параметров")
     void requirementKeepsParams() {
-        TraitDeclStmt trait = traitOf("trait T { fun compare(other, strict = false) }");
+        TraitDeclStmt trait = traitOf("trait T { def compare(other, strict = false) }");
         assertEquals(2, trait.requirements().get(0).params().size());
     }
 
     @Test
     @DisplayName("метод без тела в классе — ошибка: требования бывают только в трейте")
     void classMethodNeedsBody() {
-        assertTrue(errorOf("class A(x) { fun report() }").contains("нет тела"));
+        assertTrue(errorOf("class A(x) { def report() }").contains("нет тела"));
     }
 
     @Test
     @DisplayName("два члена с одним именем не лежат: пространство имён одно")
     void duplicateMembers() {
-        assertTrue(errorOf("class A(x) { fun text() => 1 fun text() => 2 }").contains("уже объявлен"));
-        assertTrue(errorOf("class A(x) { fun A() {} fun A() {} }").contains("уже объявлен"));
+        assertTrue(errorOf("class A(x) { def text() => 1 def text() => 2 }").contains("уже объявлен"));
+        assertTrue(errorOf("class A(x) { def A() {} def A() {} }").contains("уже объявлен"));
     }
 
     // --- this и super --------------------------------------------------------
@@ -277,28 +277,28 @@ class ClassParserTest {
     @Test
     @DisplayName("this виден методу и вложенной в него функции")
     void thisInsideMethods() {
-        FunctionExpr rename = classOf("class User(name) { fun rename(name) { this.name = name } }")
+        FunctionExpr rename = classOf("class User(name) { def rename(name) { this.name = name } }")
                 .methods().get(0);
         assertEquals("rename", rename.name());
 
         // Анонимная функция замыкает область метода, а экземпляр — часть этой цепочки
-        parse("class B(rate) { fun report() { show = fun() => this.rate; show() } }");
+        parse("class B(rate) { def report() { show = def() => this.rate; show() } }");
     }
 
     @Test
     @DisplayName("this вне класса — ошибка разбора, а не выполнения")
     void thisOutsideClass() {
         assertTrue(errorOf("this.x = 1").contains("'this' допустим только внутри класса"));
-        assertTrue(errorOf("fun f() => this").contains("'this' допустим только внутри класса"));
+        assertTrue(errorOf("def f() => this").contains("'this' допустим только внутри класса"));
     }
 
     @Test
     @DisplayName("super есть только у класса с родителем")
     void superNeedsParent() {
-        parse("class Circle(r) : Shape() { fun text() => super.text() }");
-        assertTrue(errorOf("class A(x) { fun text() => super.text() }")
+        parse("class Circle(r) : Shape() { def text() => super.text() }");
+        assertTrue(errorOf("class A(x) { def text() => super.text() }")
                 .contains("нет родителя"));
-        assertTrue(errorOf("trait T { fun text() => super.text() }")
+        assertTrue(errorOf("trait T { def text() => super.text() }")
                 .contains("у трейта нет родителя"));
         assertTrue(errorOf("super.text()").contains("'super' допустим только внутри класса"));
     }
@@ -306,8 +306,8 @@ class ClassParserTest {
     @Test
     @DisplayName("this и super нельзя присвоить: это имена самого объекта")
     void selfNamesAreNotTargets() {
-        assertTrue(errorOf("class A(x) { fun f() { this = 1 } }").contains("нельзя присвоить"));
-        assertTrue(errorOf("class A(x) : B() { fun f() { super = 1 } }").contains("нельзя присвоить"));
+        assertTrue(errorOf("class A(x) { def f() { this = 1 } }").contains("нельзя присвоить"));
+        assertTrue(errorOf("class A(x) : B() { def f() { super = 1 } }").contains("нельзя присвоить"));
     }
 
     // --- инструкция и восстановление -----------------------------------------
@@ -322,8 +322,8 @@ class ClassParserTest {
     @Test
     @DisplayName("значение по умолчанию видит параметры слева и через new тоже")
     void defaultsThroughNew() {
-        parse("fun f(a, b = new Point(a)) => a");
-        assertTrue(errorOf("fun f(a = new Point(b), b = 1) => a").contains("связывается позже"));
+        parse("def f(a, b = new Point(a)) => a");
+        assertTrue(errorOf("def f(a = new Point(b), b = 1) => a").contains("связывается позже"));
     }
 
     @Test
@@ -348,7 +348,7 @@ class ClassParserTest {
     @Test
     @DisplayName("класс без родителя и без трейтов ничего лишнего в дерево не кладёт")
     void emptyPartsStayEmpty() {
-        ClassDeclStmt point = classOf("class Point(x = 0, y = 0) { fun text() => x }");
+        ClassDeclStmt point = classOf("class Point(x = 0, y = 0) { def text() => x }");
         assertNull(point.parent());
         assertTrue(point.traits().isEmpty());
         assertTrue(point.factories().isEmpty());

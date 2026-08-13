@@ -147,7 +147,7 @@ class ProgramTest {
     @DisplayName("присваивание из вложенной области до константы тоже не доходит")
     void constantIsProtectedFromNestedScope() {
         assertTrue(errorOf("const LIMIT = 1\n{ LIMIT = 2 }").getMessage().contains("это константа"));
-        assertTrue(errorOf("const LIMIT = 1\nfun bump() { LIMIT = 2 }\nbump()")
+        assertTrue(errorOf("const LIMIT = 1\ndef bump() { LIMIT = 2 }\nbump()")
                 .getMessage().contains("это константа"));
     }
 
@@ -177,21 +177,21 @@ class ProgramTest {
     @Test
     @DisplayName("объявление функции не перекрывает константу, даже помеченное до выполнения")
     void functionDeclarationDoesNotOverrideConstant() {
-        assertTrue(errorOf("const total = 1\nfun total() => 2")
+        assertTrue(errorOf("const total = 1\ndef total() => 2")
                 .getMessage().contains("уже есть константа"));
     }
 
     @Test
     @DisplayName("константа не помечается до выполнения: выше объявления её ещё нет")
     void constantIsNotHoisted() {
-        assertTrue(errorOf("fun show() => LIMIT\nprintln(show())\nconst LIMIT = 7")
+        assertTrue(errorOf("def show() => LIMIT\nprintln(show())\nconst LIMIT = 7")
                 .getMessage().contains("не определена"));
     }
 
     @Test
     @DisplayName("функция видит константу ниже по тексту, если вызвана после объявления")
     void functionSeesConstantDeclaredBelow() {
-        assertEquals("7", lines("fun show() => LIMIT\nconst LIMIT = 7\nprintln(show())")[0]);
+        assertEquals("7", lines("def show() => LIMIT\nconst LIMIT = 7\nprintln(show())")[0]);
     }
 
     @Test
@@ -266,7 +266,7 @@ class ProgramTest {
     @Test
     @DisplayName("функция печатается так, чтобы её было видно в отладке")
     void functionDisplay() {
-        assertTrue(lines("println(println)")[0].startsWith("fun println"));
+        assertTrue(lines("println(println)")[0].startsWith("def println"));
     }
 
     // --- ошибки --------------------------------------------------------------

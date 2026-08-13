@@ -5,7 +5,7 @@
 
 // --- модуля нет, и это никому не мешает --------------------------------------
 
-fun loadGenerated() {
+def loadGenerated() {
     import plugins.generated        // такого файла в репозитории нет
     return start();
 }
@@ -21,7 +21,7 @@ println("скрипт работает, plugins/generated ещё не нужен
 // lib/plugin сам импортирует lib/shapes и наследуется от класса оттуда.
 // Ни один из двух файлов не читается, пока не позвали эту функцию.
 
-fun describeTriangle(base, height) {
+def describeTriangle(base, height) {
     import lib.plugin as p
     t = p.make(base, height)
     return t.describe() + ", сторон " + t.count();
@@ -36,12 +36,12 @@ println("после загрузки")
 // Модуль выполняется один раз за запуск, поэтому строки «[lib/plugin выполняется]»
 // второй раз не будет, а класс останется тем же — его можно даже вернуть наружу.
 
-fun pluginClass() {
+def pluginClass() {
     import lib.plugin as p
     return p.Triangle;                  // класс — обычное значение
 }
 
-fun pluginMake(base, height) {
+def pluginMake(base, height) {
     import lib.plugin as p
     return p.make(base, height);
 }
@@ -52,10 +52,10 @@ println("фабрика тоже на месте: ", pluginClass().equilateral(3
 
 // --- наследоваться от плагина можно прямо здесь -------------------------------
 
-fun makeMarked() {
+def makeMarked() {
     import lib.plugin               // развёрнутый импорт: Triangle ложится сюда
     class Marked(base, height, mark) : Triangle(base, height) {
-        fun text() => super.text() + " " + mark
+        def text() => super.text() + " " + mark
     }
     return new Marked(2, 2, "(*)");
 }

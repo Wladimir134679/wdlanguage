@@ -9,28 +9,28 @@
 // --- 1. трейт как интерфейс: одни требования ---------------------------------
 
 trait Comparable {
-    fun compareTo(other)            // требование: тело не написано
+    def compareTo(other)            // требование: тело не написано
 }
 
 class Money(amount) with Comparable {
-    fun compareTo(other) => amount - other.amount
+    def compareTo(other) => amount - other.amount
 }
 
 println(new Money(10).compareTo(new Money(4)))      // 6
 
 // Требование проверяется по числу аргументов тоже:
-// class Broken(x) with Comparable { fun compareTo() => 0 }
+// class Broken(x) with Comparable { def compareTo() => 0 }
 // ошибка: метод 'compareTo' должен принимать ровно 1 аргумент, а принимает 0
 
 // --- 2. трейт с готовой реализацией: требование плюс подарок -----------------
 
 trait Printable {
-    fun text()                              // это класс обязан дать
-    fun print() => println("* ", text())    // а это он получает готовым
+    def text()                              // это класс обязан дать
+    def print() => println("* ", text())    // а это он получает готовым
 }
 
 class Tag(label) with Printable {
-    fun text() => "#" + label
+    def text() => "#" + label
 }
 
 new Tag("готово").print()           // * #готово
@@ -40,14 +40,14 @@ new Tag("готово").print()           // * #готово
 // count = 0 — поле с готовым значением, класс о нём не заботится.
 // limit     — требование: класс обязан объявить это поле сам.
 trait Counted(count = 0, limit) {
-    fun inc() { count += 1 }
-    fun full() => count >= limit
-    fun left() => limit - count
+    def inc() { count += 1 }
+    def full() => count >= limit
+    def left() => limit - count
 }
 
 class Basket(items, limit = 10) with Counted {
 
-    fun add(item) {
+    def add(item) {
         items += [item]
         inc()                       // метод трейта работает с полем трейта
     }
@@ -63,12 +63,12 @@ println(b)                          // поля трейта — обычные 
 
 class Cart(items, limit = 3) with Printable, Counted {
 
-    fun add(item) {
+    def add(item) {
         items += [item]
         inc()
     }
 
-    fun text() => len(items) + " шт. из " + limit
+    def text() => len(items) + " шт. из " + limit
 }
 
 cart = new Cart([])
@@ -81,12 +81,12 @@ println(cart is Cart, " ", cart is Printable, " ", cart is Counted)
 // Смотрят в готовую плоскую таблицу, поэтому неважно, откуда взялся метод:
 // свой, родительский или из соседнего трейта.
 
-trait Loud { fun text() => "ГРОМКО" }
+trait Loud { def text() => "ГРОМКО" }
 
 class FromNeighbour(x) with Printable, Loud     // text() дал соседний трейт
 new FromNeighbour(1).print()                    // * ГРОМКО
 
-class Named(title) { fun text() => "имя " + title }
+class Named(title) { def text() => "имя " + title }
 class FromParent(title) : Named(title) with Printable   // text() дал родитель
 new FromParent("узел").print()                          // * имя узел
 
@@ -95,25 +95,25 @@ new FromParent("узел").print()                          // * имя узел
 // Порядок записан прямо в объявлении: родитель из ':', затем трейты из 'with'
 // слева направо, затем сам класс. Никаких правил линеаризации знать не нужно.
 
-trait Upper { fun voice() => "ГРОМКО" }
-trait Lower { fun voice() => "тихо" }
+trait Upper { def voice() => "ГРОМКО" }
+trait Lower { def voice() => "тихо" }
 
 class A(x) with Upper, Lower                                 // Lower записан позже
 class B(x) with Lower, Upper
-class C(x) with Upper, Lower { fun voice() => "по-своему" }   // класс всегда последний
+class C(x) with Upper, Lower { def voice() => "по-своему" }   // класс всегда последний
 
-fun voiceOf(who) => who.voice()
+def voiceOf(who) => who.voice()
 println(voiceOf(new A(1)), " ", voiceOf(new B(1)), " ", voiceOf(new C(1)))
 // тихо ГРОМКО по-своему
 
 // --- 7. трейт вместе с наследованием -----------------------------------------
 
 trait Serial(serial = "нет") {
-    fun stamp() => "#" + serial
+    def stamp() => "#" + serial
 }
 
 class Device(model) {
-    fun text() => "устройство " + model
+    def text() => "устройство " + model
 }
 
 class Printer(model, serial) : Device(model) with Serial, Printable {
@@ -127,10 +127,10 @@ println(pr.stamp(), " ", pr is Device, " ", pr is Serial, " ", pr is Printable)
 // --- 8. значение поля трейта считается на каждом создании --------------------
 
 trait Stamped(at = now()) {
-    fun when() => at
+    def when() => at
 }
 
-fun now() {
+def now() {
     ticks += 1
     return "момент " + ticks;
 }
@@ -147,7 +147,7 @@ println(new Event("первое").when(), " / ", new Event("второе").when(
 // класс объявлен внутри функции, и пока функцию не позвали, объявление
 // не выполнялось — ошибки нет и быть не может.
 
-fun makeBroken() {
+def makeBroken() {
     class Broken(items) with Printable      // text() не объявлен
     return new Broken([]);
 }

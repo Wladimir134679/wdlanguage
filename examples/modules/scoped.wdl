@@ -1,12 +1,12 @@
 // Сценарий 3. Импорт — обычная инструкция, поэтому он живёт в своей области
 // и исчезает вместе с ней.
 
-fun circle(radius) {
+def circle(radius) {
     import lib.geometry as g
     return "площадь: " + g.area(radius);
 }
 
-fun point(x, y) {
+def point(x, y) {
     // Здесь импорт развёрнутый: имена ложатся прямо в тело функции.
     import lib.geometry
     return new Point(x, y).text();

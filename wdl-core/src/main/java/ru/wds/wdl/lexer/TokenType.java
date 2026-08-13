@@ -26,7 +26,7 @@ public enum TokenType {
     // --- ключевые слова -----------------------------------------------------
     /** Имя, которое нельзя переприсвоить: {@code const LIMIT = 10}. */
     CONST("const"),
-    FUN("fun"),
+    DEF("def"),
     RETURN("return"),
     IF("if"),
     ELSE("else"),
@@ -79,7 +79,7 @@ public enum TokenType {
     COLON(":"),
     QUESTION("?"),
     ARROW("->"),
-    /** Тело-выражение функции: {@code fun f(a, b) => a + b}. Заменяет {@code return}. */
+    /** Тело-выражение функции: {@code def f(a, b) => a + b}. Заменяет {@code return}. */
     FATARROW("=>"),
     /** Необязательный разделитель инструкций. Обязателен там, где его требует синтаксис: {@code for (i = 0; i < n; i++)}. */
     SEMICOLON(";"),

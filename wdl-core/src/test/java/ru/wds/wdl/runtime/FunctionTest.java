@@ -55,23 +55,23 @@ class FunctionTest {
     @Test
     @DisplayName("три формы тела дают одинаковый результат")
     void bodyFormsBehaveTheSame() {
-        assertEquals("5", printed("fun f(a, b) { return a + b; }\nprintln(f(2, 3))"));
-        assertEquals("5", printed("fun f(a, b) return a + b;\nprintln(f(2, 3))"));
-        assertEquals("5", printed("fun f(a, b) => a + b\nprintln(f(2, 3))"));
+        assertEquals("5", printed("def f(a, b) { return a + b; }\nprintln(f(2, 3))"));
+        assertEquals("5", printed("def f(a, b) return a + b;\nprintln(f(2, 3))"));
+        assertEquals("5", printed("def f(a, b) => a + b\nprintln(f(2, 3))"));
     }
 
     @Test
     @DisplayName("функция без return возвращает null")
     void withoutReturnGivesNull() {
-        assertEquals("null", printed("fun f() { x = 1 }\nprintln(f())"));
-        assertEquals("null", printed("fun f() { return; }\nprintln(f())"));
+        assertEquals("null", printed("def f() { x = 1 }\nprintln(f())"));
+        assertEquals("null", printed("def f() { return; }\nprintln(f())"));
     }
 
     @Test
     @DisplayName("return выходит из любой вложенности разом")
     void returnLeavesEverything() {
         assertEquals("1", printed("""
-                fun найти(значения, что) {
+                def найти(значения, что) {
                     for (i = 0; i < len(значения); i += 1) {
                         if (значения[i] == что) {
                             return i;
@@ -82,7 +82,7 @@ class FunctionTest {
                 println(найти(["а", "б", "в"], "б"))
                 """));
         assertEquals("-1", printed("""
-                fun найти(значения, что) {
+                def найти(значения, что) {
                     for (x in значения) { if (x == что) { return "есть"; } }
                     return -1;
                 }
@@ -94,7 +94,7 @@ class FunctionTest {
     @DisplayName("инструкции после return не выполняются")
     void returnStopsTheBody() {
         assertEquals("до 1", printed("""
-                fun f() {
+                def f() {
                     println("до")
                     return 1;
                     println("после")
@@ -106,12 +106,12 @@ class FunctionTest {
     @Test
     @DisplayName("число аргументов проверяется до входа в функцию")
     void arityIsChecked() {
-        String message = errorOf("fun f(a) => a\nf(1, 2)").getMessage();
+        String message = errorOf("def f(a) => a\nf(1, 2)").getMessage();
         assertTrue(message.contains("'f'"), message);
         assertTrue(message.contains("ровно 1 аргумент"), message);
         assertTrue(message.contains("передано 2"), message);
 
-        assertTrue(errorOf("fun f(a, b) => a\nf(1)").getMessage().contains("ровно 2 аргумента"));
+        assertTrue(errorOf("def f(a, b) => a\nf(1)").getMessage().contains("ровно 2 аргумента"));
     }
 
     // --- значения по умолчанию -----------------------------------------------
@@ -120,7 +120,7 @@ class FunctionTest {
     @DisplayName("непереданный аргумент берётся из значения по умолчанию")
     void defaultValueIsSubstituted() {
         assertEquals("привет, мир здравствуй, мир", printed("""
-                fun greet(name, greeting = "привет") => greeting + ", " + name
+                def greet(name, greeting = "привет") => greeting + ", " + name
                 println(greet("мир"))
                 println(greet("мир", "здравствуй"))
                 """));
@@ -132,7 +132,7 @@ class FunctionTest {
         // 120.0 и 240.0 вещественные: их посчитал дефолт с 0.2, а в третьем вызове
         // налог передан целым нулём — тип результата виден в выводе.
         assertEquals("120.0 240.0 200", printed("""
-                fun total(price, count = 1, tax = price * count * 0.2) => price * count + tax
+                def total(price, count = 1, tax = price * count * 0.2) => price * count + tax
                 println(total(100), " ", total(100, 2), " ", total(100, 2, 0))
                 """));
     }
@@ -143,7 +143,7 @@ class FunctionTest {
         // Внешняя переменная менялась между объявлением и вызовом — берётся новое значение.
         assertEquals("21", printed("""
                 step = 10
-                fun inc(x, by = step) => x + by
+                def inc(x, by = step) => x + by
                 step = 20
                 println(inc(1))
                 """));
@@ -153,7 +153,7 @@ class FunctionTest {
     @DisplayName("на каждый вызов своё значение, а не одно общее — в отличие от Python")
     void defaultValueIsFreshEachCall() {
         assertEquals("1 2", printed("""
-                fun box(value, holder = {}) {
+                def box(value, holder = {}) {
                     holder.value = value
                     return holder;
                 }
@@ -165,19 +165,19 @@ class FunctionTest {
     @DisplayName("значение по умолчанию не вычисляется, если аргумент передали")
     void defaultValueIsSkippedWhenArgumentIsGiven() {
         assertEquals("5", printed("""
-                fun mark() {
+                def mark() {
                     println("считаю")
                     return 1;
                 }
-                fun f(a = mark()) => a
+                def f(a = mark()) => a
                 println(f(5))
                 """));
         assertEquals("считаю 1", printed("""
-                fun mark() {
+                def mark() {
                     println("считаю")
                     return 1;
                 }
-                fun f(a = mark()) => a
+                def f(a = mark()) => a
                 println(f())
                 """));
     }
@@ -185,21 +185,21 @@ class FunctionTest {
     @Test
     @DisplayName("число аргументов стало отрезком, и проверка осталась там же")
     void arityBecomesRange() {
-        String message = errorOf("fun greet(name, greeting = \"привет\") => greeting\ngreet(1, 2, 3)")
+        String message = errorOf("def greet(name, greeting = \"привет\") => greeting\ngreet(1, 2, 3)")
                 .getMessage();
         assertTrue(message.contains("'greet'"), message);
         assertTrue(message.contains("от 1 до 2 аргументов"), message);
         assertTrue(message.contains("передано 3"), message);
 
-        assertTrue(errorOf("fun f(a, b = 1) => a\nf()").getMessage().contains("от 1 до 2 аргументов"));
+        assertTrue(errorOf("def f(a, b = 1) => a\nf()").getMessage().contains("от 1 до 2 аргументов"));
     }
 
     @Test
     @DisplayName("значение по умолчанию работает у анонимной функции и у встроенного значения в поле")
     void defaultValueForAnonymousFunctions() {
         assertEquals("42 21", printed("""
-                double = fun(x, by = 2) => x * by
-                handlers = {inc: fun(x, step = 1) => x + step}
+                double = def(x, by = 2) => x * by
+                handlers = {inc: def(x, step = 1) => x + step}
                 println(double(21), " ", handlers.inc(20))
                 """));
     }
@@ -209,15 +209,15 @@ class FunctionTest {
     @Test
     @DisplayName("функцию можно вызвать выше её объявления")
     void declarationsAreHoisted() {
-        assertEquals("5", printed("println(сумма(2, 3))\nfun сумма(a, b) => a + b"));
+        assertEquals("5", printed("println(сумма(2, 3))\ndef сумма(a, b) => a + b"));
     }
 
     @Test
     @DisplayName("две функции могут вызывать друг друга")
     void mutualRecursion() {
         assertEquals("true false", printed("""
-                fun чётное(n) => n == 0 ? true : нечётное(n - 1)
-                fun нечётное(n) => n == 0 ? false : чётное(n - 1)
+                def чётное(n) => n == 0 ? true : нечётное(n - 1)
+                def нечётное(n) => n == 0 ? false : чётное(n - 1)
                 println(нечётное(7))
                 println(нечётное(8))
                 """));
@@ -226,11 +226,11 @@ class FunctionTest {
     @Test
     @DisplayName("объявление внутри блока в корень не поднимается")
     void onlyTopLevelIsHoisted() {
-        assertEquals("тут", printed("if (true) { fun внутренняя() => \"тут\"\n println(внутренняя()) }"));
-        assertTrue(errorOf("if (true) { fun внутренняя() => 1 }\nprintln(внутренняя())")
+        assertEquals("тут", printed("if (true) { def внутренняя() => \"тут\"\n println(внутренняя()) }"));
+        assertTrue(errorOf("if (true) { def внутренняя() => 1 }\nprintln(внутренняя())")
                 .getMessage().contains("не определена"));
         // Объявление внутри функции живёт только в её вызове
-        assertTrue(errorOf("fun снаружи() { fun внутри() => 1\n return внутри(); }\nснаружи()\nвнутри()")
+        assertTrue(errorOf("def снаружи() { def внутри() => 1\n return внутри(); }\nснаружи()\nвнутри()")
                 .getMessage().contains("не определена"));
     }
 
@@ -239,14 +239,14 @@ class FunctionTest {
     @Test
     @DisplayName("рекурсия работает без особой механики: функция находит себя")
     void recursion() {
-        assertEquals("120", printed("fun факториал(n) => n <= 1 ? 1 : n * факториал(n - 1)\nprintln(факториал(5))"));
+        assertEquals("120", printed("def факториал(n) => n <= 1 ? 1 : n * факториал(n - 1)\nprintln(факториал(5))"));
     }
 
     @Test
     @DisplayName("бесконечная рекурсия останавливает выполнение, а не роняет поток")
     void recursionHasLimit() {
         FatalError fatal = assertThrows(FatalError.class,
-                () -> printed("fun вечно(n) => вечно(n + 1)\nвечно(0)"));
+                () -> printed("def вечно(n) => вечно(n + 1)\nвечно(0)"));
         assertTrue(fatal.getMessage().contains("слишком глубокая рекурсия"), fatal.getMessage());
         assertFalse(fatal.span().isNone(), "ошибка обязана знать место в скрипте");
     }
@@ -255,7 +255,7 @@ class FunctionTest {
     @DisplayName("разумная глубина рекурсии проходит целиком")
     void deepEnoughRecursionWorks() {
         int depth = ExecutionContext.MAX_CALL_DEPTH - 2;
-        assertEquals("дно", printed("fun вниз(n) => n <= 0 ? \"дно\" : вниз(n - 1)\nprintln(вниз(" + depth + "))"));
+        assertEquals("дно", printed("def вниз(n) => n <= 0 ? \"дно\" : вниз(n - 1)\nprintln(вниз(" + depth + "))"));
     }
 
     @Test
@@ -264,7 +264,7 @@ class FunctionTest {
         // Счётчик движка до предела не дойдёт: он рассчитан на обычный поток, а здесь стек
         // нарочно крошечный. Проверяется вторая линия защиты — та, что превращает
         // StackOverflowError в остановку выполнения с внятным сообщением.
-        Program program = parse("fun вниз(n) => n <= 0 ? 0 : вниз(n - 1)\nвниз("
+        Program program = parse("def вниз(n) => n <= 0 ? 0 : вниз(n - 1)\nвниз("
                 + (ExecutionContext.MAX_CALL_DEPTH - 2) + ")");
 
         Throwable[] thrown = new Throwable[1];
@@ -288,26 +288,26 @@ class FunctionTest {
     @Test
     @DisplayName("функция лежит в переменной, поле и элементе массива")
     void functionIsOrdinaryValue() {
-        assertEquals("function", printed("fun f() => 1\nprintln(typeof(f))"));
-        assertEquals("7", printed("f = fun(a, b) => a + b\nprintln(f(3, 4))"));
+        assertEquals("function", printed("def f() => 1\nprintln(typeof(f))"));
+        assertEquals("7", printed("f = def(a, b) => a + b\nprintln(f(3, 4))"));
         assertEquals("14 6", printed("""
-                операции = {плюс: fun(a, b) => a + b, минус: fun(a, b) => a - b}
+                операции = {плюс: def(a, b) => a + b, минус: def(a, b) => a - b}
                 println(операции.плюс(10, 4))
                 println(операции["минус"](10, 4))
                 """));
-        assertEquals("2", printed("обработчики = [fun(x) => x * 2]\nprintln(обработчики[0](1))"));
+        assertEquals("2", printed("обработчики = [def(x) => x * 2]\nprintln(обработчики[0](1))"));
     }
 
     @Test
     @DisplayName("функцию можно передать аргументом и вернуть из функции")
     void higherOrder() {
         assertEquals("20", printed("""
-                fun удвоить(x) => x * 2
-                fun дважды(f, значение) => f(f(значение))
+                def удвоить(x) => x * 2
+                def дважды(f, значение) => f(f(значение))
                 println(дважды(удвоить, 5))
                 """));
         assertEquals("15", printed("""
-                fun прибавлятель(сколько) => fun(x) => x + сколько
+                def прибавлятель(сколько) => def(x) => x + сколько
                 прибавить10 = прибавлятель(10)
                 println(прибавить10(5))
                 """));
@@ -319,9 +319,9 @@ class FunctionTest {
     @DisplayName("замыкание держит область, а не снимок значений")
     void closureSharesTheVariable() {
         assertEquals("1 2 3", printed("""
-                fun счётчик() {
+                def счётчик() {
                     сколько = 0
-                    return fun() {
+                    return def() {
                         сколько += 1
                         return сколько;
                     };
@@ -337,9 +337,9 @@ class FunctionTest {
     @DisplayName("у каждого вызова своё замыкание")
     void closuresAreIndependent() {
         assertEquals("1 1", printed("""
-                fun счётчик() {
+                def счётчик() {
                     сколько = 0
-                    return fun() { сколько += 1
+                    return def() { сколько += 1
                         return сколько; };
                 }
                 println(счётчик()())
@@ -351,10 +351,10 @@ class FunctionTest {
     @DisplayName("два замыкания над одной переменной видят одно и то же")
     void closuresShareOneVariable() {
         assertEquals("2", printed("""
-                fun пара() {
+                def пара() {
                     сколько = 0
-                    прибавить = fun() { сколько += 1 }
-                    прочитать = fun() => сколько
+                    прибавить = def() { сколько += 1 }
+                    прочитать = def() => сколько
                     прибавить()
                     прибавить()
                     return прочитать();
@@ -370,7 +370,7 @@ class FunctionTest {
                 хранилище = [null, null, null]
                 i = 0
                 for (x in [1, 2, 3]) {
-                    хранилище[i] = fun() => x
+                    хранилище[i] = def() => x
                     i += 1
                 }
                 println(хранилище[0](), " ", хранилище[1](), " ", хранилище[2]())
@@ -382,7 +382,7 @@ class FunctionTest {
     @Test
     @DisplayName("локальная переменная функции наружу не выходит")
     void localsDoNotLeak() {
-        assertTrue(errorOf("fun f() { локальная = 1 }\nf()\nprintln(локальная)")
+        assertTrue(errorOf("def f() { локальная = 1 }\nf()\nprintln(локальная)")
                 .getMessage().contains("переменная 'локальная' не определена"));
     }
 
@@ -391,7 +391,7 @@ class FunctionTest {
     void outerVariableIsSharedForReadAndWrite() {
         assertEquals("снаружи изнутри", printed("""
                 значение = "снаружи"
-                fun f() {
+                def f() {
                     println(значение)
                     значение = "изнутри"
                 }
@@ -400,7 +400,7 @@ class FunctionTest {
                 """));
         assertEquals("3", printed("""
                 счёт = 0
-                fun добавить(сколько) { счёт += сколько }
+                def добавить(сколько) { счёт += сколько }
                 добавить(1)
                 добавить(2)
                 println(счёт)
@@ -412,7 +412,7 @@ class FunctionTest {
     void parameterShadowsOuter() {
         assertEquals("10 внешнее", printed("""
                 x = "внешнее"
-                fun f(x) {
+                def f(x) {
                     x = 10
                     println(x)
                 }
@@ -426,8 +426,8 @@ class FunctionTest {
     void declarationDefinesLocally() {
         assertEquals("1 внешнее", printed("""
                 имя = "внешнее"
-                fun f() {
-                    fun имя() => 1
+                def f() {
+                    def имя() => 1
                     return имя();
                 }
                 println(f())
@@ -441,7 +441,7 @@ class FunctionTest {
         // Печать идёт после рекурсивного вызова, поэтому первым выводит самый глубокий:
         // 1, 2, 3 — и каждое значение своё, из своего вызова.
         assertEquals("1 2 3", printed("""
-                fun вниз(n) {
+                def вниз(n) {
                     свой = n
                     if (n > 1) { вниз(n - 1) }
                     println(свой)

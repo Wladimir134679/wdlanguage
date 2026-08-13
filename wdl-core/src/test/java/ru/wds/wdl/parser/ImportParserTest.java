@@ -85,7 +85,7 @@ class ImportParserTest {
     @Test
     @DisplayName("импорт разбирается везде, где разбирается инструкция")
     void importIsAnOrdinaryStatement() {
-        Program program = parse("fun f() { import lib.math as m; return m.PI; }");
+        Program program = parse("def f() { import lib.math as m; return m.PI; }");
         assertEquals(1, program.statements().size());
 
         Program block = parse("{ import math }");

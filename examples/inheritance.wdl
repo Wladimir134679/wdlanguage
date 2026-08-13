@@ -7,12 +7,12 @@
 // Аргументы родителю пишутся прямо в заголовке: ': Shape("круг")'. Так видно,
 // что потомок передаёт наверх, и проверить это можно, не выполняя конструктор.
 class Shape(kind) {
-    fun area() => 0
-    fun text() => kind + " площадью " + area()      // area() ≡ this.area()
+    def area() => 0
+    def text() => kind + " площадью " + area()      // area() ≡ this.area()
 }
 
 class Circle(radius) : Shape("круг") {
-    fun area() => 3.14159 * radius * radius
+    def area() => 3.14159 * radius * radius
 }
 
 c = new Circle(5)
@@ -24,7 +24,7 @@ println(c.kind, " ", c.radius)      // круг 5 — поле досталос�
 // text() написан в Shape и зовёт area(). Внутри метода голое имя ищется
 // в классе экземпляра, поэтому у круга находится его собственная площадь.
 class Square(side) : Shape("квадрат") {
-    fun area() => side * side
+    def area() => side * side
 }
 
 println(new Square(4).text())       // квадрат площадью 16
@@ -33,8 +33,8 @@ println(new Square(4).text())       // квадрат площадью 16
 
 class Ring(radius, hole) : Circle(radius) {
 
-    fun area() => super.area() - 3.14159 * hole * hole
-    fun text() => super.text() + " (с отверстием " + hole + ")"
+    def area() => super.area() - 3.14159 * hole * hole
+    def text() => super.text() + " (с отверстием " + hole + ")"
 }
 
 r = new Ring(5, 2)
@@ -46,15 +46,15 @@ println(r is Ring, " ", r is Circle, " ", r is Shape)   // true true true
 // --- цепочка из трёх уровней: конструкторы идут от корня вниз ----------------
 
 class Node(id) {
-    fun Node() { println("  1) Node ", id) }
+    def Node() { println("  1) Node ", id) }
 }
 
 class Leaf(id, label) : Node(id) {
-    fun Leaf() { println("  2) Leaf ", label) }
+    def Leaf() { println("  2) Leaf ", label) }
 }
 
 class Marked(id, label, mark) : Leaf(id, label) {
-    fun Marked() { println("  3) Marked ", mark) }
+    def Marked() { println("  3) Marked ", mark) }
 }
 
 println("создаём Marked:")
@@ -76,7 +76,7 @@ println(new Child())                // Base-поля идут первыми в 
 // --- аргументы родителю видят параметры потомка ------------------------------
 
 class Sized(side) : Shape("квадрат со стороной " + side) {
-    fun area() => side * side
+    def area() => side * side
 }
 println(new Sized(3).text())        // квадрат со стороной 3 площадью 9
 
@@ -103,7 +103,7 @@ for (figure in figures) {
 println(new Late().text())          // поздний: и так работает
 
 class Late : Early("поздний") { }
-class Early(kind) { fun text() => kind + ": и так работает" }
+class Early(kind) { def text() => kind + ": и так работает" }
 
 // --- класс от приложения: наследование ему недоступно ------------------------
 

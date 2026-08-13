@@ -86,7 +86,7 @@ final class Files {
             .method("absolute", Arity.exactly(0), (self, context, arguments, span) ->
                     StringValue.of(path(self, span).toAbsolutePath().toString()))
 
-            // Фабрика: способ создания с именем. Тот же приём, что 'fun User.of(...)'
+            // Фабрика: способ создания с именем. Тот же приём, что 'def User.of(...)'
             // в языке, — просто записанный на Java.
             .factory("temp", Arity.between(0, 1), (context, arguments, span) -> {
                 String prefix = arguments.isEmpty() ? "wdl" : arguments.get(0).display();

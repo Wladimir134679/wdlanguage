@@ -26,8 +26,8 @@ import lib.test as t
 
 suite = new t.Suite("арифметика")
 
-suite.test("деление на ноль — ошибка, а не inf", fun() {
-    e = t.assertThrows(ArithmeticError, fun() => 1 / 0)
+suite.test("деление на ноль — ошибка, а не inf", def() {
+    e = t.assertThrows(ArithmeticError, def() => 1 / 0)
     t.assertContains(e.message, "деление на ноль")
 })
 
@@ -59,7 +59,7 @@ class AssertionError(message) : Exception(message)
   ERR  разбор не падает на пустом вводе
        IndexError: индекс 9 вне границ массива размером 2
        в examples/testing/basics.wdl:105:13
-         в fun (examples/testing/lib/test.wdl:179:13)
+         в def (examples/testing/lib/test.wdl:179:13)
          в runOne (examples/testing/lib/test.wdl:171:13)
 ```
 

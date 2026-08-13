@@ -35,15 +35,15 @@ class ModuleInheritanceTest {
             println("[lib/shapes загружается]")
 
             trait Countable {
-                fun count()
+                def count()
             }
 
             class Shape(title) {
-                fun text() => "фигура " + title
+                def text() => "фигура " + title
 
-                fun describe() => text() + ", площадь " + area()
+                def describe() => text() + ", площадь " + area()
 
-                fun area() => 0
+                def area() => 0
             }
             """);
 
@@ -92,7 +92,7 @@ class ModuleInheritanceTest {
                 import lib.shapes
 
                 class Circle(radius) : Shape("круг") {
-                    fun area() => 3 * radius * radius
+                    def area() => 3 * radius * radius
                 }
 
                 println(new Circle(2).describe())
@@ -106,7 +106,7 @@ class ModuleInheritanceTest {
                 import lib.shapes as m
 
                 class Circle(radius) : m.Shape("круг") {
-                    fun area() => 3 * radius * radius
+                    def area() => 3 * radius * radius
                 }
 
                 println(new Circle(2).describe())
@@ -120,7 +120,7 @@ class ModuleInheritanceTest {
                 import lib.shapes as m
 
                 class Bag(items) with m.Countable {
-                    fun count() => len(items)
+                    def count() => len(items)
                 }
 
                 println(new Bag([1, 2, 3]).count())
@@ -134,7 +134,7 @@ class ModuleInheritanceTest {
                 import lib.shapes
 
                 class Circle(radius) : Shape("круг") {
-                    fun text() => super.text() + " (уточнённая)"
+                    def text() => super.text() + " (уточнённая)"
                 }
 
                 println(new Circle(2).text())
@@ -149,7 +149,7 @@ class ModuleInheritanceTest {
                 import lib.shapes
 
                 class Square(side) : Shape("квадрат") {
-                    fun area() => side * side
+                    def area() => side * side
                 }
 
                 println(new Square(5).describe())
@@ -163,7 +163,7 @@ class ModuleInheritanceTest {
                 import lib.shapes as m
 
                 class Circle(radius) : m.Shape("круг") with m.Countable {
-                    fun count() => 1
+                    def count() => 1
                 }
 
                 c = new Circle(2)
@@ -201,7 +201,7 @@ class ModuleInheritanceTest {
     @DisplayName("импорт и наследник в одной функции — работают")
     void inheritInsideFunction() {
         assertEquals("[lib/shapes загружается]" + NL + "фигура точка" + NL, run("""
-                fun describe() {
+                def describe() {
                     import lib.shapes
                     class Dot : Shape("точка")
                     return new Dot().text();
@@ -215,8 +215,8 @@ class ModuleInheritanceTest {
     @DisplayName("импорт в одной функции, наследник в другой — не видно")
     void importDoesNotLeakToAnotherFunction() {
         String message = failure("""
-                fun load() { import lib.shapes }
-                fun make() { class Dot : Shape("точка") }
+                def load() { import lib.shapes }
+                def make() { class Dot : Shape("точка") }
                 load()
                 make()
                 """, SHAPES);
@@ -254,7 +254,7 @@ class ModuleInheritanceTest {
         assertEquals("фигура круг" + NL, run("""
                 println(new Circle().text())
                 class Circle : Shape("круг")
-                class Shape(title) { fun text() => "фигура " + title }
+                class Shape(title) { def text() => "фигура " + title }
                 """, Map.of()));
     }
 
@@ -320,11 +320,11 @@ class ModuleInheritanceTest {
     @Test
     @DisplayName("импорт внутри функции затеняет свой класс, а не спорит с ним")
     void importInsideFunctionShadowsOuterType() {
-        // Своя область — свои имена: то же самое сделали бы 'fun' или 'const' здесь же.
+        // Своя область — свои имена: то же самое сделали бы 'def' или 'const' здесь же.
         assertEquals("[lib/shapes загружается]" + NL + "фигура из модуля|свой" + NL, run("""
-                class Shape(title) { fun text() => "свой" }
+                class Shape(title) { def text() => "свой" }
 
-                fun fromModule() {
+                def fromModule() {
                     import lib.shapes
                     return new Shape("из модуля").text();
                 }
@@ -372,6 +372,6 @@ class ModuleInheritanceTest {
                 println(new Circle().text())
                 """, Map.of(
                 "lib/re", "import base",
-                "lib/base", "class Shape(title) { fun text() => \"фигура \" + title }")));
+                "lib/base", "class Shape(title) { def text() => \"фигура \" + title }")));
     }
 }

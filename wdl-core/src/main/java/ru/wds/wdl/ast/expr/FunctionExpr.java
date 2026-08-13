@@ -8,16 +8,16 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Функция как выражение: {@code fun(a, b) => a + b}.
+ * Функция как выражение: {@code def(a, b) => a + b}.
  * <p>
- * Узел один и на анонимную функцию, и на объявление — {@code fun имя(...)} это
- * {@link ru.wds.wdl.ast.stmt.FunDeclStmt} с этим самым узлом внутри. Логика создания
+ * Узел один и на анонимную функцию, и на объявление — {@code def имя(...)} это
+ * {@link ru.wds.wdl.ast.stmt.DefDeclStmt} с этим самым узлом внутри. Логика создания
  * значения-функции остаётся в одном месте, а разница между двумя формами ровно та,
  * какая есть на самом деле: объявление ещё и заводит имя.
  * <p>
- * <b>Имя хранится и у анонимной, если его удалось узнать.</b> У {@code f = fun(a) => a}
+ * <b>Имя хранится и у анонимной, если его удалось узнать.</b> У {@code f = def(a) => a}
  * узел анонимный, но сообщение «функция 'f' принимает ровно 1 аргумент» полезнее, чем
- * «функция 'fun' ...», поэтому имя цели простого присваивания подставляется при разборе.
+ * «функция 'def' ...», поэтому имя цели простого присваивания подставляется при разборе.
  * Это только для диагностики: на поиск имени во время выполнения оно не влияет.
  * <p>
  * Тело — {@link Stmt}, и да, это делает зависимость пакетов взаимной: инструкции
@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
  * @param params параметры в порядке записи
  * @param body   тело: блок, одиночная инструкция или {@code return} из стрелки
  * @param style  как тело было записано — {@link BodyStyle}
- * @param span   место в исходнике: от {@code fun} до конца тела
+ * @param span   место в исходнике: от {@code def} до конца тела
  */
 public record FunctionExpr(String name, List<Param> params, Stmt body, BodyStyle style, Span span)
         implements Expr {
@@ -80,14 +80,14 @@ public record FunctionExpr(String name, List<Param> params, Stmt body, BodyStyle
         }
     }
 
-    /** Имя для сообщений: у анонимной — просто {@code fun}. */
+    /** Имя для сообщений: у анонимной — просто {@code def}. */
     public String title() {
-        return name != null ? name : "fun";
+        return name != null ? name : "def";
     }
 
     @Override
     public String toString() {
-        return "fun " + (name != null ? name : "")
+        return "def " + (name != null ? name : "")
                 + params.stream().map(Param::toString).collect(Collectors.joining(", ", "(", ")"));
     }
 }

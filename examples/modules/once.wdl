@@ -2,7 +2,7 @@
 // Строку «counter выполняется» печатает сам модуль — и печатает её однажды,
 // сколько бы раз его ни импортировали.
 
-fun step(size) {
+def step(size) {
     import lib.counter as c
     return c.bump(size);
 }
