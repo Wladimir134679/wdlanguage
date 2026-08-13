@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.value.Binding;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.ModuleValue;
 
@@ -26,17 +27,24 @@ import java.util.Set;
  * Порядок имён сохраняется ({@link LinkedHashMap}): развёрнутый импорт заводит их
  * в том же порядке, в каком они объявлены в файле, и вывод не пляшет от запуска
  * к запуску.
+ * <p>
+ * <b>Что модуль принёс себе развёрнутым импортом</b>, лежит третьей картой — связками,
+ * а не копиями, — и уходит наружу вместе со своими именами. Поэтому реэкспорт сквозной:
+ * {@code lib.x} после {@code import base} внутри {@code lib} — та же ячейка, что
+ * {@code base.x}, и присваивание любой из них видят обе.
  */
 final class ModuleScope implements Environment {
 
     private final Environment root;
     private final Map<String, Value> members = new LinkedHashMap<>();
     private final Set<String> constants = new HashSet<>(4);
+    /** Имена, пришедшие развёрнутым импортом. Не ленивая: область модуля одна на файл. */
+    private final Map<String, Binding> aliases = new LinkedHashMap<>();
     private final ModuleValue module;
 
     ModuleScope(String name, Environment root) {
         this.root = Objects.requireNonNull(root, "root");
-        this.module = new ModuleValue(Objects.requireNonNull(name, "name"), members, constants);
+        this.module = new ModuleValue(Objects.requireNonNull(name, "name"), members, constants, aliases);
     }
 
     /** Значение модуля: живой вид на эту же таблицу. */
@@ -48,12 +56,22 @@ final class ModuleScope implements Environment {
     public Value lookup(String name) {
         Objects.requireNonNull(name, "name");
         Value value = members.get(name);
-        return value != null ? value : root.lookup(name);
+        if (value != null) {
+            return value;
+        }
+        Binding alias = aliases.get(name);
+        return alias != null ? alias.value() : root.lookup(name);
     }
 
     @Override
     public Value lookupHere(String name) {
-        return members.get(Objects.requireNonNull(name, "name"));
+        Objects.requireNonNull(name, "name");
+        Value value = members.get(name);
+        if (value != null) {
+            return value;
+        }
+        Binding alias = aliases.get(name);
+        return alias != null ? alias.value() : null;
     }
 
     @Override
@@ -63,7 +81,10 @@ final class ModuleScope implements Environment {
 
     @Override
     public void define(String name, Value value) {
-        members.put(Objects.requireNonNull(name, "name"), Objects.requireNonNull(value, "value"));
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(value, "value");
+        aliases.remove(name);
+        members.put(name, value);
     }
 
     @Override
@@ -73,9 +94,22 @@ final class ModuleScope implements Environment {
     }
 
     @Override
+    public void defineAlias(String name, Binding binding) {
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(binding, "binding");
+        members.remove(name);
+        constants.remove(name);
+        aliases.put(name, binding);
+    }
+
+    @Override
     public boolean isConstantHere(String name) {
         Objects.requireNonNull(name, "name");
-        return constants.contains(name);
+        if (constants.contains(name)) {
+            return true;
+        }
+        Binding alias = aliases.get(name);
+        return alias != null && alias.constant();
     }
 
     /**
@@ -96,6 +130,10 @@ final class ModuleScope implements Environment {
             }
             members.put(name, value);
             return Assignment.DONE;
+        }
+        Binding alias = aliases.get(name);
+        if (alias != null) {
+            return alias.set(value) ? Assignment.DONE : Assignment.CONSTANT;
         }
         return root.assign(name, value);
     }

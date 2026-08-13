@@ -649,8 +649,13 @@ public final class Interpreter
      * <p>
      * Модуль выполняется (или достаётся из реестра, если уже выполнялся), а дальше
      * всё решает одно слово {@code as}: с ним в текущей области заводится одно имя —
-     * значение-модуль, без него в неё переносятся все имена модуля, как будто их
+     * значение-модуль, без него в неё заводятся все имена модуля, как будто их
      * объявили здесь.
+     * <p>
+     * Заводятся <b>связками</b>, а не копиями: {@code a = 10} после развёрнутого импорта
+     * меняет переменную модуля, и это видят и его функции, и все, кто импортировал его
+     * же. Обе формы поэтому равносильны — {@code m.a} и {@code a} после двух импортов
+     * одного файла означают одну ячейку.
      * <p>
      * Область — <b>текущая</b>, и никакой особый случай для этого не понадобился:
      * {@code import} внутри функции заводит имена в теле функции и исчезает вместе
@@ -673,17 +678,17 @@ public final class Interpreter
             context.scope().define(stmt.alias(), module);
             return null;
         }
-        // Константа модуля остаётся константой и здесь: развёрнутый импорт обещает,
-        // что имена ведут себя так же, как если бы их объявили в этом файле.
-        module.members().forEach((name, value) -> {
+        // Имена не копируются, а связываются с ячейками модуля: развёрнутый импорт
+        // обещает, что они ведут себя так же, как если бы их объявили в этом файле, —
+        // а модуль выполняется один раз, и значение у всех импортёров общее. Копия
+        // сдержала бы только первое обещание: 'PI = 4' поменял бы её, функции модуля
+        // считали бы по-старому, а второй импортёр не увидел бы ничего. Отсюда же
+        // и константа: она остаётся константой, потому что спрашивают о ней модуль.
+        for (String name : module.names()) {
             checkNotConstant(name, stmt.pathSpan(), context);
-            checkNotShadowingType(name, value, stmt.pathSpan(), context);
-            if (module.isConstant(name)) {
-                context.scope().defineConstant(name, value);
-            } else {
-                context.scope().define(name, value);
-            }
-        });
+            checkNotShadowingType(name, module.get(name), stmt.pathSpan(), context);
+            context.scope().defineAlias(name, new ModuleBinding(module, name));
+        }
         return null;
     }
 
@@ -1524,11 +1529,7 @@ public final class Interpreter
             case MapValue object -> object.put(key, value);
             // Запись в класс — «статическое поле»: обычная запись по ключу в значении.
             case ClassValue declared -> declared.statics().put(key, value);
-            // Модуль выполняется один раз за запуск, и значение у всех, кто его
-            // импортировал, общее: запись отсюда меняла бы чужой файл всем сразу.
-            case ModuleValue module -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
-                    "модуль '" + module.name() + "' изменять нельзя: его имена объявлены"
-                            + " в своём файле, и значение у всех, кто его импортировал, общее");
+            case ModuleValue module -> writeMember(module, key, value, span);
             // Строка неизменяема, и это не случайность реализации: строки лежат в ключах
             // объектов, и молчаливое изменение на месте испортило бы их.
             case StringValue ignored -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
@@ -1536,6 +1537,38 @@ public final class Interpreter
             default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "в значение типа " + container.type().title() + " нельзя записать " + how(style, key));
         }
+    }
+
+    /**
+     * Запись в имя модуля.
+     * <p>
+     * Снаружи с модулем можно ровно то же, что можно его собственному коду: переменная
+     * меняется, константа — нет. Иного правила и не выйдет объяснить — модуль и есть
+     * скрипт, а запрет снаружи означал бы, что импортёр слабее автора файла без всякой
+     * причины. Цена следует из однократности выполнения и та же, что у чтения: запись
+     * видят все, кто импортировал модуль, — ровно как видят они и работу его функций.
+     * <p>
+     * Новое имя здесь не заводится, в отличие от объекта, и это та же разница, что при
+     * чтении: состав модуля задан его файлом, поэтому {@code m.cout = 1} с опечаткой
+     * должен назваться сразу, а не завести второе имя рядом с настоящим.
+     */
+    private static void writeMember(ModuleValue module, Value key, Value value, Span span) {
+        if (!(key instanceof StringValue name)) {
+            throw new WdlRuntimeError(ErrorKind.TYPE, span, "имя в модуле '" + module.name()
+                    + "' задаётся строкой, а здесь " + key.type().title() + " (" + key + ")");
+        }
+        String member = name.value();
+        if (!module.has(member)) {
+            throw new WdlRuntimeError(ErrorKind.NAME, span, "в модуле '" + module.name() + "' нет имени '"
+                    + member + "'");
+        }
+        if (module.isConstant(member)) {
+            // Дословно то же сообщение, что у присваивания обычному имени: правило одно,
+            // и оно не должно звучать по-разному в зависимости от того, откуда пришли.
+            throw new WdlRuntimeError(ErrorKind.DECLARATION, span, "'" + member + "' нельзя присвоить: "
+                    + "это константа, её значение задаётся один раз при объявлении");
+        }
+        module.set(member, value);
     }
 
     private static int checkIndex(int size, Value key, String what, Span span) {

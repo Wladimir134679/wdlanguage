@@ -305,15 +305,187 @@ class ModuleTest {
         assertEquals("в модуле 'lib/math' нет имени 'substract'", error.getMessage());
     }
 
-    @Test
-    @DisplayName("модуль изменять нельзя")
-    void moduleIsReadOnly() {
-        WdlRuntimeError error = errorOf("""
-                import lib.math as m
-                m.PI = 4
-                """, MATH);
+    // --- изменение модуля ----------------------------------------------------
 
-        assertTrue(error.getMessage().startsWith("модуль 'lib/math' изменять нельзя"),
-                error.getMessage());
+    /** Переменная, константа и функция, которая переменной пользуется. */
+    private static final Map<String, String> CONFIG = Map.of("lib/config", """
+            prefix = ">"
+            const LIMIT = 10
+            def label(text) => prefix + text
+            """);
+
+    @Test
+    @DisplayName("присваивание через модуль видят его функции")
+    void assignmentThroughModuleReachesItsFunctions() {
+        assertEquals("!ok" + NL, run("""
+                import lib.config as c
+                c.prefix = "!"
+                println(c.label("ok"))
+                """, CONFIG));
+    }
+
+    @Test
+    @DisplayName("присваивание после развёрнутого импорта тоже доходит до модуля")
+    void assignmentAfterPlainImportReachesTheModule() {
+        assertEquals("!ok" + NL, run("""
+                import lib.config
+                prefix = "!"
+                println(label("ok"))
+                """, CONFIG));
+    }
+
+    @Test
+    @DisplayName("обе формы импорта — одна ячейка: изменение видно в обе стороны")
+    void bothFormsShareOneCell() {
+        assertEquals("A|B" + NL, run("""
+                import lib.config
+                import lib.config as c
+                c.prefix = "A"
+                first = prefix
+                prefix = "B"
+                println(first, "|", c.prefix)
+                """, CONFIG));
+    }
+
+    @Test
+    @DisplayName("константа модуля не поддаётся ни через модуль, ни после развёрнутого импорта")
+    void constantResistsBothForms() {
+        assertEquals("'LIMIT' нельзя присвоить: это константа,"
+                        + " её значение задаётся один раз при объявлении",
+                errorOf("""
+                        import lib.config as c
+                        c.LIMIT = 1
+                        """, CONFIG).getMessage());
+
+        assertTrue(errorOf("""
+                import lib.config
+                LIMIT = 1
+                """, CONFIG).getMessage().contains("это константа"));
+    }
+
+    @Test
+    @DisplayName("присваивание несуществующему имени модуля — ошибка, а не новое имя")
+    void assignmentDoesNotCreateNames() {
+        assertEquals("в модуле 'lib/config' нет имени 'prefx'", errorOf("""
+                import lib.config as c
+                c.prefx = "!"
+                """, CONFIG).getMessage());
+    }
+
+    @Test
+    @DisplayName("менять можно и функцию, и класс: снаружи разрешено то же, что внутри")
+    void functionsAndClassesAreAssignableToo() {
+        assertEquals("12|5" + NL, run("""
+                import lib.math as m
+                m.add = def(a, b) => a * b
+                m.Point = 5
+                println(m.add(3, 4), "|", m.Point)
+                """, MATH));
+    }
+
+    @Test
+    @DisplayName("составное присваивание через модуль")
+    void compoundAssignmentThroughModule() {
+        assertEquals("5" + NL, run("""
+                import counter as c
+                c.count += 5
+                println(c.count)
+                """, Map.of("counter", "count = 0")));
+    }
+
+    // --- реэкспорт -----------------------------------------------------------
+
+    /** Модуль, который сам развернул у себя другой модуль. */
+    private static final Map<String, String> REEXPORT = Map.of(
+            "lib/base", """
+                    x = 1
+                    def show() => x
+                    """,
+            "lib/re", "import base");
+
+    @Test
+    @DisplayName("реэкспорт живой: имя, пришедшее в модуль импортом, — та же ячейка")
+    void reexportedNameIsTheSameCell() {
+        assertEquals("9|9|9" + NL, run("""
+                import lib.re as r
+                import lib.base as b
+                r.x = 9
+                println(b.x, "|", b.show(), "|", r.show())
+                """, REEXPORT));
+    }
+
+    @Test
+    @DisplayName("реэкспорт проходит и через развёрнутый импорт")
+    void reexportSurvivesPlainImport() {
+        assertEquals("7|7" + NL, run("""
+                import lib.re
+                import lib.base as b
+                x = 7
+                println(b.x, "|", show())
+                """, REEXPORT));
+    }
+
+    @Test
+    @DisplayName("два модуля, импортировавших третий, видят изменения друг друга")
+    void importersSeeEachOther() {
+        assertEquals("5" + NL, run("""
+                import lib.writer as w
+                import lib.reader as r
+                w.store(5)
+                println(r.load())
+                """, Map.of(
+                "counter", "count = 0",
+                "lib/writer", """
+                        import "/counter"
+                        def store(value) { count = value }
+                        """,
+                "lib/reader", """
+                        import "/counter"
+                        def load() => count
+                        """)));
+    }
+
+    // --- приоритет имён ------------------------------------------------------
+
+    @Test
+    @DisplayName("своё объявление после импорта затеняет имя модуля")
+    void ownDeclarationShadowsTheModule() {
+        // 'const' не поднимается до выполнения, поэтому объявлен он именно здесь —
+        // ниже импорта, и с этой строки имя означает свою константу, а не ячейку модуля.
+        assertEquals("own|>" + NL, run("""
+                import lib.config
+                import lib.config as c
+                const prefix = "own"
+                println(prefix, "|", c.prefix)
+                """, CONFIG));
+    }
+
+    @Test
+    @DisplayName("импорт вытесняет объявление, поднятое над ним")
+    void importDisplacesHoistedDeclaration() {
+        // 'def' верхнего уровня помечается до первой строки скрипта, поэтому импорт
+        // ниже его — это объявление поверх объявления, и побеждает то, что выполнилось
+        // позже. Присваивание после него уходит в модуль.
+        assertEquals("!" + NL, run("""
+                def prefix() => "own"
+                import lib.config
+                import lib.config as c
+                prefix = "!"
+                println(c.prefix)
+                """, CONFIG));
+    }
+
+    @Test
+    @DisplayName("импорт внутри функции: имя исчезает, а изменение модуля остаётся")
+    void assignmentInsideFunctionOutlivesTheScope() {
+        assertEquals("!" + NL, run("""
+                def tune() {
+                    import lib.config
+                    prefix = "!"
+                }
+                tune()
+                import lib.config as c
+                println(c.prefix)
+                """, CONFIG));
     }
 }

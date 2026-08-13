@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.value.Binding;
 import ru.wds.wdl.value.Value;
 
 import java.util.HashMap;
@@ -35,6 +36,16 @@ public final class Scope implements Environment {
      */
     private Set<String> constants;
 
+    /**
+     * Имена, заведённые развёрнутым {@code import}: связки на ячейки модуля.
+     * <p>
+     * Отдельной картой и лениво — по той же причине, что и {@link #constants}:
+     * {@link #lookup} горячий, областей создаётся по одной на вызов, блок и итерацию,
+     * и в подавляющем большинстве из них импорта нет. Пока карты нет, связки стоят
+     * ровно одну проверку {@code != null} на промахе по своим именам.
+     */
+    private Map<String, Binding> aliases;
+
     private Scope(Environment parent) {
         this.parent = parent;
     }
@@ -63,12 +74,27 @@ public final class Scope implements Environment {
         if (value != null) {
             return value;
         }
+        Binding alias = alias(name);
+        if (alias != null) {
+            return alias.value();
+        }
         return parent != null ? parent.lookup(name) : null;
     }
 
     @Override
     public Value lookupHere(String name) {
-        return values.get(Objects.requireNonNull(name, "name"));
+        Objects.requireNonNull(name, "name");
+        Value value = values.get(name);
+        if (value != null) {
+            return value;
+        }
+        Binding alias = alias(name);
+        return alias != null ? alias.value() : null;
+    }
+
+    /** Связка с этим именем или {@code null}. Своё имя спрашивается раньше — оно сильнее. */
+    private Binding alias(String name) {
+        return aliases != null ? aliases.get(name) : null;
     }
 
     @Override
@@ -78,7 +104,14 @@ public final class Scope implements Environment {
 
     @Override
     public void define(String name, Value value) {
-        values.put(Objects.requireNonNull(name, "name"), Objects.requireNonNull(value, "value"));
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(value, "value");
+        // Своё объявление вытесняет связку: имя после него означает эту переменную,
+        // а не ячейку модуля, — иначе присваивание уходило бы в чужой файл.
+        if (aliases != null) {
+            aliases.remove(name);
+        }
+        values.put(name, value);
     }
 
     @Override
@@ -91,9 +124,29 @@ public final class Scope implements Environment {
     }
 
     @Override
+    public void defineAlias(String name, Binding binding) {
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(binding, "binding");
+        // Обратная сторона того же правила: импорт вытесняет ранее объявленное имя,
+        // как это делает любое объявление на его месте.
+        values.remove(name);
+        if (constants != null) {
+            constants.remove(name);
+        }
+        if (aliases == null) {
+            aliases = new HashMap<>(4);
+        }
+        aliases.put(name, binding);
+    }
+
+    @Override
     public boolean isConstantHere(String name) {
         Objects.requireNonNull(name, "name");
-        return constants != null && constants.contains(name);
+        if (constants != null && constants.contains(name)) {
+            return true;
+        }
+        Binding alias = alias(name);
+        return alias != null && alias.constant();
     }
 
     @Override
@@ -101,11 +154,17 @@ public final class Scope implements Environment {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
         if (values.containsKey(name)) {
-            if (isConstantHere(name)) {
+            if (constants != null && constants.contains(name)) {
                 return Assignment.CONSTANT;
             }
             values.put(name, value);
             return Assignment.DONE;
+        }
+        // Связка уводит присваивание в модуль: имя, пришедшее развёрнутым импортом,
+        // ведёт себя как объявленное здесь, а живёт там.
+        Binding alias = alias(name);
+        if (alias != null) {
+            return alias.set(value) ? Assignment.DONE : Assignment.CONSTANT;
         }
         return parent != null ? parent.assign(name, value) : Assignment.ABSENT;
     }

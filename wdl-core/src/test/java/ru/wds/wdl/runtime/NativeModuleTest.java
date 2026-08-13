@@ -141,12 +141,20 @@ class NativeModuleTest {
     }
 
     @Test
-    @DisplayName("встроенному модулю нельзя присвоить")
-    void assignmentRejected() {
+    @DisplayName("встроенный модуль изменяем так же, как файл, а его константа — нет")
+    void assignmentGoesThroughExceptConstants() {
+        // Библиотека сама решает, что заморозить: 'const' в installTo работает так же,
+        // как в файле модуля, и отдельного «final для встроенных» не понадобилось.
+        assertEquals("30" + NL, run("""
+                import sys.math as m
+                m.twice = def(x) => x * 3
+                println(m.twice(10))
+                """, registry()));
+
         assertTrue(errorOf("""
                 import sys.math as m
                 m.LIMIT = 1
-                """, registry()).getMessage().contains("изменять нельзя"));
+                """, registry()).getMessage().contains("это константа"));
     }
 
     @Test

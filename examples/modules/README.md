@@ -22,6 +22,7 @@ wdl-cli/build/install/wdl/bin/wdl examples/modules/plain.wdl
 | [nested.wdl](nested.wdl) | модуль импортирует соседа по короткому имени |
 | [inherit.wdl](inherit.wdl) | наследование и трейты через файлы: `: Shape`, `: s.Shape`, `with s.Countable`, `super`, `is`, родитель выражением (`s.kinds["shape"]`, `s.kindFor("shape")(...)`), наследник внутри функции |
 | [late.wdl](late.wdl) | модуля нет на диске, и скрипт всё равно работает; плагин с классом и трейтом загружается по требованию |
+| [mutate.wdl](mutate.wdl) | модуль изменяем снаружи: запись видят его функции и обе формы импорта |
 
 Модули лежат в [lib/](lib): `geometry` (константа, функция, класс), `counter`
 (состояние и побочный эффект при загрузке), `strings` (сам импортирует `geometry`),
@@ -39,7 +40,8 @@ wdl-cli/build/install/wdl/bin/wdl examples/modules/plain.wdl
 | [errors/missing.wdl](errors/missing.wdl) | `модуль 'lib/nothing' не найден` |
 | [errors/cycle.wdl](errors/cycle.wdl) | `циклический импорт: ring/a → ring/b → ring/a` |
 | [errors/unknown-member.wdl](errors/unknown-member.wdl) | `в модуле '../lib/geometry' нет имени 'aria'` |
-| [errors/readonly.wdl](errors/readonly.wdl) | `модуль '../lib/geometry' изменять нельзя` |
+| [errors/const.wdl](errors/const.wdl) | `'PI' нельзя присвоить: это константа` — изменять модуль можно, `const` в нём остаётся `const` |
+| [errors/unknown-assign.wdl](errors/unknown-assign.wdl) | `в модуле '../lib/geometry' нет имени 'aria'` — присваивание не заводит новых имён |
 | [errors/inside-module.wdl](errors/inside-module.wdl) | `деление на ноль` — **с местом в `lib/faulty.wdl`**, а не в запущенном файле |
 | [errors/inherit-before-import.wdl](errors/inherit-before-import.wdl) | `неизвестный класс 'Shape'` — тип из модуля виден только ниже своего `import` |
 
