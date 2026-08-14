@@ -4,10 +4,12 @@ import ru.wds.wdl.embed.Callback;
 import ru.wds.wdl.embed.NativeClass;
 import ru.wds.wdl.embed.NativeInstance;
 import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.WdlError;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.stdlib.Types;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
@@ -20,7 +22,6 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Нативный класс {@code Socket}: клиентское TCP-соединение сокетов.
@@ -77,39 +78,42 @@ public final class NativeSocket {
                     return self;
                 })
 
+                // Блокирующее чтение — теперь просто блокирующее чтение. Раньше вокруг
+                // него стоял allowOtherThreads: замок сеанса снимался, чтобы колбэки
+                // соседних сокетов могли войти в скрипт. Замка нет, снимать нечего,
+                // а остальные потоки и без того работают.
                 .method("readLine", Arity.exactly(0), (self, context, args, span) -> {
                     SocketState state = state(self, span);
-                    AtomicReference<String> lineRef = new AtomicReference<>();
-                    context.allowOtherThreads(() -> {
-                        try {
-                            lineRef.set(state.reader().readLine());
-                        } catch (IOException ignored) {
-                        }
-                    });
-                    String line = lineRef.get();
+                    String line;
+                    try {
+                        line = state.reader().readLine();
+                    } catch (IOException closed) {
+                        return NullValue.NULL;
+                    }
                     return line != null ? StringValue.of(line) : NullValue.NULL;
                 })
 
+                // Слушатель строк в своём потоке — и поток этот заводится через реестр
+                // запуска, а не сырым new Thread. Иначе он переживает close() и зовёт
+                // функцию скрипта по закрытым модулям.
                 .method("onLine", Arity.exactly(1), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
                     SocketState state = state(self, span);
-                    Thread thread = new Thread(() -> {
-                        try {
-                            String line;
-                            while ((line = state.reader().readLine()) != null) {
-                                try {
-                                    callback.call(StringValue.of(line));
-                                } catch (Throwable t) {
-                                    System.err.println("[Socket onLine Listener Error] " + t.getMessage());
-                                    t.printStackTrace();
-                                }
-                            }
-                        } catch (IOException ignored) {
-                        }
-                    });
-                    thread.setDaemon(true);
-                    thread.start();
-                    return NullValue.NULL;
+                    String title = "socket-" + state.socket().getPort();
+                    Thread thread = context.threads().start(title,
+                            () -> listen(state, callback, context));
+                    state.listening(thread);
+                    return self;
+                })
+
+                // Снять слушателя, не закрывая соединение: читать перестали, писать
+                // по-прежнему можно.
+                .method("stopListening", Arity.exactly(0), (self, context, args, span) -> {
+                    SocketState state = self.state(SocketState.class);
+                    if (state != null) {
+                        state.stopListening();
+                    }
+                    return self;
                 })
 
                 .method("close", Arity.exactly(0), (self, context, args, span) -> {
@@ -122,6 +126,39 @@ public final class NativeSocket {
                 })
 
                 .build();
+    }
+
+    /**
+     * Читает строки, пока соединение живо, и отдаёт каждую обработчику.
+     * <p>
+     * Ошибка обработчика не роняет слушателя и не уходит в {@code System.err}: она
+     * печатается в вывод запуска — тот самый, который задало приложение. Одно
+     * испорченное сообщение от одного клиента не должно отключать чат остальным.
+     */
+    private static void listen(SocketState state, Callback callback, CallContext context) {
+        try {
+            String line;
+            while (!Thread.currentThread().isInterrupted()
+                    && (line = state.reader().readLine()) != null) {
+                try {
+                    callback.call(StringValue.of(line));
+                } catch (WdlError error) {
+                    context.write("обработчик строки сокета: " + describe(error)
+                            + System.lineSeparator());
+                } catch (RuntimeException | LinkageError failure) {
+                    context.write("обработчик строки сокета: " + failure
+                            + System.lineSeparator());
+                }
+            }
+        } catch (IOException closed) {
+            // Соединение закрыто — с той стороны или нашим же close(). Это конец
+            // работы слушателя, а не ошибка: сообщать тут не о чем.
+        }
+    }
+
+    private static String describe(WdlError error) {
+        String kind = error.kindName();
+        return kind == null ? error.getMessage() : kind + ": " + error.getMessage();
     }
 
     private static SocketState state(NativeInstance self, Span span) {

@@ -15,6 +15,7 @@ import ru.wds.wdl.value.types.StringValue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 import static ru.wds.wdl.parser.TokenCursor.describe;
 
@@ -123,6 +124,7 @@ public final class Parser {
             // 'def' с именем — объявление. 'def(' — анонимная функция, то есть выражение:
             // её разберёт simpleStatement и скажет, что такая инструкция ничего не делает.
             case DEF -> cursor.peek(1).type() == TokenType.WORD ? defDeclaration() : simpleStatement();
+            case SYNCHRONIZED -> synchronizedStatement();
             case CLASS -> types.classDeclaration();
             case TRAIT -> types.traitDeclaration();
             case IMPORT -> importStatement();
@@ -230,7 +232,7 @@ public final class Parser {
         if (!(value instanceof FunctionExpr function) || function.name() != null) {
             return value;
         }
-        return new FunctionExpr(name, function.params(), function.body(),
+        return new FunctionExpr(name, function.modifiers(), function.params(), function.body(),
                 function.style(), function.span());
     }
 
@@ -351,11 +353,37 @@ public final class Parser {
 
     // --- функции -------------------------------------------------------------
 
-    /** Объявление: {@code def имя(a, b) тело}. Имя проверено в {@link #statement()}. */
+    /**
+     * Инструкция, начинающаяся с {@code synchronized}.
+     * <p>
+     * Модификатор бывает только у функции, поэтому решение принимается по одному
+     * следующему токену. {@code synchronized def имя(...)} — объявление,
+     * {@code synchronized def(...)} — выражение (и {@code simpleStatement} скажет,
+     * что такая инструкция ничего не делает), а всё остальное — ошибка с собственным
+     * текстом: общее «ожидалось выражение» назвало бы симптом вместо причины.
+     */
+    private Stmt synchronizedStatement() {
+        if (cursor.peek(1).type() != TokenType.DEF) {
+            Token keyword = cursor.advance();
+            diagnostics.error(keyword.span(), "'synchronized' — это модификатор функции: "
+                    + "он ставится перед 'def'. Отдельного блока 'synchronized { ... }'"
+                    + " в языке нет — есть замок значения: 'th.lock()'");
+            cursor.synchronize();
+            return new ErrorStmt(keyword.span());
+        }
+        return cursor.peek(2).type() == TokenType.WORD ? defDeclaration() : simpleStatement();
+    }
+
+    /**
+     * Объявление: {@code def имя(a, b) тело}, возможно с модификатором перед {@code def}.
+     * Имя и форма проверены в {@link #statement()}.
+     */
     private Stmt defDeclaration() {
-        Token keyword = cursor.advance(); // def
+        Token start = cursor.peek();
+        Set<Modifier> modifiers = modifiers();
+        cursor.advance();                 // def
         Token name = cursor.advance();    // имя
-        FunctionExpr function = functionRest(keyword, name.text());
+        FunctionExpr function = functionRest(start, name.text(), modifiers);
         if (function.body() instanceof ReturnStmt returned && returned.value() instanceof ErrorExpr) {
             // Тело после '=>' не разобралось, и об этом уже сказано. Дальше по строке
             // разбирать нечего: пропускаем её целиком, иначе тот же токен вызовет ту же
@@ -366,17 +394,40 @@ public final class Parser {
         return new DefDeclStmt(function, function.span());
     }
 
-    /** Анонимная функция в позиции выражения: {@code def(a, b) => a + b}. */
+    /**
+     * Анонимная функция в позиции выражения: {@code def(a, b) => a + b} и
+     * {@code synchronized def() { ... }}.
+     */
     private Expr functionExpr() {
-        Token keyword = cursor.advance(); // def
-        return functionRest(keyword, null);
+        Token start = cursor.peek();
+        Set<Modifier> modifiers = modifiers();
+        cursor.advance(); // def
+        return functionRest(start, null, modifiers);
+    }
+
+    /**
+     * Модификаторы перед {@code def}, если они там есть.
+     * <p>
+     * Вызывающий уже убедился, что за словом идёт {@code def}: решение «это объявление,
+     * выражение или ошибка» принимается раньше, по форме записи, — здесь остаётся
+     * только собрать набор. Набором, а не признаком, — см. {@link Modifier}.
+     */
+    private Set<Modifier> modifiers() {
+        if (!cursor.check(TokenType.SYNCHRONIZED)) {
+            return Set.of();
+        }
+        cursor.advance();
+        return Set.of(Modifier.SYNCHRONIZED);
     }
 
     /**
      * Параметры и тело — всё, что у объявления и анонимной функции общее, то есть всё,
      * кроме имени. Про границу области — {@link ParseState#inFunctionBody}.
+     *
+     * @param start первый токен заголовка: {@code def} или модификатор перед ним —
+     *              место функции обязано начинаться там, где человек начал её писать
      */
-    private FunctionExpr functionRest(Token keyword, String name) {
+    private FunctionExpr functionRest(Token start, String name, Set<Modifier> modifiers) {
         List<FunctionExpr.Param> params = types.parameters("'def'", true);
         return state.inFunctionBody(() -> {
             if (cursor.match(TokenType.FATARROW)) {
@@ -384,12 +435,12 @@ public final class Parser {
                 // ReturnStmt, а сама форма записи остаётся в BodyStyle для форматтера.
                 Expr value = expression(0);
                 Stmt body = new ReturnStmt(value, value.span());
-                return new FunctionExpr(name, params, body, BodyStyle.ARROW,
-                        keyword.span().to(value.span()));
+                return new FunctionExpr(name, modifiers, params, body, BodyStyle.ARROW,
+                        start.span().to(value.span()));
             }
             Stmt body = body(name != null ? "функции '" + name + "'" : "анонимной функции");
-            return new FunctionExpr(name, params, body, BodyStyle.STATEMENT,
-                    keyword.span().to(body.span()));
+            return new FunctionExpr(name, modifiers, params, body, BodyStyle.STATEMENT,
+                    start.span().to(body.span()));
         });
     }
 
@@ -891,6 +942,15 @@ public final class Parser {
             }
             case DEF -> {
                 return functionExpr();
+            }
+            case SYNCHRONIZED -> {
+                if (cursor.peek(1).type() == TokenType.DEF) {
+                    return functionExpr();
+                }
+                diagnostics.error(token.span(), "'synchronized' — это модификатор функции: "
+                        + "он ставится перед 'def'");
+                cursor.advance();
+                return new ErrorExpr(token.span());
             }
             case TRY -> {
                 if (shortTryAhead()) {

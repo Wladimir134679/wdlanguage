@@ -4,6 +4,7 @@ import ru.wds.wdl.ast.expr.BodyStyle;
 import ru.wds.wdl.ast.expr.CallExpr;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.ast.expr.Modifier;
 import ru.wds.wdl.ast.stmt.BlockStmt;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.ErrorStmt;
@@ -17,6 +18,7 @@ import ru.wds.wdl.source.Span;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static ru.wds.wdl.parser.TokenCursor.describe;
 
@@ -300,6 +302,18 @@ final class TypeParser {
 
     /** Один член: метод, конструктор, фабрика или — только в трейте — требование. */
     private void member(Members members, boolean hasParent, boolean isClass) {
+        Token start = cursor.peek();
+        Set<Modifier> modifiers = Set.of();
+        if (cursor.check(TokenType.SYNCHRONIZED)) {
+            cursor.advance();
+            if (!cursor.check(TokenType.DEF)) {
+                diagnostics.error(start.span(), "'synchronized' — это модификатор метода: "
+                        + "он ставится перед 'def'");
+                cursor.synchronize();
+                return;
+            }
+            modifiers = Set.of(Modifier.SYNCHRONIZED);
+        }
         if (!cursor.check(TokenType.DEF)) {
             diagnostics.error(cursor.peek().span(), "в теле " + (isClass ? "класса" : "трейта")
                     + " допустимы только объявления функций, а здесь " + describe(cursor.peek())
@@ -307,7 +321,7 @@ final class TypeParser {
             cursor.synchronize();
             return;
         }
-        Token keyword = cursor.advance(); // def
+        cursor.advance(); // def
         if (!cursor.check(TokenType.WORD)) {
             diagnostics.error(cursor.peek().span(),
                     "ожидалось имя метода, найдено " + describe(cursor.peek()));
@@ -317,7 +331,7 @@ final class TypeParser {
         Token name = cursor.advance();
 
         if (cursor.check(TokenType.DOT)) {
-            factory(members, keyword, name, isClass);
+            factory(members, start, name, isClass, modifiers);
             return;
         }
 
@@ -345,12 +359,12 @@ final class TypeParser {
                 return;
             }
             members.requirements.add(new TraitDeclStmt.Requirement(name.text(), params,
-                    keyword.span().to(name.span())));
+                    start.span().to(name.span())));
             return;
         }
 
-        FunctionExpr function = new FunctionExpr(name.text(), params, body,
-                bodyStyle(body), keyword.span().to(body.span()));
+        FunctionExpr function = new FunctionExpr(name.text(), modifiers, params, body,
+                bodyStyle(body), start.span().to(body.span()));
         if (isConstructor) {
             if (members.constructor != null) {
                 diagnostics.error(name.span(), "конструктор класса '" + className + "' уже объявлен");
@@ -373,7 +387,8 @@ final class TypeParser {
      * записанный рядом с классом», а запись в чужое значение, для которой есть
      * обычное присваивание. {@code this} внутри нет: экземпляра ещё не существует.
      */
-    private void factory(Members members, Token keyword, Token owner, boolean isClass) {
+    private void factory(Members members, Token start, Token owner, boolean isClass,
+                         Set<Modifier> modifiers) {
         cursor.advance(); // .
         if (!isClass) {
             diagnostics.error(owner.span(), "у трейта не бывает фабрик: "
@@ -405,8 +420,9 @@ final class TypeParser {
             }
         }
         members.factories.add(new ClassDeclStmt.Factory(name.text(),
-                new FunctionExpr(full, params, body, bodyStyle(body), keyword.span().to(body.span())),
-                keyword.span().to(body.span())));
+                new FunctionExpr(full, modifiers, params, body, bodyStyle(body),
+                        start.span().to(body.span())),
+                start.span().to(body.span())));
     }
 
     /**

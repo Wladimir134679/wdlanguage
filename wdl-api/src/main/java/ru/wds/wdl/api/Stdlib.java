@@ -5,6 +5,7 @@ import ru.wds.wdl.stdlib.Http;
 import ru.wds.wdl.stdlib.Io;
 import ru.wds.wdl.stdlib.Json;
 import ru.wds.wdl.stdlib.Std;
+import ru.wds.wdl.stdlib.thread.Threads;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -41,11 +42,18 @@ public enum Stdlib {
      * Набор для скрипта, пришедшего от пользователя: считать, разбирать и собирать
      * данные он может, читать файлы и ходить в сеть — нет. Класса {@code File}
      * здесь нет вовсе, поэтому и обойти нечего.
+     * <p>
+     * {@code sys.thread} сюда <b>не входит</b>, хотя мира и не трогает. Причина в другом:
+     * поток — это ресурс процесса, а лимитов выполнения (шаги, таймаут, число потоков)
+     * в движке пока нет. Значит, {@code for (;;) th.spawn(...)} в недоверенном скрипте
+     * кладёт не скрипт, а хозяина — и до появления лимитов честнее просто не давать
+     * этого модуля.
      */
     SAFE,
 
     /**
-     * Всё: {@code std}, {@code sys.io}, {@code sys.json}, {@code sys.net.http}.
+     * Всё: {@code std}, {@code sys.io}, {@code sys.json}, {@code sys.net.http},
+     * {@code sys.thread}.
      * <p>
      * Набор для скрипта, которому доверяют, — своего, лежащего рядом с приложением.
      * Это же берёт консольный {@code wdl}.
@@ -73,6 +81,7 @@ public enum Stdlib {
                 modules.put("sys/io", Io::library);
                 modules.put("sys/json", Json::library);
                 modules.put("sys/net/http", Http::library);
+                modules.put("sys/thread", Threads::library);
             }
         }
         return modules;

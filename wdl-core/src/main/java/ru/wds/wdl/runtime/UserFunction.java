@@ -11,6 +11,7 @@ import ru.wds.wdl.value.types.NullValue;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Функция, написанная на wdl: тело-дерево плюс область видимости, в которой её объявили.
@@ -56,15 +57,26 @@ public final class UserFunction implements FunctionValue {
     /** Интерпретатор безсостоятельный, поэтому делить один экземпляр безопасно. */
     private final Interpreter interpreter;
     private final Arity arity;
+    /**
+     * Замок {@code synchronized}-функции или {@code null}, если модификатора нет.
+     * <p>
+     * Кто его создаёт — и есть ответ на вопрос «чей это замок». У обычной функции его
+     * заводит {@code Interpreter.visitFunction}, то есть <b>вычисление литерала</b>:
+     * замыкание, созданное дважды, даёт два значения и два замка, и это верно —
+     * у них разное захваченное состояние. У метода класса замок приходит готовым
+     * от {@code WdlClass.bind} — замок <b>экземпляра</b>, общий для всех его методов.
+     */
+    private final ReentrantLock guard;
 
     UserFunction(FunctionExpr declaration, Environment closure, Unit unit, Run run,
-                 Interpreter interpreter) {
+                 Interpreter interpreter, ReentrantLock guard) {
         this.declaration = Objects.requireNonNull(declaration, "declaration");
         this.closure = Objects.requireNonNull(closure, "closure");
         this.unit = Objects.requireNonNull(unit, "unit");
         this.run = Objects.requireNonNull(run, "run");
         this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
         this.arity = arityOf(declaration);
+        this.guard = guard;
     }
 
     /**
@@ -95,24 +107,60 @@ public final class UserFunction implements FunctionValue {
      * Вызывает функцию — изнутри скрипта или снаружи, из приложения.
      * <p>
      * Разница между этими двумя случаями ровно одна и вся здесь: вызов изнутри уже
-     * идёт под замком своего запуска, а вызов снаружи его берёт. Дальше кода два раза
+     * внутри запуска, а вызов снаружи в него входит — и этот вход считается
+     * ({@link Run#MAX_ENTRIES}) и проверяется на закрытие. Дальше кода два раза
      * не написано — тело одно, и оно не знает, кто его начал.
      */
     @Override
     public Value call(CallContext context, List<Value> arguments, Span span) {
         if (run.insideCurrentThread()) {
-            return body(context, arguments, span);
+            return guarded(context, arguments, span);
         }
         // Внешний вход: чужой поток, другой запуск или приложение вовсе без запуска.
         run.enter(span);
         try {
-            return body(context, arguments, span);
+            return guarded(context, arguments, span);
         } finally {
             run.leave();
         }
     }
 
+    /**
+     * Берёт замок {@code synchronized}-функции, если он у неё есть.
+     * <p>
+     * <b>Внутри входа в запуск, а не снаружи.</b> Сейчас вход ничего не блокирует,
+     * поэтому порядок ни на что не влияет; он выбран на случай, когда вход снова
+     * начнёт ждать (лимиты выполнения, пауза запуска). Замок, взятый раньше входа,
+     * дал бы классическую взаимную блокировку: один поток держит функцию и ждёт вход,
+     * другой держит вход и ждёт функцию. Взятые в одном порядке, они не встретятся.
+     * <p>
+     * {@code lockInterruptibly}, а не {@code lock}: ожидание входа обязано сниматься
+     * прерыванием — иначе {@code t.interrupt()} не достал бы поток, застрявший здесь,
+     * и остановка зациклившегося скрипта перестала бы работать.
+     */
+    private Value guarded(CallContext context, List<Value> arguments, Span span) {
+        if (guard == null) {
+            return body(context, arguments, span);
+        }
+        try {
+            guard.lockInterruptibly();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw FatalError.interrupted(span);
+        }
+        try {
+            return body(context, arguments, span);
+        } finally {
+            guard.unlock();
+        }
+    }
+
     private Value body(CallContext context, List<Value> arguments, Span span) {
+        // Прерывание проверяется и здесь, а не только в циклах: рекурсия без цикла —
+        // такое же зацикливание, и остановить её снаружи надо той же кнопкой.
+        if (Thread.currentThread().isInterrupted()) {
+            throw FatalError.interrupted(span);
+        }
         if (context.callDepth() >= ExecutionContext.MAX_CALL_DEPTH) {
             // Рекурсия без выхода — не «эта операция не удалась», а «выполнение дальше
             // не идёт»: поймать такое обработчиком нельзя, иначе цикл с try съел бы

@@ -80,7 +80,7 @@ public final class NativeComboBox {
 
                 .method("onChange", Arity.exactly(1), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    comboBox(self).addActionListener(GuiEvents.toActionListener(callback));
+                    comboBox(self).addActionListener(GuiEvents.toActionListener(callback, context));
                     return NullValue.NULL;
                 })
 

@@ -16,6 +16,7 @@ import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
+import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.StringValue;
 
 import java.util.ArrayList;
@@ -30,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Вызов функции скрипта <b>снаружи</b>: из Java, из чужого потока, после того как
@@ -260,11 +262,15 @@ class ExternalCallTest {
             pool.shutdownNow();
         }
 
-        // Замок запуска сериализует внешние входы, поэтому ни один инкремент не потерян:
-        // после 1600 вызовов следующий обязан дать ровно 1601. Без замка счётчик
-        // оказался бы меньше — а HashMap области мог бы и испортиться.
-        assertEquals(String.valueOf(threads * perThread + 1), call(script, "bump").display(),
-                "потерянный инкремент означает гонку внутри запуска");
+        // Раньше здесь ждали точного числа: замок сеанса сериализовал внешние входы,
+        // и ни один инкремент не терялся. Замка нет, и точного числа больше нет —
+        // 'calls = calls + 1' это два обращения, а атомарно в языке одно (см.
+        // docs/threads.md). Точность возвращает 'synchronized def bump' — проверка
+        // на неё живёт в ThreadingTest; здесь проверяется то, за что отвечает движок
+        // при любом скрипте: состояние цело, а не испорчено гонкой по HashMap.
+        long calls = ((IntValue) call(script, "bump")).value();
+        assertTrue(calls > 0 && calls <= (long) threads * perThread + 1,
+                () -> "счётчик вне границ: " + calls);
     }
 
     @Test

@@ -33,6 +33,11 @@ import java.util.Objects;
  * <p>
  * Реестр один на запуск: разбери модуль дважды — получатся два дерева и два набора
  * форм, и класс, полученный из первого, не будет тем же классом, что из второго.
+ * <p>
+ * Из этого же следует и защита от потоков: {@link #load} синхронизирован целиком.
+ * Разбор двумя потоками одновременно нарушил бы ровно то правило, ради которого
+ * реестр и заведён, — а стоит эта строгость немного: разбирается модуль один раз
+ * за запуск, дальше работает карта.
  */
 public final class ModuleUnits {
 
@@ -63,7 +68,7 @@ public final class ModuleUnits {
     }
 
     /** Разбирает модуль или отдаёт разобранный раньше. */
-    public Loaded load(String key) {
+    public synchronized Loaded load(String key) {
         Unit ready = loaded.get(key);
         if (ready != null) {
             return new Loaded(ready, null, false);

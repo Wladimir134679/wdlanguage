@@ -43,6 +43,11 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 3. **Никакой изменяемой статики в ядре.** Всё состояние — на экземпляре, контекст
    идёт аргументом; это то, что делает изоляцию нескольких интерпретаторов в одном
    процессе настоящей. Даже таблицы в `Operators` отдаются через `unmodifiableMap`.
+   С появлением потоков к этому добавилось второе: **изменяемое состояние запуска
+   потокобезопасно**. `Scope`, `MapValue`, `ArrayValue`, `Modules`, `ModuleScope`,
+   `ModuleUnits`, `Linker` уже переделаны; новое изменяемое поле, живущее дольше
+   вызова, обязано быть либо конкурентным, либо под замком — глобального замка,
+   который это прикрывал, больше нет (`docs/threads.md`).
 4. **У узлов AST нет `eval()`.** AST — данные (`record` в `sealed`-иерархиях),
    выполнение живёт в `runtime` через посетителей.
 5. **`Span` в каждом токене и узле.** Позиция задаётся при создании, не задним числом.
@@ -60,7 +65,7 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 | Модуль | Содержимое | Зависит от |
 |---|---|---|
 | `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source` | ничего |
-| `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, реестр `Sys` | core |
+| `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, реестр `Sys` | core |
 | `wdl-api` | фасад для встраивания `WdlEngine` (пока заготовка) | core, stdlib |
 | `wdl-tools` | `AstDumper`, `TokenDumper`, позже линтер/форматтер/LSP | core |
 | `wdl-cli` | picocli-точка входа, REPL | api, tools |
@@ -92,6 +97,20 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 * **Вывод — зависимость, а не `System.out`**: `Output` внутри `ExecutionContext`,
   по умолчанию `Output.discarding()`. `ExecutionContext` неизменяем — вложенная
   область даёт новый контекст (`withScope`/`nested`), а не подменяет поле.
+  На границе запуска вывод оборачивается `Output.serialized` — «один `write` целиком».
+* **Внутри запуска работает сколько угодно потоков.** Глобального замка нет; `Run`
+  считает внешние входы в `ThreadLocal` и знает, закрыт ли запуск. Обещание языка —
+  «одно обращение атомарно, выражение целиком нет», склеивают обращения
+  `synchronized def`, `th.lock()` и `th.counter()` (`docs/threads.md`).
+  Режима «вернуть старый GIL» нет и не надо заводить: такой был, и он намертво вешал
+  `sys.thread` (главный поток держит замок, порождённый ждёт его, `join` ждёт вечно).
+* **Поток заводится только через `CallContext.threads()`** (`value/ScriptThreads`),
+  никогда через `new Thread`: иначе он переживает `close()` и зовёт функцию скрипта
+  по закрытым модулям. Закрытие запуска — строго в порядке `stopScriptThreads(ms)` →
+  `shutdownModules()` и библиотеки корня → `stopScriptThreads(ms)` ещё раз →
+  `closeRun()`. Вход закрывается **последним**, потому что модуль вправе звать скрипт
+  во время своего закрытия: `sys.gui` ждёт в `close()`, пока пользователь закроет окна,
+  и обработчики кнопок всё это время работают.
 
 ## Рецепты
 
@@ -100,6 +119,10 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   (результат). Парсер не трогается.
 * **Тип значения**: класс в `value/types`, `permits` в `Value`, элемент в `ValueType`.
   Дальше компилятор сам покажет все неполные `switch` — это и есть список работ.
+* **Модификатор функции** (после `synchronized`): элемент в `ast/expr/Modifier` →
+  `TokenType` → разбор в `Parser.modifiers()` и `TypeParser.member` → поведение
+  в `UserFunction`/`WdlClass.bind` → посетители. Само поле `FunctionExpr.modifiers`
+  уже есть — второй модификатор дерева не меняет.
 * **Вид узла**: `record` в `ast/expr` или `ast/stmt`, `permits` в `Expr`/`Stmt`,
   метод в `ExprVisitor`/`StmtVisitor` — компилятор проведёт по всем посетителям
   (`Interpreter`, `AstDumper`, тестовый `SExprPrinter`).

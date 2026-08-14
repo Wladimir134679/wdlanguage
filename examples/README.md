@@ -49,6 +49,22 @@ wdl-cli/build/install/wdl/bin/wdl examples/hello.wdl
 проверок «а был ли ресурс» не нужно — в отличие от `finally`, который существует
 независимо от того, дошло ли дело до `open`.
 
+## Потоки
+
+| Файл | О чём |
+|---|---|
+| [threads.wdl](threads.wdl) | `th.spawn`, `join`, `interrupt`, `sleep`, `synchronized def`, `th.counter` |
+| [threads_pool.wdl](threads_pool.wdl) | пул и `use`, `pool.map`, `pool.submit` с таймаутом и ошибкой, канал, замок, защёлка |
+
+Правило, вокруг которого построены оба файла: **атомарно одно обращение, а не
+выражение**. `count = count + 1` из двух потоков теряет обновления, и склеивают
+эти два обращения `synchronized def`, `th.lock()` или `th.counter()` — см.
+[docs/threads.md](../docs/threads.md).
+
+Чат-сервер из [chat_server.wdl](chat_server.wdl) — тот же приём на живом примере:
+клиенты обслуживаются в своих потоках, а общий список защищён `synchronized`.
+Он не прогоняется на сборке — занимает порт.
+
 ## Встраивание: то, что дала сторона Java
 
 | Файл | О чём |

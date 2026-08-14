@@ -48,49 +48,54 @@ public final class WindowTracker {
         waitUntilClosed(null);
     }
 
+    /**
+     * Ждёт закрытия всех окон.
+     * <p>
+     * Просто ждёт. Раньше ожидание заворачивалось в {@code allowOtherThreads}: замок
+     * сеанса снимался, иначе обработчики кнопок не смогли бы войти в скрипт и окно
+     * не закрылось бы никогда. Замка нет — обработчики входят сами, а контекст здесь
+     * больше ни на что не влияет и остаётся только ради совместимости подписи.
+     */
     public void waitUntilClosed(CallContext context) {
         if (GraphicsEnvironment.isHeadless()) {
             return;
         }
-        Runnable waitAction = () -> {
-            synchronized (lock) {
-                while (!openWindows.isEmpty()) {
-                    try {
-                        lock.wait();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
+        synchronized (lock) {
+            while (!openWindows.isEmpty()) {
+                if (!awaitOnLock()) {
+                    return;
                 }
             }
-        };
-        if (context != null) {
-            context.allowOtherThreads(waitAction);
-        } else {
-            waitAction.run();
         }
     }
 
+    /** Ждёт закрытия одного окна — по тому же правилу, что и {@link #waitUntilClosed}. */
     public void waitUntilWindowClosed(JFrame frame, CallContext context) {
         if (GraphicsEnvironment.isHeadless()) {
             return;
         }
-        Runnable waitAction = () -> {
-            synchronized (lock) {
-                while (openWindows.contains(frame)) {
-                    try {
-                        lock.wait();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
+        synchronized (lock) {
+            while (openWindows.contains(frame)) {
+                if (!awaitOnLock()) {
+                    return;
                 }
             }
-        };
-        if (context != null) {
-            context.allowOtherThreads(waitAction);
-        } else {
-            waitAction.run();
+        }
+    }
+
+    /**
+     * Одно ожидание на замке.
+     *
+     * @return {@code false}, если поток прервали, — ждать дальше нельзя: остановка
+     *         скрипта снаружи обязана снимать и того, кто висит на окне
+     */
+    private boolean awaitOnLock() {
+        try {
+            lock.wait();
+            return true;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

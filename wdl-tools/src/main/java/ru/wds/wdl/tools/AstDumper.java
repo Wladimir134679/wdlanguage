@@ -361,7 +361,13 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     @Override
     public Void visitFunction(FunctionExpr expr, Integer depth) {
         String arrow = expr.style() == BodyStyle.ARROW ? ", тело-выражение '=>'" : "";
-        line(depth, "функция " + expr.title() + "(" + header(expr.params()) + ")" + arrow, expr);
+        // Модификатор идёт в ту же строку, что имя и параметры: он относится к самой
+        // функции, а не к её телу, — и в дампе это должно быть видно сразу.
+        String modifiers = expr.modifiers().stream()
+                .map(Modifier::text)
+                .collect(Collectors.joining(" ", "", " "));
+        line(depth, "функция " + modifiers.stripLeading() + expr.title()
+                + "(" + header(expr.params()) + ")" + arrow, expr);
         defaults(expr.params(), depth + 1);
         return visit(expr.body(), depth + 1);
     }

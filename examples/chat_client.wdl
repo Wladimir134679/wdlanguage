@@ -49,7 +49,7 @@ def connect() {
 
         socket.onLine(def (line) {
             println("[CLIENT LOG] Received message from server: ", line)
-            gui.runLater(def () {
+            gui.later(def () {
                 chatArea.append(line + "\n")
             })
         })

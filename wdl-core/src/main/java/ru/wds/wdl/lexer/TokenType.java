@@ -27,6 +27,11 @@ public enum TokenType {
     /** Имя, которое нельзя переприсвоить: {@code const LIMIT = 10}. */
     CONST("const"),
     DEF("def"),
+    /**
+     * Модификатор функции: вызовы одной такой функции не идут одновременно.
+     * У метода класса замок — экземпляр, а не метод. См. {@code docs/threads.md}.
+     */
+    SYNCHRONIZED("synchronized"),
     RETURN("return"),
     IF("if"),
     ELSE("else"),

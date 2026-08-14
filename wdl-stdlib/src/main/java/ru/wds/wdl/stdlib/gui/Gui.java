@@ -130,11 +130,21 @@ public final class Gui implements Library {
                     return Dialogs.prompt(msg, defText);
                 }));
 
+        // Мост в поток интерфейса: единственный правильный способ тронуть окно
+        // из потока скрипта. Swing не потокобезопасен, и раньше это было незаметно
+        // только из-за замка запуска.
+        scope.define("later", BuiltinFunction.of("later", Arity.exactly(1),
+                (context, arguments, span) ->
+                        Dialogs.later(arguments.callback(0, "обработчик"), context)));
+
+        scope.define("sync", BuiltinFunction.of("sync", Arity.exactly(1),
+                (context, arguments, span) ->
+                        Dialogs.sync(arguments.callback(0, "обработчик"), context, span)));
+
+        // Прежнее имя того же моста: скрипты с ним уже написаны, и ломать их незачем.
         scope.define("runLater", BuiltinFunction.of("runLater", Arity.exactly(1),
-                (context, arguments, span) -> {
-                    Callback callback = arguments.callback(0, "обработчик");
-                    return Dialogs.runLater(callback);
-                }));
+                (context, arguments, span) ->
+                        Dialogs.later(arguments.callback(0, "обработчик"), context)));
 
         scope.define("wait", BuiltinFunction.of("wait", Arity.exactly(0),
                 (context, arguments, span) -> {

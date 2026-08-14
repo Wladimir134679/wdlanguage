@@ -4,8 +4,9 @@ import ru.wds.wdl.value.Binding;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.ModuleValue;
 
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -28,6 +29,13 @@ import java.util.Set;
  * в том же порядке, в каком они объявлены в файле, и вывод не пляшет от запуска
  * к запуску.
  * <p>
+ * Отсюда же и способ защиты от потоков — не {@code ConcurrentHashMap}, как в обычной
+ * {@link Scope}, а {@link Collections#synchronizedMap обёртка} поверх
+ * {@code LinkedHashMap}: конкурентная карта порядок вставки не хранит, а он здесь
+ * часть обещания. Монитор у обёртки — она сама, поэтому перебор снаружи
+ * ({@link ru.wds.wdl.value.types.ModuleValue#names()}) синхронизируется по тому же
+ * объекту, и снимок имён нельзя застать на середине.
+ * <p>
  * <b>Что модуль принёс себе развёрнутым импортом</b>, лежит третьей картой — связками,
  * а не копиями, — и уходит наружу вместе со своими именами. Поэтому реэкспорт сквозной:
  * {@code lib.x} после {@code import base} внутри {@code lib} — та же ячейка, что
@@ -36,10 +44,10 @@ import java.util.Set;
 final class ModuleScope implements Environment {
 
     private final Environment root;
-    private final Map<String, Value> members = new LinkedHashMap<>();
-    private final Set<String> constants = new HashSet<>(4);
+    private final Map<String, Value> members = Collections.synchronizedMap(new LinkedHashMap<>());
+    private final Set<String> constants = Collections.synchronizedSet(new LinkedHashSet<>(4));
     /** Имена, пришедшие развёрнутым импортом. Не ленивая: область модуля одна на файл. */
-    private final Map<String, Binding> aliases = new LinkedHashMap<>();
+    private final Map<String, Binding> aliases = Collections.synchronizedMap(new LinkedHashMap<>());
     private final ModuleValue module;
 
     ModuleScope(String name, Environment root) {
@@ -124,11 +132,12 @@ final class ModuleScope implements Environment {
     public Assignment assign(String name, Value value) {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
-        if (members.containsKey(name)) {
-            if (constants.contains(name)) {
-                return Assignment.CONSTANT;
-            }
-            members.put(name, value);
+        if (constants.contains(name)) {
+            return Assignment.CONSTANT;
+        }
+        // Атомарно, как и в Scope: между «есть ли имя» и «записать» соседний поток
+        // вправе его завести или заменить связкой.
+        if (members.replace(name, value) != null) {
             return Assignment.DONE;
         }
         Binding alias = aliases.get(name);

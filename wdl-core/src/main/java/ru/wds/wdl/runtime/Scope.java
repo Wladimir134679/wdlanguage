@@ -3,11 +3,10 @@ package ru.wds.wdl.runtime;
 import ru.wds.wdl.value.Binding;
 import ru.wds.wdl.value.Value;
 
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Область видимости: таблица имён плюс ссылка на внешнюю область.
@@ -19,11 +18,23 @@ import java.util.Set;
  * Реализация нарочно самая простая, какая работает. Оптимизировать поиск имени
  * имеет смысл после того, как появятся функции и циклы, — и делать это надо будет
  * не здесь, а в резолвере, который заменит имена на номера слотов.
+ *
+ * <h2>Потоки</h2>
+ * Таблица имён — {@link ConcurrentHashMap}, и это требование, а не осторожность.
+ * Область живёт дольше вызова, который её завёл: она становится замыканием функции,
+ * а функцию скрипт волен отдать в другой поток. Обычная {@code HashMap} на такое
+ * отвечает не «неверным значением», а порчей структуры — потерянными элементами
+ * при перестройке и, в худшем случае, зацикливанием чтения.
+ * <p>
+ * Обещание отсюда ровно одно и записано в {@code docs/threads.md}: <b>одно обращение
+ * атомарно</b>. Чтение имени видит либо старое значение, либо новое, но не половину;
+ * {@code count = count + 1} из двух потоков по-прежнему теряет обновления — это два
+ * обращения, и склеивает их {@code synchronized} на функции, а не область видимости.
  */
 public final class Scope implements Environment {
 
     private final Environment parent;
-    private final Map<String, Value> values = new HashMap<>();
+    private final Map<String, Value> values = new ConcurrentHashMap<>();
 
     /**
      * Имена, замороженные {@code const}. Отдельным множеством, а не признаком рядом
@@ -32,9 +43,11 @@ public final class Scope implements Environment {
      * <p>
      * Поле заводится лениво и остаётся {@code null}, пока констант нет: областей
      * создаётся по одной на вызов функции, блок и итерацию перебора, и в подавляющем
-     * большинстве из них не объявляют ничего.
+     * большинстве из них не объявляют ничего. {@code volatile} — цена этой лени
+     * в многопоточном мире: без него чужой поток увидел бы ссылку на множество раньше,
+     * чем его содержимое.
      */
-    private Set<String> constants;
+    private volatile Set<String> constants;
 
     /**
      * Имена, заведённые развёрнутым {@code import}: связки на ячейки модуля.
@@ -44,7 +57,7 @@ public final class Scope implements Environment {
      * и в подавляющем большинстве из них импорта нет. Пока карты нет, связки стоят
      * ровно одну проверку {@code != null} на промахе по своим именам.
      */
-    private Map<String, Binding> aliases;
+    private volatile Map<String, Binding> aliases;
 
     private Scope(Environment parent) {
         this.parent = parent;
@@ -94,7 +107,42 @@ public final class Scope implements Environment {
 
     /** Связка с этим именем или {@code null}. Своё имя спрашивается раньше — оно сильнее. */
     private Binding alias(String name) {
-        return aliases != null ? aliases.get(name) : null;
+        Map<String, Binding> known = aliases;
+        return known != null ? known.get(name) : null;
+    }
+
+    /**
+     * Множество констант — готовое или заведённое сейчас.
+     * <p>
+     * Двойная проверка с {@code volatile}: на горячем пути ({@link #lookup},
+     * {@link #assign}) ленивое поле читается без замка, а платит за создание
+     * только тот, кто первым объявил здесь константу.
+     */
+    private Set<String> constants() {
+        Set<String> known = constants;
+        if (known != null) {
+            return known;
+        }
+        synchronized (this) {
+            if (constants == null) {
+                constants = ConcurrentHashMap.newKeySet(4);
+            }
+            return constants;
+        }
+    }
+
+    /** Карта связок — готовая или заведённая сейчас; по тому же правилу, что {@link #constants()}. */
+    private Map<String, Binding> aliases() {
+        Map<String, Binding> known = aliases;
+        if (known != null) {
+            return known;
+        }
+        synchronized (this) {
+            if (aliases == null) {
+                aliases = new ConcurrentHashMap<>(4);
+            }
+            return aliases;
+        }
     }
 
     @Override
@@ -108,8 +156,9 @@ public final class Scope implements Environment {
         Objects.requireNonNull(value, "value");
         // Своё объявление вытесняет связку: имя после него означает эту переменную,
         // а не ячейку модуля, — иначе присваивание уходило бы в чужой файл.
-        if (aliases != null) {
-            aliases.remove(name);
+        Map<String, Binding> known = aliases;
+        if (known != null) {
+            known.remove(name);
         }
         values.put(name, value);
     }
@@ -117,10 +166,7 @@ public final class Scope implements Environment {
     @Override
     public void defineConstant(String name, Value value) {
         define(name, value);
-        if (constants == null) {
-            constants = new HashSet<>(4);
-        }
-        constants.add(name);
+        constants().add(name);
     }
 
     @Override
@@ -130,34 +176,41 @@ public final class Scope implements Environment {
         // Обратная сторона того же правила: импорт вытесняет ранее объявленное имя,
         // как это делает любое объявление на его месте.
         values.remove(name);
-        if (constants != null) {
-            constants.remove(name);
+        Set<String> frozen = constants;
+        if (frozen != null) {
+            frozen.remove(name);
         }
-        if (aliases == null) {
-            aliases = new HashMap<>(4);
-        }
-        aliases.put(name, binding);
+        aliases().put(name, binding);
     }
 
     @Override
     public boolean isConstantHere(String name) {
         Objects.requireNonNull(name, "name");
-        if (constants != null && constants.contains(name)) {
+        if (isFrozen(name)) {
             return true;
         }
         Binding alias = alias(name);
         return alias != null && alias.constant();
     }
 
+    private boolean isFrozen(String name) {
+        Set<String> frozen = constants;
+        return frozen != null && frozen.contains(name);
+    }
+
     @Override
     public Assignment assign(String name, Value value) {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
-        if (values.containsKey(name)) {
-            if (constants != null && constants.contains(name)) {
-                return Assignment.CONSTANT;
-            }
-            values.put(name, value);
+        if (isFrozen(name)) {
+            // Замороженное имя всегда лежит и в таблице значений: 'const' сначала
+            // объявляет, потом морозит, а связка стирает обе записи разом.
+            return Assignment.CONSTANT;
+        }
+        // Одной атомарной операцией, а не «проверил — записал»: между двумя обращениями
+        // соседний поток вправе завести здесь это же имя, и тогда запись сюда потеряла бы
+        // его объявление.
+        if (values.replace(name, value) != null) {
             return Assignment.DONE;
         }
         // Связка уводит присваивание в модуль: имя, пришедшее развёрнутым импортом,

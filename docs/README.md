@@ -18,6 +18,7 @@
 | [Классы](classes.md) | `class` и `trait`, `new`, `this` и `super`, наследование, требования трейтов, `is` |
 | [Ошибки и ресурсы](errors.md) | иерархия `Exception`, `throw`, `try`/`catch`/`finally`, `try?`/`try!`, `defer`, `use` и `Closeable`, трассировка |
 | [Модули](modules.md) | `import` и `import ... as`, пути, область действия импорта, наследование через файлы |
+| [Потоки](threads.md) | модель памяти, `synchronized`, `sys.thread`: потоки, пул, замок, счётчик, канал, защёлка |
 | [Встраивание](embedding.md) | как приложение добавляет в язык свои функции, классы и библиотеки |
 
 Черновые заметки автора о том, каким язык хочется видеть, лежат отдельно —
@@ -49,6 +50,8 @@ wdl examples/resources.wdl                  # ресурсы: defer, use, тре
 wdl examples/testing/errors.wdl             # тесты на самом языке: проверки по ошибкам
 wdl examples/modules/plain.wdl              # модули: import и import ... as
 wdl examples/modules/late.wdl               # плагин загружается по требованию
+wdl examples/threads.wdl                    # потоки: spawn, join, interrupt, synchronized
+wdl examples/threads_pool.wdl               # пул, обещания, канал, защёлка
 wdl examples/stdlib.wdl                     # стандартная библиотека: pow, File, Random
 wdl --ast examples/hello.wdl                # дерево программы
 wdl --tokens examples/lexer-check.wdl       # поток токенов

@@ -61,7 +61,7 @@ public final class NativeCheckBox {
 
                 .method("onChange", Arity.exactly(1), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    checkBox(self).addItemListener(GuiEvents.toItemListener(callback));
+                    checkBox(self).addItemListener(GuiEvents.toItemListener(callback, context));
                     return NullValue.NULL;
                 })
 

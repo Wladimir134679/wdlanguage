@@ -20,21 +20,32 @@ import java.util.Map;
  * <p>
  * Снимок делается один раз, сразу после выполнения прелюдии, — до первой строки
  * пользовательского кода.
+ *
+ * <h2>Потоки</h2>
+ * Реестр заполняется один раз и дальше только читается — из любого потока, какой
+ * позовёт функцию запуска. Поэтому карта не правится на месте, а <b>заменяется целиком</b>
+ * записью в {@code volatile}: собранный экземпляр становится видимым чужому потоку
+ * вместе со всем содержимым, а не наполовину. Замок здесь был бы платой за каждый
+ * {@code catch} ради одной записи за весь запуск.
  */
 final class PreludeTypes {
 
     private static final String CLOSEABLE = "Closeable";
 
-    private final Map<ErrorKind, ClassValue> errors = new EnumMap<>(ErrorKind.class);
-    private TraitValue closeable;
+    private volatile Map<ErrorKind, ClassValue> errors = Map.of();
+    private volatile TraitValue closeable;
 
     /** Запоминает типы прелюдии, объявленные в этой области. */
     void captureFrom(Environment scope) {
+        Map<ErrorKind, ClassValue> captured = new EnumMap<>(ErrorKind.class);
         for (ErrorKind kind : ErrorKind.values()) {
             if (scope.lookup(kind.title()) instanceof ClassValue declared) {
-                errors.put(kind, declared);
+                captured.put(kind, declared);
             }
         }
+        // Одной записью, когда карта уже собрана: до этой строки чужой поток видит
+        // прежний снимок целиком, после — новый целиком.
+        this.errors = captured;
         if (scope.lookup(CLOSEABLE) instanceof TraitValue declared) {
             closeable = declared;
         }

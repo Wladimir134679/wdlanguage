@@ -30,6 +30,7 @@ import ru.wds.wdl.value.Value;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 /**
@@ -76,11 +77,12 @@ public final class Interpreter
     }
 
     /**
-     * Открывает выполнение: берёт замок запуска на время работы.
+     * Открывает выполнение: засчитывает внешний вход в запуск.
      * <p>
-     * Это граница движка — сюда управление приходит от приложения, и с этого момента
-     * внутренности запуска трогает один поток. Про то, почему замок, а не конкурентные
-     * структуры, — в {@link Run}.
+     * Это граница движка — сюда управление приходит от приложения. Замка здесь больше
+     * нет: внутренности запуска конкурентны, и потоков внутри может быть сколько угодно.
+     * Осталось то, ради чего вход вообще считают, — предел на длину цепочки
+     * «скрипт → приложение → скрипт» и проверка, что запуск ещё не закрыт. См. {@link Run}.
      */
     private Value entering(ExecutionContext context, Supplier<Value> body) {
         Run run = context.run();
@@ -728,8 +730,11 @@ public final class Interpreter
      */
     private void installFactories(WdlClass declared, ExecutionContext context) {
         for (ClassDeclStmt.Factory factory : declared.shape().factories()) {
+            // Фабрика — функция на классе, а не метод: экземпляра ещё нет, значит
+            // и замка экземпляра быть не может. Замок у неё свой, как у обычной функции.
             declared.statics().put(factory.name(), new UserFunction(factory.function(),
-                    declared.closure(), declared.unit(), context.run(), this));
+                    declared.closure(), declared.unit(), context.run(), this,
+                    factory.function().isSynchronized() ? new ReentrantLock() : null));
         }
     }
 
@@ -1440,7 +1445,12 @@ public final class Interpreter
      */
     @Override
     public Value visitFunction(FunctionExpr expr, ExecutionContext context) {
-        return new UserFunction(expr, context.scope(), context.unit(), context.run(), this);
+        // Замок заводится здесь, при вычислении литерала, — и потому принадлежит
+        // значению-функции, а не имени. Два вычисления одного и того же 'def' дают
+        // два замыкания и два замка: у них разное захваченное состояние, и защищать
+        // их одним замком было бы неправдой.
+        return new UserFunction(expr, context.scope(), context.unit(), context.run(), this,
+                expr.isSynchronized() ? new ReentrantLock() : null);
     }
 
     /**

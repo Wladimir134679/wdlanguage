@@ -6,6 +6,7 @@ import ru.wds.wdl.value.Value;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Экземпляр класса: тот же набор пар «ключ — значение», но собранный по
@@ -31,6 +32,22 @@ public non-sealed class InstanceObjectValue extends MapValue {
 
     /** Корневой экземпляр, если это вид {@code super}, иначе {@code null}. */
     private final InstanceObjectValue root;
+
+    /**
+     * Замок {@code synchronized}-методов этого объекта. Заводится лениво: экземпляров
+     * в скрипте много, а методов с модификатором — единицы.
+     * <p>
+     * <b>Замок принадлежит экземпляру, а не методу</b>, и это то же правило, что в Java,
+     * и то же, чего ждёт интуиция: метод защищает поля своего объекта, поэтому два
+     * {@code synchronized}-метода одного объекта взаимно исключаются, а два разных
+     * объекта друг другу не мешают. Замок на методе давал бы обратное — и был бы почти
+     * всегда не тем, что нужно.
+     * <p>
+     * {@link ReentrantLock}, а не {@code synchronized}: вход в него обязан быть
+     * прерываемым, иначе {@code t.interrupt()} не снял бы поток, застрявший на замке,
+     * и остановка зациклившегося скрипта перестала бы работать.
+     */
+    private volatile ReentrantLock guard;
 
     private InstanceObjectValue(Map<Value, Value> entries, ClassValue owner,
                                 ClassValue lookupFrom, InstanceObjectValue root) {
@@ -89,6 +106,33 @@ public non-sealed class InstanceObjectValue extends MapValue {
      */
     public InstanceObjectValue identity() {
         return root != null ? root : this;
+    }
+
+    /**
+     * Замок {@code synchronized}-методов — общий на объект и на все виды {@code super}
+     * над ним.
+     * <p>
+     * Спрашивается у {@link #identity()}, а не у {@code this}: вид {@code super} — это
+     * тот же объект, и защищать он обязан те же поля. Отдельный замок у вида означал бы,
+     * что {@code super.push()} и {@code push()} могут идти одновременно поверх одного
+     * массива.
+     */
+    public ReentrantLock guard() {
+        InstanceObjectValue self = identity();
+        return self == this ? ownGuard() : self.guard();
+    }
+
+    private ReentrantLock ownGuard() {
+        ReentrantLock known = guard;
+        if (known != null) {
+            return known;
+        }
+        synchronized (this) {
+            if (guard == null) {
+                guard = new ReentrantLock();
+            }
+            return guard;
+        }
     }
 
     @Override

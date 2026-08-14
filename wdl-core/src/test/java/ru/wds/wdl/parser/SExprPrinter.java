@@ -93,7 +93,12 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
      */
     @Override
     public String visitFunction(FunctionExpr expr, Void context) {
-        StringBuilder sb = new StringBuilder("(def ").append(expr.title());
+        // Модификатор — часть заголовка, поэтому он и в форме дерева виден отдельным
+        // словом: (synchronized-def bump). Иначе тест на 'synchronized' проверял бы
+        // не форму, а поведение — то есть не то, за что отвечает парсер.
+        StringBuilder sb = new StringBuilder("(");
+        expr.modifiers().forEach(modifier -> sb.append(modifier.text()).append('-'));
+        sb.append("def ").append(expr.title());
         expr.params().forEach(param -> sb.append(' ').append(param.hasDefault()
                 ? "(" + param.name() + " " + visit(param.defaultValue(), context) + ")"
                 : param.name()));

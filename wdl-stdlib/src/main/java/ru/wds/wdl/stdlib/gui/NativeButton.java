@@ -42,7 +42,7 @@ public final class NativeButton {
 
                 .method("onClick", Arity.exactly(1), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    button(self).addActionListener(GuiEvents.toActionListener(callback));
+                    button(self).addActionListener(GuiEvents.toActionListener(callback, context));
                     return NullValue.NULL;
                 })
 

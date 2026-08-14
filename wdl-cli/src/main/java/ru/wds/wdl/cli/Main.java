@@ -67,6 +67,15 @@ public final class Main implements Callable<Integer> {
     /** Ошибка в том, как запустили: нет файла, неизвестный ключ. */
     private static final int EXIT_USAGE_ERROR = 2;
 
+    /**
+     * Сколько ждать потоки скрипта после того, как он дочитан.
+     * <p>
+     * Ждать вечно нельзя: один зациклившийся поток превратил бы {@code wdl script.wdl}
+     * в процесс, который не выходит. Не ждать вовсе тоже нельзя: поток, честно выходящий
+     * по {@code defer}, обязан успеть закрыть своё. Столько же ждёт и {@code WdlInstance}.
+     */
+    private static final long THREAD_STOP_TIMEOUT_MILLIS = 5000;
+
     /** Кодировка вывода, если автоопределение не устраивает: {@code -Dwdl.console.encoding=cp866}. */
     private static final String ENCODING_PROPERTY = "wdl.console.encoding";
 
@@ -198,9 +207,31 @@ public final class Main implements Callable<Integer> {
             System.err.println(report(e, source, showJavaTrace));
             return EXIT_SCRIPT_ERROR;
         } finally {
+            // Порядок тот же, что у WdlInstance.close(), и по той же причине:
+            // потоки скрипта — пока модули открыты (их 'defer' обязан отработать
+            // по живым ресурсам), потом модули — и вход в скрипт при этом ещё открыт,
+            // потому что модуль вправе звать скрипт во время своего закрытия
+            // (sys.gui ждёт закрытия окон, а обработчики кнопок всё это время
+            // работают), потом потоки ещё раз — те, что завелись за это время, —
+            // и только последним вход.
+            //
+            // Скрипт, которому нужен результат своих потоков, дожидается их сам:
+            // 't.join()'. Здесь же — граница запуска, и висеть на ней нельзя.
+            stopThreads(context);
             // Встроенные модули могли завести живое — клиента, соединение, поток.
             // Закрывает их хозяин запуска, и здесь это мы, чем бы скрипт ни кончился.
             context.shutdownModules();
+            stopThreads(context);
+            context.closeRun();
+        }
+    }
+
+    /** Прерывает потоки скрипта и ждёт их; не завершившихся называет по именам. */
+    private static void stopThreads(ExecutionContext context) {
+        List<String> stubborn = context.stopScriptThreads(THREAD_STOP_TIMEOUT_MILLIS);
+        if (!stubborn.isEmpty()) {
+            System.err.println("Потоки скрипта не завершились за "
+                    + THREAD_STOP_TIMEOUT_MILLIS + " мс: " + String.join(", ", stubborn));
         }
     }
 

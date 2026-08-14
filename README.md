@@ -55,6 +55,8 @@
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
 * [Классы](docs/classes.md) — `class` и `trait`, `new`, `this` и `super`, наследование,
   требования трейтов, проверка `is`.
+* [Потоки](docs/threads.md) — модель памяти, `synchronized`, модуль `sys.thread`:
+  потоки, пул, замок, счётчик, канал, защёлка.
 * [Встраивание](docs/embedding.md) — как приложение добавляет в язык свои функции,
   классы и библиотеки, и почему скрипт не видит разницы.
 
@@ -70,6 +72,8 @@
 ./gradlew :wdl-cli:run --args="examples/functions.wdl"            # функции и замыкания
 .\gradlew :wdl-cli:run --args="examples/defaults.wdl"             # значения по умолчанию
 ./gradlew :wdl-cli:run --args="examples/const.wdl"                # константы
+./gradlew :wdl-cli:run --args="examples/threads.wdl"              # потоки и synchronized
+./gradlew :wdl-cli:run --args="examples/threads_pool.wdl"         # пул, канал, защёлка
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"          # показать дерево
 ./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl" # показать токены
 ./gradlew :wdl-cli:repl --console=plain     # REPL (нужен живой stdin)
@@ -117,8 +121,16 @@ $ wdl examples/hello.wdl
 Состояние модуля общее и на чтение, и на запись: снаружи с ним можно ровно то же,
 что можно его собственному коду, а `const` в нём остаётся `const`.
 Модулем бывает и библиотека на Java: консольный запуск даёт `sys.io` (файлы),
-`sys.json` и `sys.net.http`, а приложение — свой набор, потому что состав
-встроенных модулей задаёт запуск, а не язык.
+`sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui` и `sys.thread`,
+а приложение — свой набор, потому что состав встроенных модулей задаёт запуск,
+а не язык.
+Работают настоящие потоки: `sys.thread` даёт `spawn`/`join`/`interrupt`, пул
+с обещаниями (`pool.map`, `pool.submit`), замок, счётчик, канал и защёлку,
+а модификатор `synchronized def` склеивает несколько обращений в одно неделимое.
+Обещание языка короткое: одно обращение атомарно, выражение целиком — нет
+(см. [docs/threads.md](docs/threads.md)). Приложение зовёт функции скрипта
+из любого числа потоков одновременно — прежнего «вызовы выстраиваются в очередь»
+больше нет ни как поведения, ни как режима.
 Стандартная библиотека (`wdl-stdlib`) даёт `pow`, `sqrt`, `abs`,
 классы `File` и `Random` и заодно служит примером
 [встраивания](docs/embedding.md). Модуль на Java может отдать скрипту не только
@@ -131,7 +143,8 @@ $ wdl examples/hello.wdl
 Подробности — в [docs/statements.md](docs/statements.md),
 [docs/control-flow.md](docs/control-flow.md), [docs/functions.md](docs/functions.md),
 [docs/classes.md](docs/classes.md), [docs/errors.md](docs/errors.md),
-[docs/modules.md](docs/modules.md) и [docs/expressions.md](docs/expressions.md).
+[docs/modules.md](docs/modules.md), [docs/threads.md](docs/threads.md)
+и [docs/expressions.md](docs/expressions.md).
 
 Решения парсера и интерпретатора, определяющие остальное:
 
@@ -159,6 +172,11 @@ $ wdl examples/hello.wdl
   а импорт в невызванной функции не стоит ничего.
 * **Вывод — зависимость**, а не `System.out`: `println` пишет туда, куда указал
   вызывающий (`Output` в `ExecutionContext`), по умолчанию — никуда.
+* **Глобального замка нет.** Внутри запуска потоки работают одновременно, а
+  корректность держат конкурентные структуры: области видимости, объекты, массивы,
+  реестр модулей и формы классов. Обещание автору скрипта — «одно обращение атомарно,
+  выражение целиком нет», и это ровно та граница, которую движок может держать
+  без того, чтобы отнять параллельность.
 
 Решения лексера, влияющие на грамматику:
 

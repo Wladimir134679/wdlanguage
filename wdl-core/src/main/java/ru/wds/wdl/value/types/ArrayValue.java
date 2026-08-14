@@ -19,6 +19,16 @@ import java.util.StringJoiner;
  * Границы здесь не проверяются: сообщение об ошибке должно указывать на место
  * в скрипте, а {@link ru.wds.wdl.source.Span} знает только интерпретатор. Его дело —
  * спросить {@link #size()} и объяснить человеку, что не так.
+ *
+ * <h2>Потоки</h2>
+ * Правило то же, что у {@link MapValue}: короткий {@code synchronized} по самому
+ * списку и <b>снимок</b> из {@link #items()}. Вьюха на живой {@code ArrayList} дала бы
+ * {@code ConcurrentModificationException} посреди обычного перебора, стоило бы
+ * соседнему потоку что-нибудь добавить.
+ * <p>
+ * Атомарен здесь ровно один доступ. {@code a[i] = a[i] + 1} и «проверил длину — взял
+ * элемент» атомарными не становятся: между двумя обращениями массив вправе измениться,
+ * и склеивает их {@code synchronized} на функции, а не сам массив.
  */
 public final class ArrayValue implements Value {
 
@@ -42,36 +52,54 @@ public final class ArrayValue implements Value {
     }
 
     public int size() {
-        return items.size();
+        synchronized (items) {
+            return items.size();
+        }
     }
 
     public boolean isEmpty() {
-        return items.isEmpty();
+        synchronized (items) {
+            return items.isEmpty();
+        }
     }
 
     /** Элемент по индексу; вызывающий обязан заранее проверить границы. */
     public Value get(int index) {
-        return items.get(index);
+        synchronized (items) {
+            return items.get(index);
+        }
     }
 
     public void set(int index, Value value) {
-        items.set(index, Objects.requireNonNull(value, "value"));
+        Objects.requireNonNull(value, "value");
+        synchronized (items) {
+            items.set(index, value);
+        }
     }
 
     public void add(Value value) {
-        items.add(Objects.requireNonNull(value, "value"));
+        Objects.requireNonNull(value, "value");
+        synchronized (items) {
+            items.add(value);
+        }
     }
 
-    /** Только для чтения: менять массив можно лишь через методы этого класса. */
+    /** Снимок элементов — почему снимок, разобрано в javadoc класса. */
     public List<Value> items() {
-        return Collections.unmodifiableList(items);
+        synchronized (items) {
+            return Collections.unmodifiableList(new ArrayList<>(items));
+        }
     }
 
     /** Новый массив из элементов двух: {@code [1, 2] + [3]}. */
     public static ArrayValue concat(ArrayValue left, ArrayValue right) {
-        List<Value> result = new ArrayList<>(left.size() + right.size());
-        result.addAll(left.items);
-        result.addAll(right.items);
+        // По снимкам: два замка подряд, а не вложенно, — иначе 'a + b' и 'b + a'
+        // из двух потоков встали бы намертво.
+        List<Value> head = left.items();
+        List<Value> tail = right.items();
+        List<Value> result = new ArrayList<>(head.size() + tail.size());
+        result.addAll(head);
+        result.addAll(tail);
         return new ArrayValue(result);
     }
 
@@ -84,7 +112,9 @@ public final class ArrayValue implements Value {
     @Override
     public String display() {
         StringJoiner joiner = new StringJoiner(", ", "[", "]");
-        for (Value item : items) {
+        // По снимку: печать не должна бросать посреди чужой записи и не должна держать
+        // замок, пока считается display() вложенного значения.
+        for (Value item : items()) {
             joiner.add(item == this ? "[...]" : item.toString());
         }
         return joiner.toString();

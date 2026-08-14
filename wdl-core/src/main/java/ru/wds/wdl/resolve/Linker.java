@@ -34,8 +34,15 @@ import java.util.Map;
  * если в этот раз родитель другой, то это и правда другой класс, и форма ему нужна своя.
  * <p>
  * Экземпляр живёт ровно столько, сколько запуск: формы держат ссылки на значения
- * родителей, а те у каждого запуска свои. Потокобезопасности нет и не требуется —
- * один запуск идёт в одном потоке.
+ * родителей, а те у каждого запуска свои.
+ *
+ * <h2>Потоки</h2>
+ * Сборка формы синхронизирована целиком, и это не осторожность, а то же требование,
+ * из-за которого здесь вообще есть кэш. Объявление класса внутри функции, вызванной
+ * из двух потоков, без замка дало бы две формы на один текст — и {@code c is Point}
+ * начало бы врать при совершенно правильном скрипте. Общий замок, а не замок на ключ:
+ * связывание — редкая операция (раз на объявление, дальше кэш), а {@link IdentityHashMap}
+ * не терпит конкурентного чтения во время чужой перестройки.
  */
 public final class Linker {
 
@@ -69,7 +76,7 @@ public final class Linker {
      * строится из одного объявления. Кэш нужен по той же причине, что у класса:
      * трейт, объявленный внутри функции, обязан оставаться одним трейтом для {@code is}.
      */
-    public ScriptTraitShape traitShape(TraitDeclStmt declaration) {
+    public synchronized ScriptTraitShape traitShape(TraitDeclStmt declaration) {
         return traits.computeIfAbsent(declaration, ScriptTraitShape::new);
     }
 
@@ -80,8 +87,8 @@ public final class Linker {
      * @throws LinkError если родителю передано не столько аргументов или не выполнено
      *                   требование трейта
      */
-    public ClassShape classShape(ClassDeclStmt declaration, ClassShape parent,
-                                 List<TraitShape> mixins) {
+    public synchronized ClassShape classShape(ClassDeclStmt declaration, ClassShape parent,
+                                              List<TraitShape> mixins) {
         List<Linked> known = classes.computeIfAbsent(declaration, key -> new ArrayList<>(1));
         for (Linked linked : known) {
             if (linked.sameAs(parent, mixins)) {

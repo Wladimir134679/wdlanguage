@@ -126,7 +126,7 @@ public final class NativeWindow {
 
                 .method("onClose", Arity.exactly(1), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    frame(self).addWindowListener(GuiEvents.toWindowCloseListener(callback));
+                    frame(self).addWindowListener(GuiEvents.toWindowCloseListener(callback, context));
                     return NullValue.NULL;
                 })
 

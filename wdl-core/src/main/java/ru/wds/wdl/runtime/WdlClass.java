@@ -150,7 +150,14 @@ final class WdlClass implements ClassValue {
         InstanceObjectValue self = container.identity();
         return new UserFunction(method.declaration(),
                 new InstanceScope(self, (WdlClass) self.owner(), method), method.unit(),
-                run, interpreter);
+                run, interpreter,
+                // Замок synchronized-метода — замок экземпляра, а не метода: метод
+                // защищает поля своего объекта, поэтому два таких метода одного объекта
+                // взаимно исключаются, а два разных объекта друг другу не мешают.
+                // Связанное значение создаётся на каждом чтении 'p.push', поэтому
+                // собственный замок здесь был бы новым при каждом обращении и не защищал
+                // бы ничего.
+                method.declaration().isSynchronized() ? self.guard() : null);
     }
 
     /**
@@ -173,7 +180,7 @@ final class WdlClass implements ClassValue {
     public Value instantiate(List<Value> arguments, CallContext caller, Span span) {
         // Создание — такой же вход в скрипт, как вызов: приложение вправе позвать
         // 'new' само, и конструктор — обычный код на wdl. Правило то же, что
-        // у UserFunction.call: изнутри запуска замок уже наш, снаружи его надо взять.
+        // у UserFunction.call: изнутри запуска мы уже внутри, снаружи надо войти.
         if (run.insideCurrentThread()) {
             return create(arguments, caller, span);
         }

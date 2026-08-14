@@ -5,6 +5,7 @@ import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.ValueType;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -111,11 +112,12 @@ public final class ModuleValue implements Value {
     public void set(String member, Value value) {
         Objects.requireNonNull(member, "member");
         Objects.requireNonNull(value, "value");
-        if (members.containsKey(member)) {
-            if (constants.contains(member)) {
-                throw new IllegalStateException("'" + member + "' в модуле '" + name + "' — константа");
-            }
-            members.put(member, value);
+        if (constants.contains(member)) {
+            throw new IllegalStateException("'" + member + "' в модуле '" + name + "' — константа");
+        }
+        // Атомарно, как и в области видимости: «спросил — записал» посреди чужого
+        // объявления потеряло бы его.
+        if (members.replace(member, value) != null) {
             return;
         }
         Binding alias = aliases.get(member);
@@ -127,9 +129,19 @@ public final class ModuleValue implements Value {
         }
     }
 
-    /** Собственные имена модуля в порядке объявления, без пришедших развёрнутым импортом. */
+    /**
+     * Собственные имена модуля в порядке объявления, без пришедших развёрнутым импортом.
+     * <p>
+     * <b>Снимок, а не вьюха.</b> Таблица живая, и функция модуля вправе завести в ней
+     * имя из другого потока прямо во время перебора — вьюха ответила бы на это
+     * {@code ConcurrentModificationException} посреди обычного цикла. Снимок снимается
+     * под монитором самой таблицы: {@code ModuleScope} защищает её
+     * {@link Collections#synchronizedMap}, а его монитор — она сама.
+     */
     public Map<String, Value> members() {
-        return Collections.unmodifiableMap(members);
+        synchronized (members) {
+            return Collections.unmodifiableMap(new LinkedHashMap<>(members));
+        }
     }
 
     /**
@@ -140,11 +152,13 @@ public final class ModuleValue implements Value {
      * к запуску, а не чтобы повторять расстановку строк в файле.
      */
     public Set<String> names() {
-        if (aliases.isEmpty()) {
-            return Collections.unmodifiableSet(members.keySet());
+        Set<String> all;
+        synchronized (members) {
+            all = new LinkedHashSet<>(members.keySet());
         }
-        Set<String> all = new LinkedHashSet<>(members.keySet());
-        all.addAll(aliases.keySet());
+        synchronized (aliases) {
+            all.addAll(aliases.keySet());
+        }
         return Collections.unmodifiableSet(all);
     }
 

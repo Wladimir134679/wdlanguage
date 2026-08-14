@@ -3,8 +3,11 @@ package ru.wds.wdl.ast.expr;
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.source.Span;
 
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -25,20 +28,31 @@ import java.util.stream.Collectors;
  * с функциональными литералами не бывает: тело функции состоит из инструкций,
  * а сама функция — значение.
  *
- * @param name   имя для диагностики или {@code null}, если узнать его неоткуда
- * @param params параметры в порядке записи
- * @param body   тело: блок, одиночная инструкция или {@code return} из стрелки
- * @param style  как тело было записано — {@link BodyStyle}
- * @param span   место в исходнике: от {@code def} до конца тела
+ * @param name      имя для диагностики или {@code null}, если узнать его неоткуда
+ * @param modifiers слова перед {@code def}: сейчас там бывает только
+ *                  {@link Modifier#SYNCHRONIZED}. Набором, а не признаком, — почему
+ *                  именно так, разобрано в {@link Modifier}
+ * @param params    параметры в порядке записи
+ * @param body      тело: блок, одиночная инструкция или {@code return} из стрелки
+ * @param style     как тело было записано — {@link BodyStyle}
+ * @param span      место в исходнике: от первого слова заголовка до конца тела
  */
-public record FunctionExpr(String name, List<Param> params, Stmt body, BodyStyle style, Span span)
-        implements Expr {
+public record FunctionExpr(String name, Set<Modifier> modifiers, List<Param> params, Stmt body,
+                           BodyStyle style, Span span) implements Expr {
 
     public FunctionExpr {
+        modifiers = modifiers == null || modifiers.isEmpty()
+                ? Set.of()
+                : Collections.unmodifiableSet(EnumSet.copyOf(modifiers));
         params = List.copyOf(Objects.requireNonNull(params, "params"));
         Objects.requireNonNull(body, "body");
         Objects.requireNonNull(style, "style");
         Objects.requireNonNull(span, "span");
+    }
+
+    /** Помечена ли функция {@code synchronized} — вопрос, который задают чаще всего. */
+    public boolean isSynchronized() {
+        return modifiers.contains(Modifier.SYNCHRONIZED);
     }
 
     /**
@@ -87,7 +101,9 @@ public record FunctionExpr(String name, List<Param> params, Stmt body, BodyStyle
 
     @Override
     public String toString() {
-        return "def " + (name != null ? name : "")
+        return modifiers.stream().map(Modifier::text).collect(Collectors.joining(" ", "", " "))
+                .stripLeading()
+                + "def " + (name != null ? name : "")
                 + params.stream().map(Param::toString).collect(Collectors.joining(", ", "(", ")"));
     }
 }

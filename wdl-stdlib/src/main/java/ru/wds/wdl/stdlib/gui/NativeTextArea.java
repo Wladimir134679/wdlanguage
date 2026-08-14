@@ -73,7 +73,7 @@ public final class NativeTextArea {
 
                 .method("onChange", Arity.exactly(1), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    textArea(self).getDocument().addDocumentListener(GuiEvents.toDocumentListener(callback));
+                    textArea(self).getDocument().addDocumentListener(GuiEvents.toDocumentListener(callback, context));
                     return NullValue.NULL;
                 })
 

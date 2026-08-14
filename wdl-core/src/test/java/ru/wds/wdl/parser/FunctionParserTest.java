@@ -297,4 +297,62 @@ class FunctionParserTest {
         // Вторая строка разобралась: ошибка ровно одна, про первую строку.
         assertEquals(1, diagnostics.errorCount(), diagnostics.renderAll());
     }
+
+    // --- модификатор synchronized --------------------------------------------
+
+    @Test
+    @DisplayName("'synchronized' ложится в модификаторы функции, а не в её тело")
+    void synchronizedIsAModifier() {
+        FunctionExpr function = declaration("synchronized def bump() { count = count + 1 }");
+
+        assertEquals("bump", function.name());
+        assertTrue(function.isSynchronized());
+        assertEquals(1, function.modifiers().size());
+        // Форма дерева: модификатор виден отдельным словом заголовка.
+        assertEquals("(synchronized-def bump)", new SExprPrinter().visit(function, null));
+    }
+
+    @Test
+    @DisplayName("обычная функция модификаторов не получает")
+    void plainFunctionHasNoModifiers() {
+        FunctionExpr function = declaration("def bump() { count = count + 1 }");
+
+        assertFalse(function.isSynchronized());
+        assertTrue(function.modifiers().isEmpty());
+        assertEquals("(def bump)", new SExprPrinter().visit(function, null));
+    }
+
+    @Test
+    @DisplayName("модификатор работает и у анонимной функции")
+    void anonymousFunctionTakesModifier() {
+        Stmt statement = single("handler = synchronized def (event) => event");
+        FunctionExpr function = assertInstanceOf(FunctionExpr.class,
+                assertInstanceOf(AssignStmt.class, statement).value());
+
+        assertTrue(function.isSynchronized());
+        // Имя подставлено целью присваивания — и модификатор при этом не потерялся.
+        assertEquals("(synchronized-def handler event)", new SExprPrinter().visit(function, null));
+    }
+
+    @Test
+    @DisplayName("место функции начинается с модификатора, а не с 'def'")
+    void spanStartsAtTheModifier() {
+        FunctionExpr function = declaration("synchronized def f() => 1");
+        assertEquals(0, function.span().start(), "подчёркивание обязано указывать на всё объявление");
+    }
+
+    @Test
+    @DisplayName("'synchronized' без 'def' — своя ошибка, а не «ожидалось выражение»")
+    void synchronizedWithoutDef() {
+        String message = errorOf("synchronized x = 1");
+        assertTrue(message.contains("модификатор функции"), message);
+    }
+
+    @Test
+    @DisplayName("после 'synchronized' без 'def' разбор продолжается")
+    void recoversAfterOrphanModifier() {
+        Diagnostics diagnostics = diagnose("synchronized 5\nx = 1");
+        assertTrue(diagnostics.hasErrors());
+        assertEquals(1, diagnostics.errorCount(), diagnostics.renderAll());
+    }
 }

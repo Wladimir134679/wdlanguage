@@ -59,13 +59,13 @@ public final class NativeTextField {
 
                 .method("onChange", Arity.exactly(1), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    textField(self).getDocument().addDocumentListener(GuiEvents.toDocumentListener(callback));
+                    textField(self).getDocument().addDocumentListener(GuiEvents.toDocumentListener(callback, context));
                     return NullValue.NULL;
                 })
 
                 .method("onEnter", Arity.exactly(1), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    textField(self).addActionListener(GuiEvents.toActionListener(callback));
+                    textField(self).addActionListener(GuiEvents.toActionListener(callback, context));
                     return NullValue.NULL;
                 })
 

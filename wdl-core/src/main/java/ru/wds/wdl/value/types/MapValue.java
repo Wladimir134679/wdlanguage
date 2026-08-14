@@ -35,6 +35,22 @@ import java.util.StringJoiner;
  * — считанные разы, и платить за них полем в каждом объекте было бы неправильной
  * сделкой. Наследование при этом оставляет {@code case MapValue} рабочим для обоих:
  * что умеет объект, экземпляр умеет тоже.
+ *
+ * <h2>Потоки</h2>
+ * Доступ к таблице идёт под коротким {@code synchronized}, и монитором служит
+ * <b>сама таблица</b>, а не объект-значение. Разница видна на виде {@code super}:
+ * {@link InstanceObjectValue#viewOf} даёт второе значение поверх той же карты, и замок
+ * на {@code this} развёл бы их по разным мониторам — два потока писали бы в одну
+ * {@code LinkedHashMap} без всякой защиты.
+ * <p>
+ * {@link #entries()} отдаёт <b>снимок</b>. Вьюха на живую карту стоила бы
+ * {@code ConcurrentModificationException} в обычном {@code for (k in obj)}, стоило бы
+ * соседнему потоку завести ключ, — а перебор объекта в языке обещан безопасным
+ * и без потоков (см. {@code Interpreter.visitForEach}).
+ * <p>
+ * {@code LinkedHashMap} под замком, а не {@code ConcurrentHashMap}, потому что порядок
+ * вставки — часть договорённости: объект печатают и сериализуют, и вывод не должен
+ * меняться от запуска к запуску.
  */
 public sealed class MapValue implements Value permits InstanceObjectValue {
 
@@ -48,24 +64,35 @@ public sealed class MapValue implements Value permits InstanceObjectValue {
         this.entries = entries;
     }
 
-    public static MapValue of(Map<Value, Value> entries) {
+    public static MapValue of(Map<Value, Value> source) {
         MapValue result = new MapValue();
-        entries.forEach(result::put);
+        source.forEach(result::put);
         return result;
     }
 
     /** Значение по ключу или {@link NullValue#NULL}, если ключа нет. */
     public Value get(Value key) {
-        Value value = entries.get(normalizeKey(key));
+        Value normalized = normalizeKey(key);
+        Value value;
+        synchronized (entries) {
+            value = entries.get(normalized);
+        }
         return value != null ? value : NullValue.NULL;
     }
 
     public boolean has(Value key) {
-        return entries.containsKey(normalizeKey(key));
+        Value normalized = normalizeKey(key);
+        synchronized (entries) {
+            return entries.containsKey(normalized);
+        }
     }
 
     public void put(Value key, Value value) {
-        entries.put(normalizeKey(key), Objects.requireNonNull(value, "value"));
+        Value normalized = normalizeKey(key);
+        Objects.requireNonNull(value, "value");
+        synchronized (entries) {
+            entries.put(normalized, value);
+        }
     }
 
     /** Удобный доступ по имени поля: {@code obj.get("x")}. */
@@ -82,15 +109,22 @@ public sealed class MapValue implements Value permits InstanceObjectValue {
     }
 
     public int size() {
-        return entries.size();
+        synchronized (entries) {
+            return entries.size();
+        }
     }
 
     public boolean isEmpty() {
-        return entries.isEmpty();
+        synchronized (entries) {
+            return entries.isEmpty();
+        }
     }
 
+    /** Снимок пар в порядке вставки — почему снимок, разобрано в javadoc класса. */
     public Map<Value, Value> entries() {
-        return Collections.unmodifiableMap(entries);
+        synchronized (entries) {
+            return Collections.unmodifiableMap(new LinkedHashMap<>(entries));
+        }
     }
 
     /**
@@ -126,7 +160,10 @@ public sealed class MapValue implements Value permits InstanceObjectValue {
 
     final String pairs(String opening) {
         StringJoiner joiner = new StringJoiner(", ", opening, "}");
-        entries.forEach((key, value) -> joiner.add(key + ": " + (value == this ? "{...}" : value.toString())));
+        // По снимку, а не по живой карте: печать не должна ни бросать посреди
+        // чужой записи, ни держать замок, пока считается display() вложенного значения.
+        entries().forEach((key, value) ->
+                joiner.add(key + ": " + (value == this ? "{...}" : value.toString())));
         return joiner.toString();
     }
 

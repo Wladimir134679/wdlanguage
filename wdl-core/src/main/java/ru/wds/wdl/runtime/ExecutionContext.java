@@ -8,6 +8,7 @@ import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.CallContext;
+import ru.wds.wdl.value.ScriptThreads;
 
 import java.util.Objects;
 
@@ -118,7 +119,11 @@ public final class ExecutionContext implements CallContext {
      */
     public static ExecutionContext of(Environment scope, Output output) {
         Run run = new Run(scope);
-        ExecutionContext context = new ExecutionContext(scope, output, null, Unit.none(), run, null);
+        // Вывод оборачивается здесь, на границе запуска, и ровно один раз: приложение
+        // передаёт обычную лямбду, ничего не зная про потоки, а запуск обещает, что
+        // строка одного потока не разорвётся строкой другого. См. Output.serialized.
+        ExecutionContext context = new ExecutionContext(scope, Output.serialized(output), null,
+                Unit.none(), run, null);
         Prelude.installTo(context);
         run.exceptions().captureFrom(scope);
         return context;
@@ -179,6 +184,43 @@ public final class ExecutionContext implements CallContext {
     }
 
     /**
+     * Помечает запуск закрытым: дальше вход в скрипт снаружи даёт остановку выполнения
+     * вместо работы по закрытым ресурсам.
+     * <p>
+     * Зовётся <b>до</b> {@link #shutdownModules()} — в этом порядке и есть смысл:
+     * сначала перестать пускать внутрь, потом закрывать то, чем внутри пользуются.
+     * Обратный порядок оставлял бы окно, в котором проснувшийся поток скрипта работает
+     * по уже закрытому соединению.
+     */
+    public void closeRun() {
+        run.close();
+    }
+
+    /** Закрыт ли запуск. */
+    public boolean isRunClosed() {
+        return run.isClosed();
+    }
+
+    /**
+     * Прерывает потоки, заведённые скриптом, и ждёт их.
+     * <p>
+     * Зовётся между {@link #closeRun()} и {@link #shutdownModules()} — в этом порядке
+     * и есть смысл: вход уже закрыт, значит проснувшийся поток не влезет внутрь,
+     * а модули ещё открыты, значит тот, кто выходит по {@code defer}, успеет закрыть
+     * своё.
+     *
+     * @return имена потоков, не завершившихся за отведённое время; пусто, если все вышли
+     */
+    public java.util.List<String> stopScriptThreads(long timeoutMillis) {
+        return run.threads().stopAndJoin(timeoutMillis);
+    }
+
+    @Override
+    public ScriptThreads threads() {
+        return run.threads();
+    }
+
+    /**
      * То же самое, когда приложение задаёт только источник исходников.
      * <p>
      * По умолчанию источника нет вовсе и {@code import} отвечает ошибкой: встроенный
@@ -235,19 +277,6 @@ public final class ExecutionContext implements CallContext {
     /** Сеанс, которому принадлежит это место выполнения. */
     Run run() {
         return run;
-    }
-
-    /**
-     * Временно освобождает замок сеанса на время блокирующей операции (сокетов, ожидания),
-     * чтобы фоновые потоки могли выполнять коллбэки.
-     */
-    @Override
-    public void allowOtherThreads(Runnable action) {
-        if (run != null) {
-            run.exitTemporarily(action);
-        } else {
-            action.run();
-        }
     }
 
     /** Модули этого запуска: где их искать и какие уже выполнены. */

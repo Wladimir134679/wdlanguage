@@ -23,7 +23,13 @@ import ru.wds.wdl.value.types.StringValue;
  */
 public class NativeInstance extends InstanceObjectValue {
 
-    private Object state;
+    /**
+     * {@code volatile}, потому что состояние заводит один поток, а читает почти всегда
+     * другой: сокет пишет его в {@code init}, а колбэк {@code onLine} читает из своего
+     * потока; окно Swing — из EDT. Без этого чужой поток вправе увидеть {@code null}
+     * там, где объект давно создан.
+     */
+    private volatile Object state;
 
     public NativeInstance(ClassValue owner) {
         super(owner);

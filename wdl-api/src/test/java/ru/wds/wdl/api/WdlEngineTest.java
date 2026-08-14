@@ -2,9 +2,17 @@ package ru.wds.wdl.api;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import ru.wds.wdl.embed.Library;
 import ru.wds.wdl.module.ModuleSource;
+import ru.wds.wdl.runtime.BuiltinFunction;
+import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.runtime.Output;
+import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.types.NullValue;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -18,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -283,37 +292,160 @@ class WdlEngineTest {
     }
 
     @Test
-    @DisplayName("Вызовы одного экземпляра из разных потоков выстраиваются в очередь")
-    void serialisesConcurrentCalls() throws Exception {
+    @DisplayName("Вызовы одного экземпляра из разных потоков не портят его состояние")
+    void survivesConcurrentCalls() throws Exception {
         try (WdlInstance script = enginePrintln().compile("""
                 calls = 0
                 def bump() { calls = calls + 1; println(calls); return calls; }
                 """).instance()) {
             script.execute();
-            WdlCallable bump = script.function("bump");
-            int threads = 8;
-            int perThread = 150;
+            hammer(script.function("bump"), 8, 150);
 
-            ExecutorService pool = Executors.newFixedThreadPool(threads);
-            try {
-                List<Callable<Void>> work = new ArrayList<>();
-                for (int i = 0; i < threads; i++) {
-                    work.add(() -> {
-                        for (int call = 0; call < perThread; call++) {
-                            bump.call();
-                        }
-                        return null;
-                    });
+            // Точного числа здесь больше не спрашивают, и это правильный сигнал:
+            // 'calls = calls + 1' — два обращения, а атомарно в языке одно. Раньше
+            // ответ был точным не потому, что скрипт синхронизировался, а потому,
+            // что параллельности не было вовсе; молчаливо полагаться на такое нельзя.
+            // Проверяется то, за что отвечает движок: состояние цело, счётчик — число
+            // в разумных границах.
+            long calls = (Long) script.get("calls");
+            assertTrue(calls > 0 && calls <= 8L * 150, "счётчик вне границ: " + calls);
+        }
+    }
+
+    @Test
+    @DisplayName("'synchronized def' возвращает точный счёт без всякого режима")
+    void synchronizedFunctionKeepsEveryIncrement() throws Exception {
+        try (WdlInstance script = engine().compile("""
+                calls = 0
+                synchronized def bump() { calls = calls + 1; return calls; }
+                """).instance()) {
+            script.execute();
+            hammer(script.function("bump"), 8, 150);
+
+            // Это правильный ответ на потерянные инкременты: не флаг движка, а одно
+            // слово в скрипте — там, где автор знает, что склеивает.
+            assertEquals(8L * 150, script.get("calls"));
+        }
+    }
+
+    @Test
+    @DisplayName("close() останавливает потоки скрипта, а вызов после него — ошибка")
+    void closeStopsScriptThreads() {
+        WdlEngine withThreads = WdlEngine.builder().stdlib(Stdlib.STANDARD).build();
+        WdlInstance script = withThreads.compile("""
+                import sys.thread as th
+
+                def spin() {
+                    while (true) th.sleep(20)
                 }
-                for (Future<Void> done : pool.invokeAll(work)) {
-                    done.get();
-                }
-            } finally {
-                pool.shutdownNow();
+
+                first = th.spawn("worker-1", spin)
+                second = th.spawn("worker-2", spin)
+                def ping() => "жив"
+                """).instance();
+        WdlCallable ping;
+        try {
+            script.execute();
+            ping = script.function("ping");
+            assertEquals("жив", ping.invoke());
+        } finally {
+            // Закрытие обязано уложиться в свой таймаут: два вечных цикла внутри
+            // не должны превращать close() в «приложение не завершается».
+            assertTimeoutPreemptively(Duration.ofSeconds(10), script::close);
+        }
+
+        // Вход закрыт — и это остановка выполнения, а не ошибка скрипта: работать
+        // по закрытым модулям нечестно, а ловить такое обработчиком незачем.
+        WdlException failed = assertThrows(WdlException.class, ping::call);
+        assertTrue(failed.getMessage().contains("запуск закрыт"), failed.getMessage());
+    }
+
+    /**
+     * Библиотека, которая зовёт скрипт во время собственного закрытия.
+     * <p>
+     * Не выдумка ради теста: ровно так устроен {@code sys.gui} — его {@code close()}
+     * ждёт, пока пользователь закроет окна, и всё это время обработчики кнопок
+     * работают. Закрой движок вход раньше библиотек — первое же нажатие давало бы
+     * «запуск закрыт».
+     */
+    private static final class Farewell implements Library {
+
+        private final String title;
+        private final List<String> said = new ArrayList<>();
+        private FunctionValue handler;
+
+        Farewell(String title) {
+            this.title = title;
+        }
+
+        @Override
+        public String name() {
+            return title;
+        }
+
+        @Override
+        public Environment installTo(Environment scope) {
+            scope.define("onClose", BuiltinFunction.of("onClose", Arity.exactly(1),
+                    (context, arguments, span) -> {
+                        handler = arguments.function(0, "обработчик");
+                        return NullValue.NULL;
+                    }));
+            return scope;
+        }
+
+        @Override
+        public void close() {
+            if (handler != null) {
+                said.add(handler.call(text -> { }, List.of(), Span.point(0)).display());
             }
+        }
+    }
 
-            // Ни один инкремент не потерян — значит, внутри запуска работал один поток.
-            assertEquals((long) threads * perThread, script.get("calls"));
+    @Test
+    @DisplayName("Библиотека и модуль вправе позвать скрипт во время своего закрытия")
+    void libraryMayCallScriptWhileClosing() {
+        Farewell root = new Farewell("root");
+        Farewell module = new Farewell("goodbye");
+        WdlEngine engine = WdlEngine.builder()
+                .library("root", () -> root)
+                .module("goodbye", () -> module)
+                .build();
+
+        try (WdlInstance script = engine.compile("""
+                import goodbye as g
+
+                onClose(def () => "из корня")
+                g.onClose(def () => "из модуля")
+                """).instance()) {
+            script.execute();
+        }
+
+        // Не «запуск закрыт»: вход закрывается последним, после того как всё, что имело
+        // право позвать скрипт, отработало. Оба пути закрытия — модули и библиотеки
+        // корня — проверяются вместе: закрываются они в разные моменты, и сломать
+        // можно каждый по отдельности.
+        assertEquals(List.of("из корня"), root.said);
+        assertEquals(List.of("из модуля"), module.said);
+    }
+
+    /** Зовёт функцию из нескольких потоков и дожидается всех. */
+    private static void hammer(WdlCallable function, int threads, int perThread) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            List<Callable<Void>> work = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                work.add(() -> {
+                    for (int call = 0; call < perThread; call++) {
+                        function.call();
+                    }
+                    return null;
+                });
+            }
+            for (Future<Void> done : pool.invokeAll(work)) {
+                done.get();
+            }
+        } finally {
+            pool.shutdownNow();
         }
     }
 

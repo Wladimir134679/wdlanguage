@@ -9,12 +9,12 @@ import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.types.ModuleValue;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Выполненные модули одного запуска: ключ → значение.
@@ -41,6 +41,17 @@ import java.util.Objects;
  * {@code sys/json} тогда означал бы то одно, то другое.
  * <p>
  * Круг встроенному модулю не грозит: он ничего не выполняет — только кладёт имена.
+ *
+ * <h2>Потоки</h2>
+ * «Модуль выполняется один раз за запуск» — правило языка, и с несколькими потоками
+ * оно требует не просто конкурентной карты, а <b>замка на ключ</b>: два потока,
+ * попросившие один и тот же файл одновременно, обязаны получить одно значение,
+ * а не выполнить файл дважды. Поэтому второй поток здесь <b>ждёт</b> первого,
+ * а не делает свою копию работы.
+ * <p>
+ * Круг же, наоборот, ищется <b>в своём потоке</b> ({@link #running} — {@link ThreadLocal}).
+ * Общий стек выполняемых модулей превратил бы чужой параллельный импорт в «циклический
+ * импорт», хотя никакого круга нет: просто два потока читают разные файлы одновременно.
  */
 final class Modules {
 
@@ -48,13 +59,22 @@ final class Modules {
     private final NativeModules natives;
     /** Корневая область запуска: родитель областей всех модулей. */
     private final Environment root;
-    private final Map<String, ModuleValue> values = new HashMap<>();
+    private final Map<String, ModuleValue> values = new ConcurrentHashMap<>();
     /** Выполненные встроенные модули: своё пространство имён, см. javadoc класса. */
-    private final Map<String, ModuleValue> installed = new HashMap<>();
+    private final Map<String, ModuleValue> installed = new ConcurrentHashMap<>();
+    /**
+     * Замки на ключ — по одному на модуль.
+     * <p>
+     * Отдельной картой, а не {@code computeIfAbsent} прямо по {@link #values}:
+     * выполнение модуля — это выполнение скрипта, оттуда законно уходит вложенный
+     * {@code import}, и рекурсивный {@code computeIfAbsent} по той же
+     * {@link ConcurrentHashMap} — верный способ встать намертво.
+     */
+    private final Map<String, Object> locks = new ConcurrentHashMap<>();
     /** Библиотеки в порядке создания — их же закрывать в обратном. */
-    private final List<Library> opened = new ArrayList<>();
-    /** Модули, которые выполняются прямо сейчас, — по ним и виден круг. */
-    private final Deque<String> running = new ArrayDeque<>();
+    private final List<Library> opened = new CopyOnWriteArrayList<>();
+    /** Модули, которые выполняются прямо сейчас <b>в этом потоке</b>, — по ним и виден круг. */
+    private final ThreadLocal<Deque<String>> running = ThreadLocal.withInitial(ArrayDeque::new);
 
     Modules(ModuleUnits units, NativeModules natives, Environment root) {
         this.units = Objects.requireNonNull(units, "units");
@@ -114,9 +134,16 @@ final class Modules {
         }
         opened.clear();
         installed.clear();
+        locks.clear();
     }
 
-    /** Встроенный модуль или {@code null}, если такого имени среди них нет. */
+    /**
+     * Встроенный модуль или {@code null}, если такого имени среди них нет.
+     * <p>
+     * Установка идёт под замком на имя: библиотека заводит живое — клиента, пул,
+     * соединение, — и второй экземпляр того же {@code sys.net.http} означал бы
+     * не лишнюю работу, а вторую утечку.
+     */
     private ModuleValue nativeModule(String name, Span span) {
         ModuleValue ready = installed.get(name);
         if (ready != null) {
@@ -136,19 +163,34 @@ final class Modules {
             return null;
         }
 
-        ModuleScope scope = new ModuleScope(name, root);
-        try {
-            library.installTo(scope);
-        } catch (WdlError error) {
-            throw error;
-        } catch (RuntimeException | LinkageError failure) {
-            throw new WdlRuntimeError(ErrorKind.IMPORT, span, "встроенный модуль '" + name
-                    + "' не удалось подготовить: " + reason(failure));
+        synchronized (lockFor("native:" + name)) {
+            // Проверка повторяется под замком: пока мы спрашивали реестр, соседний
+            // поток мог всё уже установить.
+            ready = installed.get(name);
+            if (ready != null) {
+                // Свой экземпляр библиотеки в этом случае лишний: он никем не открывался
+                // (installTo не звался), закрывать его нечего.
+                return ready;
+            }
+            ModuleScope scope = new ModuleScope(name, root);
+            try {
+                library.installTo(scope);
+            } catch (WdlError error) {
+                throw error;
+            } catch (RuntimeException | LinkageError failure) {
+                throw new WdlRuntimeError(ErrorKind.IMPORT, span, "встроенный модуль '" + name
+                        + "' не удалось подготовить: " + reason(failure));
+            }
+            opened.add(library);
+            ModuleValue module = scope.module();
+            installed.put(name, module);
+            return module;
         }
-        opened.add(library);
-        ModuleValue module = scope.module();
-        installed.put(name, module);
-        return module;
+    }
+
+    /** Замок на ключ: один объект на модуль, общий для всех потоков этого запуска. */
+    private Object lockFor(String key) {
+        return locks.computeIfAbsent(key, ignored -> new Object());
     }
 
     /**
@@ -162,9 +204,10 @@ final class Modules {
         if (ready != null) {
             return ready;
         }
-        if (running.contains(key)) {
+        Deque<String> chain = running.get();
+        if (chain.contains(key)) {
             throw new WdlRuntimeError(ErrorKind.IMPORT, span, "циклический импорт: "
-                    + String.join(" → ", running) + " → " + key
+                    + String.join(" → ", chain) + " → " + key
                     + ". Модуль не может пользоваться тем, что ещё не выполнено");
         }
 
@@ -183,13 +226,22 @@ final class Modules {
                     : loaded.problem());
         }
 
-        running.addLast(key);
-        try {
-            ModuleValue module = execute(loaded.unit(), context, interpreter);
-            values.put(key, module);
-            return module;
-        } finally {
-            running.removeLast();
+        // Замок на ключ, а не на весь реестр: второй поток, попросивший этот же файл,
+        // ждёт результата первого — правило «модуль выполняется один раз за запуск»
+        // не знает исключений для потоков. Разные модули при этом грузятся параллельно.
+        synchronized (lockFor("file:" + key)) {
+            ready = values.get(key);
+            if (ready != null) {
+                return ready;
+            }
+            chain.addLast(key);
+            try {
+                ModuleValue module = execute(loaded.unit(), context, interpreter);
+                values.put(key, module);
+                return module;
+            } finally {
+                chain.removeLast();
+            }
         }
     }
 

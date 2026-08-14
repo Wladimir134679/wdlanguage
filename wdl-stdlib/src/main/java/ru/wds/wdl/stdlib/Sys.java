@@ -46,6 +46,7 @@ public final class Sys {
         modules.put("sys/net/http", Http::library);
         modules.put("sys/gui", ru.wds.wdl.stdlib.gui.Gui::library);
         modules.put("sys/net/socket", ru.wds.wdl.stdlib.net.Sockets::library);
+        modules.put("sys/thread", ru.wds.wdl.stdlib.thread.Threads::library);
         return modules;
     }
 
