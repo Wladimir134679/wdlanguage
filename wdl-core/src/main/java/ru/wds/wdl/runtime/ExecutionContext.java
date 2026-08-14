@@ -237,6 +237,19 @@ public final class ExecutionContext implements CallContext {
         return run;
     }
 
+    /**
+     * Временно освобождает замок сеанса на время блокирующей операции (сокетов, ожидания),
+     * чтобы фоновые потоки могли выполнять коллбэки.
+     */
+    @Override
+    public void allowOtherThreads(Runnable action) {
+        if (run != null) {
+            run.exitTemporarily(action);
+        } else {
+            action.run();
+        }
+    }
+
     /** Модули этого запуска: где их искать и какие уже выполнены. */
     Modules modules() {
         return run.modules();

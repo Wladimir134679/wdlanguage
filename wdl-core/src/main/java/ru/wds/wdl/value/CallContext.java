@@ -29,4 +29,12 @@ public interface CallContext {
     default int callDepth() {
         return 0;
     }
+
+    /**
+     * Временно освобождает замок сеанса на время блокирующей операции (например, сокетов или ожидания),
+     * чтобы фоновые потоки (EDT, сокеты) могли выполнять коллбэки.
+     */
+    default void allowOtherThreads(Runnable action) {
+        action.run();
+    }
 }

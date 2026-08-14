@@ -25,7 +25,7 @@ public class NativeInstance extends InstanceObjectValue {
 
     private Object state;
 
-    NativeInstance(ClassValue owner) {
+    public NativeInstance(ClassValue owner) {
         super(owner);
     }
 

@@ -163,4 +163,22 @@ final class Run {
     boolean insideCurrentThread() {
         return lock.isHeldByCurrentThread();
     }
+
+    /**
+     * Временно освобождает замок сеанса на время блокирующей операции (например, accept сокета),
+     * чтобы другие потоки могли выполнять коллбэки.
+     */
+    void exitTemporarily(Runnable action) {
+        int count = lock.getHoldCount();
+        for (int i = 0; i < count; i++) {
+            lock.unlock();
+        }
+        try {
+            action.run();
+        } finally {
+            for (int i = 0; i < count; i++) {
+                lock.lock();
+            }
+        }
+    }
 }

@@ -20,12 +20,12 @@ import java.util.function.Supplier;
  * из прелюдии. Не нашлось — собирается свой, и это верно: приложение, давшее скрипту
  * только {@code sys.io}, получит рабочий {@code File} без {@code std}.
  */
-final class Types {
+public final class Types {
 
     private Types() {
     }
 
-    static NativeClass in(Environment scope, String name, Supplier<NativeClass> build) {
+    public static NativeClass in(Environment scope, String name, Supplier<NativeClass> build) {
         return scope.lookup(name) instanceof NativeClass declared && declared.name().equals(name)
                 ? declared
                 : build.get();
