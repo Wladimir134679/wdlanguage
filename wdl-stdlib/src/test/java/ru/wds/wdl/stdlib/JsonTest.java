@@ -170,4 +170,75 @@ class JsonTest {
                 json.parse(text)
                 """).getMessage().contains("слишком глубокая вложенность"));
     }
+
+    // --- Serializable: контракт от модуля ------------------------------------
+
+    @Test
+    @DisplayName("класс с трейтом пишется тем, что вернул toJson")
+    void serializable() {
+        assertEquals("{\"x\":1,\"y\":2} true", printed("""
+                import sys.json as json
+
+                class Point(x, y, hidden = "не для JSON") with json.Serializable {
+                    def toJson() => {x: x, y: y}
+                }
+
+                p = new Point(1, 2)
+                println(json.stringify(p), " ", p is json.Serializable)
+                """));
+    }
+
+    @Test
+    @DisplayName("без трейта экземпляр пишется как есть, полем в поле")
+    void withoutTraitFieldsAreWritten() {
+        assertEquals("{\"x\":1,\"hidden\":\"видно\"}", printed("""
+                import sys.json as json
+                class Point(x, hidden = "видно") {
+                    def toJson() => {x: x}
+                }
+                println(json.stringify(new Point(1)))
+                """));
+    }
+
+    @Test
+    @DisplayName("замена работает и во вложенном значении, и в массиве")
+    void serializableNested() {
+        assertEquals("{\"at\":{\"x\":1},\"all\":[{\"x\":2}]}", printed("""
+                import sys.json as json
+
+                class Point(x) with json.Serializable {
+                    def toJson() => {x: x}
+                }
+
+                println(json.stringify({at: new Point(1), all: [new Point(2)]}))
+                """));
+    }
+
+    @Test
+    @DisplayName("забытый toJson — ошибка на строке class, а не при записи")
+    void requirementCheckedAtDeclaration() {
+        assertTrue(errorOf("""
+                import sys.json as json
+                class Point(x) with json.Serializable {
+                }
+                """).getMessage().contains(
+                        "класс 'Point' не выполняет требование трейта 'Serializable':"
+                        + " нет метода 'toJson'"));
+    }
+
+    @Test
+    @DisplayName("круг через toJson виден так же, как обычный круг")
+    void cycleThroughToJson() {
+        assertTrue(errorOf("""
+                import sys.json as json
+
+                class Node(next = null) with json.Serializable {
+                    def toJson() => {next: next}
+                }
+
+                a = new Node()
+                a.next = a
+                json.stringify(a)
+                """).getMessage().contains("ссылается само на себя"));
+    }
 }

@@ -1,7 +1,10 @@
 package ru.wds.wdl.stdlib;
 
+import ru.wds.wdl.embed.Args;
 import ru.wds.wdl.embed.NativeClass;
 import ru.wds.wdl.embed.NativeInstance;
+import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
@@ -30,10 +33,23 @@ import java.util.List;
  * <p>
  * Кодировка всегда UTF-8: скрипт не должен угадывать, в какой кодировке файл,
  * а движок — зависеть от настроек машины, на которой его запустили.
+ * <p>
+ * Класс собирается на запуск, а не лежит статическим полем: поля самого класса
+ * изменяемы, и {@code File.mark = 1} из одного скрипта не должно доставаться
+ * следующему. Один на запуск он при этом остаётся — см. {@link Types#in}.
  */
 final class Files {
 
-    static final NativeClass CLASS = NativeClass.named("File")
+    private Files() {
+    }
+
+    /** Класс {@code File} этого запуска: тот, что уже в области, или новый. */
+    static NativeClass in(Environment scope) {
+        return Types.in(scope, "File", Files::build);
+    }
+
+    private static NativeClass build() {
+        return NativeClass.named("File")
             .field("path")
 
             .init((self, context, arguments, span) -> {
@@ -58,14 +74,14 @@ final class Files {
             // Запись возвращает сам файл, а не null: тогда 'f.write("a").read()'
             // читается одной строкой, а результат «ничего» никому не нужен.
             .method("write", Arity.exactly(1), (self, context, arguments, span) -> {
-                String data = arguments.get(0).display();
+                String data = arguments.at(0).display();
                 io(span, () -> java.nio.file.Files.writeString(
                         path(self, span), data, StandardCharsets.UTF_8));
                 return self;
             })
 
             .method("append", Arity.exactly(1), (self, context, arguments, span) -> {
-                String data = arguments.get(0).display();
+                String data = arguments.at(0).display();
                 io(span, () -> java.nio.file.Files.writeString(path(self, span), data,
                         StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND));
                 return self;
@@ -87,35 +103,38 @@ final class Files {
                     StringValue.of(path(self, span).toAbsolutePath().toString()))
 
             // Фабрика: способ создания с именем. Тот же приём, что 'def User.of(...)'
-            // в языке, — просто записанный на Java.
-            .factory("temp", Arity.between(0, 1), (context, arguments, span) -> {
-                String prefix = arguments.isEmpty() ? "wdl" : arguments.get(0).display();
+            // в языке, — просто записанный на Java. Класс приходит аргументом:
+            // статического поля с ним нет, и создавать экземпляр больше нечем.
+            .factory("temp", Arity.between(0, 1), (type, context, arguments, span) -> {
+                String prefix = arguments.has(0) ? arguments.at(0).display() : "wdl";
                 Path created = io(span, () -> java.nio.file.Files.createTempFile(prefix, ".tmp"));
-                // Квалифицированное имя: лямбда выполнится, когда поле уже собрано.
-                return Files.CLASS.instantiate(List.of(StringValue.of(created.toString())), context, span);
+                return type.instantiate(List.of(StringValue.of(created.toString())), context, span);
             })
 
             .constant("SEPARATOR", StringValue.of(java.io.File.separator))
             .build();
-
-    private Files() {
     }
 
     /** Путь из поля {@code path}: поле обычное, значит и прочитать его можно обычно. */
     private static Path path(NativeInstance self, Span span) {
-        return pathOf(self.get("path"), span);
+        return of(self.string("path", span), span);
     }
 
     /**
-     * Путь из значения языка. Отдельно от поля, потому что тем же путём ходят
-     * функции модуля {@code sys.io}: {@code io.read("data.txt")} — тот же путь,
-     * та же проверка и то же сообщение.
+     * Путь из аргумента. Отдельно от поля, потому что тем же путём ходят функции
+     * модуля {@code sys.io}: {@code io.read("data.txt")} — тот же путь, та же
+     * проверка и то же сообщение.
      */
-    static Path pathOf(Value value, Span span) {
+    static Path pathOf(Args arguments, int index) {
+        return of(arguments.string(index, "путь к файлу"), arguments.span());
+    }
+
+    private static Path of(String text, Span span) {
         try {
-            return Path.of(Std.text(value, span, "путь к файлу"));
+            return Path.of(text);
         } catch (java.nio.file.InvalidPathException e) {
-            throw new WdlRuntimeError(span, "недопустимый путь к файлу: " + e.getReason());
+            throw new WdlRuntimeError(ErrorKind.VALUE, span,
+                    "недопустимый путь к файлу: " + e.getReason());
         }
     }
 

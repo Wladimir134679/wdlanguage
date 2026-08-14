@@ -1,5 +1,6 @@
 package ru.wds.wdl.stdlib;
 
+import ru.wds.wdl.embed.Args;
 import ru.wds.wdl.embed.NativeClass;
 import ru.wds.wdl.embed.NativeInstance;
 import ru.wds.wdl.runtime.Environment;
@@ -49,10 +50,24 @@ final class Streams {
     /** Имя трейта, который прелюдия кладёт в корневую область. */
     private static final String CLOSEABLE = "Closeable";
 
-    /** Класс читающего потока для этого запуска. */
-    static NativeClass reader(Environment scope) {
-        NativeClass.Builder builder = NativeClass.named("Reader")
+    /**
+     * Общий родитель потоков: путь и закрытие.
+     * <p>
+     * Ровно то, что у чтения и записи одинаково, — и ровно то, о чём спрашивают,
+     * не зная, что именно открыли: {@code r is io.Stream}. Обещание {@code Closeable}
+     * тоже здесь: закрывается поток одинаково, чем бы он ни был.
+     */
+    static NativeClass stream(Environment scope) {
+        return closeable(NativeClass.named("Stream")
                 .field("path")
+                .method("close", Arity.exactly(0), Streams::close), scope)
+                .build();
+    }
+
+    /** Класс читающего потока для этого запуска. */
+    static NativeClass reader(NativeClass stream) {
+        return NativeClass.named("Reader")
+                .extending(stream)
 
                 .method("read", Arity.exactly(0), (self, context, arguments, span) ->
                         StringValue.of(Files.io(span, () -> readAll(reader(self, span)))))
@@ -75,26 +90,24 @@ final class Streams {
                     return line == null ? NullValue.NULL : StringValue.of(line);
                 })
 
-                .method("close", Arity.exactly(0), Streams::close);
-
-        return closeable(builder, scope).build();
+                .build();
     }
 
     /** Класс пишущего потока для этого запуска. */
-    static NativeClass writer(Environment scope) {
-        NativeClass.Builder builder = NativeClass.named("Writer")
-                .field("path")
+    static NativeClass writer(NativeClass stream) {
+        return NativeClass.named("Writer")
+                .extending(stream)
 
                 // Возвращает сам поток, а не null: 'dst.write(a).write(b)' читается,
                 // а «ничего» никому не нужно — то же правило, что у File.write.
                 .method("write", Arity.exactly(1), (self, context, arguments, span) -> {
-                    String data = arguments.get(0).display();
+                    String data = arguments.at(0).display();
                     Files.io(span, () -> writer(self, span).write(data));
                     return self;
                 })
 
                 .method("writeLine", Arity.exactly(1), (self, context, arguments, span) -> {
-                    String data = arguments.get(0).display();
+                    String data = arguments.at(0).display();
                     Files.io(span, () -> {
                         BufferedWriter target = writer(self, span);
                         target.write(data);
@@ -103,9 +116,7 @@ final class Streams {
                     return self;
                 })
 
-                .method("close", Arity.exactly(0), Streams::close);
-
-        return closeable(builder, scope).build();
+                .build();
     }
 
     /**
@@ -156,7 +167,7 @@ final class Streams {
      * Иначе {@code use} поверх потока, который тело закрыло само, падал бы на выходе,
      * а «закрыл дважды» — не то, о чём стоит спорить с автором скрипта.
      */
-    private static Value close(NativeInstance self, CallContext context, List<Value> arguments,
+    private static Value close(NativeInstance self, CallContext context, Args arguments,
                                Span span) {
         Closeable live = self.state(Closeable.class);
         if (live == null) {

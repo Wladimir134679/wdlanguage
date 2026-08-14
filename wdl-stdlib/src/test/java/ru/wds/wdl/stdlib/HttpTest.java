@@ -151,7 +151,7 @@ class HttpTest {
         assertTrue(errorOf("""
                 import sys.net.http as http
                 http.get("example.com")
-                """).getMessage().contains("должен начинаться с http://"));
+                """).getMessage().contains("ожидался адрес, начинающийся с http://"));
     }
 
     @Test
@@ -160,7 +160,8 @@ class HttpTest {
         assertTrue(errorOf("""
                 import sys.net.http as http
                 http.get("%s/hello", 5)
-                """.formatted(base)).getMessage().contains("опции запроса должны быть объектом"));
+                """.formatted(base)).getMessage()
+                .contains("get(): опции запроса: ожидался объект"));
     }
 
     @Test

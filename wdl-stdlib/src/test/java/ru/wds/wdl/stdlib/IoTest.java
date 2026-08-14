@@ -105,6 +105,35 @@ class IoTest {
     }
 
     @Test
+    @DisplayName("Reader и Writer — потоки: общий родитель, общий Closeable")
+    void streamsShareAParent(@TempDir Path dir) {
+        String file = script(dir.resolve("stream.txt"));
+        assertEquals("true true true true false", printed("""
+                import sys.io as io
+                w = io.create("%s")
+                r = io.open("%s")
+                println(w is io.Stream, " ", r is io.Stream, " ",
+                        r is io.Reader, " ", r is Closeable, " ", r is io.Writer)
+                w.close()
+                r.close()
+                """.formatted(file, file)));
+    }
+
+    @Test
+    @DisplayName("путь и close достались от родителя, свои методы — свои")
+    void inheritedMembers(@TempDir Path dir) {
+        String file = script(dir.resolve("stream.txt"));
+        // Путь печатается так, как его записала система, поэтому сверяется хвост:
+        // разделитель каталогов к наследованию отношения не имеет.
+        assertTrue(printed("""
+                import sys.io as io
+                io.write("%s", "привет")
+                r = io.open("%s")
+                println(r.path, " ", r.close(), " ", io.read("%s"))
+                """.formatted(file, file, file)).endsWith("stream.txt true привет"));
+    }
+
+    @Test
     @DisplayName("класс File из модуля — тот же самый, что кладёт std")
     void fileClassIsTheSame(@TempDir Path dir) {
         String file = script(dir.resolve("data.txt"));
@@ -142,6 +171,6 @@ class IoTest {
         assertTrue(errorOf("""
                 import sys.io as io
                 io.read(7)
-                """).getMessage().contains("путь к файлу должен быть строкой"));
+                """).getMessage().contains("read(): путь к файлу: ожидалась строка"));
     }
 }

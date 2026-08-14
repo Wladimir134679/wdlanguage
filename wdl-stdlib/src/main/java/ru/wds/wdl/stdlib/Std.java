@@ -1,8 +1,10 @@
 package ru.wds.wdl.stdlib;
 
 import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.embed.NativeClass;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
@@ -10,7 +12,6 @@ import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.FloatValue;
 import ru.wds.wdl.value.types.IntValue;
-import ru.wds.wdl.value.types.StringValue;
 
 import java.util.Objects;
 
@@ -27,18 +28,23 @@ import java.util.Objects;
  */
 public final class Std implements Library {
 
-    private static final Std INSTANCE = new Std();
-
     private Std() {
     }
 
+    /**
+     * Библиотека для этого запуска.
+     * <p>
+     * Каждый раз новая, и это не расточительство: классы она собирает свои,
+     * а класс — место, куда скрипт вправе писать. Общий на процесс {@code File}
+     * переносил бы {@code File.mark = 1} из одного скрипта в следующий.
+     */
     public static Std library() {
-        return INSTANCE;
+        return new Std();
     }
 
     /** Кладёт всю стандартную библиотеку в область видимости. */
     public static Environment install(Environment scope) {
-        return INSTANCE.installTo(scope);
+        return library().installTo(scope);
     }
 
     @Override
@@ -50,8 +56,12 @@ public final class Std implements Library {
     public Environment installTo(Environment scope) {
         Objects.requireNonNull(scope, "scope");
         math(scope);
-        scope.define(Files.CLASS.name(), Files.CLASS);
-        scope.define(Randoms.CLASS.name(), Randoms.CLASS);
+        // Классы берутся у области: если они там уже есть (скажем, 'import std as s'
+        // после установки в корень), это те же самые классы, и 'f is File' не врёт.
+        NativeClass file = Files.in(scope);
+        NativeClass random = Randoms.in(scope);
+        scope.define(file.name(), file);
+        scope.define(random.name(), random);
         return scope;
     }
 
@@ -65,21 +75,21 @@ public final class Std implements Library {
      */
     private static void math(Environment scope) {
         scope.define("pow", BuiltinFunction.of("pow", Arity.exactly(2), (context, arguments, span) -> {
-            NumberValue base = number(arguments.get(0), span, "pow", "основание");
-            NumberValue exponent = number(arguments.get(1), span, "pow", "показатель");
+            NumberValue base = arguments.number(0, "основание");
+            NumberValue exponent = arguments.number(1, "показатель");
             return power(base, exponent, span);
         }));
 
         scope.define("sqrt", BuiltinFunction.of("sqrt", Arity.exactly(1), (context, arguments, span) -> {
-            double value = number(arguments.get(0), span, "sqrt", "аргумент").asDouble();
+            double value = arguments.real(0, "аргумент");
             if (value < 0) {
-                throw new WdlRuntimeError(span, "квадратный корень из отрицательного числа: " + value);
+                throw arguments.bad(0, "аргумент", "ожидалось неотрицательное число");
             }
             return FloatValue.of(Math.sqrt(value));
         }));
 
         scope.define("abs", BuiltinFunction.of("abs", Arity.exactly(1), (context, arguments, span) -> {
-            NumberValue value = number(arguments.get(0), span, "abs", "аргумент");
+            NumberValue value = arguments.number(0, "аргумент");
             if (!value.isInteger()) {
                 return FloatValue.of(Math.abs(value.asDouble()));
             }
@@ -109,27 +119,10 @@ public final class Std implements Library {
         }
         double result = Math.pow(base.asDouble(), exponent.asDouble());
         if (Double.isNaN(result)) {
-            throw new WdlRuntimeError(span, "pow(" + base + ", " + exponent + ") не определено");
+            throw new WdlRuntimeError(ErrorKind.VALUE, span,
+                    "pow(" + base + ", " + exponent + ") не определено");
         }
         return FloatValue.of(result);
-    }
-
-    /** Проверка аргумента с сообщением на языке скрипта: имя функции и роль аргумента. */
-    static NumberValue number(Value value, Span span, String function, String role) {
-        if (value instanceof NumberValue number) {
-            return number;
-        }
-        throw new WdlRuntimeError(span, function + "(): " + role + " должен быть числом, а здесь "
-                + value.type().title() + " (" + value + ")");
-    }
-
-    /** То же для строкового аргумента — например пути к файлу. */
-    static String text(Value value, Span span, String what) {
-        if (value instanceof StringValue string) {
-            return string.value();
-        }
-        throw new WdlRuntimeError(span, what + " должен быть строкой, а здесь "
-                + value.type().title() + " (" + value + ")");
     }
 
 }

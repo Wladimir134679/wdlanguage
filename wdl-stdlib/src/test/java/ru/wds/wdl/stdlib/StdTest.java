@@ -75,14 +75,15 @@ class StdTest {
     @DisplayName("sqrt и abs")
     void sqrtAndAbs() {
         assertEquals("4.0 7 1.5", printed("println(sqrt(16), \" \", abs(-7), \" \", abs(-1.5))"));
-        assertTrue(errorOf("println(sqrt(-1))").getMessage().contains("отрицательного числа"));
+        assertTrue(errorOf("println(sqrt(-1))").getMessage()
+                .contains("аргумент: ожидалось неотрицательное число"));
     }
 
     @Test
     @DisplayName("ошибка библиотеки говорит на языке скрипта")
     void argumentErrors() {
         assertTrue(errorOf("println(pow(\"два\", 10))")
-                .getMessage().contains("основание должен быть числом"));
+                .getMessage().contains("pow(): основание: ожидалось число, а здесь строка"));
         assertTrue(errorOf("println(pow(2))")
                 .getMessage().contains("принимает ровно 2 аргумента"));
     }
@@ -201,15 +202,20 @@ class StdTest {
     @DisplayName("pick выбирает из массива и жалуется на пустой")
     void pick() {
         assertEquals("болт", printed("println(new Random(7).pick([\"болт\"]))"));
-        assertTrue(errorOf("println(new Random(1).pick([]))").getMessage().contains("массив пуст"));
-        assertTrue(errorOf("println(new Random(1).pick(5))").getMessage().contains("из массива"));
+        assertTrue(errorOf("println(new Random(1).pick([]))").getMessage()
+                .contains("ожидался непустой массив"));
+        assertTrue(errorOf("println(new Random(1).pick(5))").getMessage()
+                .contains("Random.pick(): откуда выбирать: ожидался массив"));
     }
 
     @Test
     @DisplayName("int проверяет границу")
     void intBound() {
-        assertTrue(errorOf("println(new Random(1).int(0))").getMessage().contains("положительным"));
-        assertTrue(errorOf("println(new Random(1).int(1.5))").getMessage().contains("положительным"));
+        assertTrue(errorOf("println(new Random(1).int(0))").getMessage()
+                .contains("граница: ожидалось положительное число"));
+        // 1.5 не проходит раньше — на «целое», и это точнее прежнего общего сообщения.
+        assertTrue(errorOf("println(new Random(1).int(1.5))").getMessage()
+                .contains("граница: ожидалось целое число"));
     }
 
     // --- встроенный класс как значение ---------------------------------------

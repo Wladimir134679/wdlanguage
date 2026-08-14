@@ -3,10 +3,10 @@ package ru.wds.wdl.runtime;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.MethodSlot;
-import ru.wds.wdl.resolve.TraitShape;
+import ru.wds.wdl.resolve.ScriptTraitShape;
+import ru.wds.wdl.value.Requirement;
 import ru.wds.wdl.value.TraitValue;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,13 +25,13 @@ import java.util.Objects;
  */
 final class WdlTrait implements TraitValue {
 
-    private final TraitShape shape;
+    private final ScriptTraitShape shape;
     private final Environment closure;
     /** Файл, где трейт объявлен: в нём выполняются его методы и значения по умолчанию. */
     private final Unit unit;
     private final Map<String, Method> methods;
 
-    WdlTrait(TraitShape shape, Environment closure, Unit unit) {
+    WdlTrait(ScriptTraitShape shape, Environment closure, Unit unit) {
         this.shape = Objects.requireNonNull(shape, "shape");
         this.closure = Objects.requireNonNull(closure, "closure");
         this.unit = Objects.requireNonNull(unit, "unit");
@@ -44,7 +44,7 @@ final class WdlTrait implements TraitValue {
         this.methods = Collections.unmodifiableMap(table);
     }
 
-    TraitShape shape() {
+    ScriptTraitShape shape() {
         return shape;
     }
 
@@ -71,10 +71,13 @@ final class WdlTrait implements TraitValue {
     }
 
     @Override
-    public List<String> requiredMethods() {
-        List<String> names = new ArrayList<>(shape.requiredMethods().size());
-        shape.requiredMethods().forEach(requirement -> names.add(requirement.name()));
-        return List.copyOf(names);
+    public List<Requirement> requiredMethods() {
+        return shape.requiredMethods();
+    }
+
+    @Override
+    public List<String> requiredFields() {
+        return shape.requiredFields();
     }
 
     @Override

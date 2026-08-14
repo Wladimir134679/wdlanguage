@@ -1,0 +1,95 @@
+package ru.wds.wdl.api;
+
+import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.stdlib.Http;
+import ru.wds.wdl.stdlib.Io;
+import ru.wds.wdl.stdlib.Json;
+import ru.wds.wdl.stdlib.Std;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.function.Supplier;
+
+/**
+ * Что из стандартной библиотеки получает скрипт.
+ * <p>
+ * Набор, а не флаги, и это то же правило, по которому устроены встроенные модули:
+ * <b>не положил в набор — модуля не существует</b>. Скрипт не «получает отказ в доступе
+ * к файлам», он просто не находит {@code sys.io}, и ошибка у него обычная — «модуль
+ * не найден», без разговоров о правах.
+ * <p>
+ * Перечисление здесь потому, что {@code wdl-stdlib} подключён к {@code wdl-api} как
+ * {@code implementation}: приложение, встраивающее движок, на стандартную библиотеку
+ * не зависит и назвать {@code Sys.modules()} у себя не может. Пресет — честный способ
+ * отдать ему набор, не протаскивая зависимость наружу. Нужен состав, которого здесь
+ * нет, — {@link WdlEngine.Builder#module} принимает любую свою {@link Library}.
+ */
+public enum Stdlib {
+
+    /**
+     * Ничего сверх встроенного в язык: {@code println}, {@code len}, {@code typeof}
+     * и классы ошибок. {@code import} не найдёт ни одного модуля.
+     * <p>
+     * Это состояние движка по умолчанию, и выбрано оно намеренно: движок, встроенный
+     * в чужое приложение, не открывает ни диска, ни сети, пока его об этом не попросили.
+     */
+    NONE,
+
+    /**
+     * Всё, что не трогает мир снаружи: математика {@code std} и {@code sys.json}.
+     * <p>
+     * Набор для скрипта, пришедшего от пользователя: считать, разбирать и собирать
+     * данные он может, читать файлы и ходить в сеть — нет. Класса {@code File}
+     * здесь нет вовсе, поэтому и обойти нечего.
+     */
+    SAFE,
+
+    /**
+     * Всё: {@code std}, {@code sys.io}, {@code sys.json}, {@code sys.net.http}.
+     * <p>
+     * Набор для скрипта, которому доверяют, — своего, лежащего рядом с приложением.
+     * Это же берёт консольный {@code wdl}.
+     */
+    STANDARD;
+
+    /**
+     * Модули набора: имя → фабрика.
+     * <p>
+     * Фабрика, а не готовая библиотека, потому что библиотека принадлежит запуску:
+     * она заводит живое ({@code sys.net.http} — клиента) и закрывается вместе с ним.
+     * Общая на процесс, она донесла бы состояние из одного скрипта в следующий.
+     */
+    Map<String, Supplier<Library>> modules() {
+        Map<String, Supplier<Library>> modules = new LinkedHashMap<>();
+        switch (this) {
+            case NONE -> {
+            }
+            case SAFE -> {
+                modules.put("std", Std::library);
+                modules.put("sys/json", Json::library);
+            }
+            case STANDARD -> {
+                modules.put("std", Std::library);
+                modules.put("sys/io", Io::library);
+                modules.put("sys/json", Json::library);
+                modules.put("sys/net/http", Http::library);
+            }
+        }
+        return modules;
+    }
+
+    /**
+     * Библиотеки, чьи имена кладутся <b>прямо в корневую область</b>, без {@code import}.
+     * <p>
+     * Сейчас это {@code std}: {@code sqrt} и {@code File} привычнее без префикса,
+     * а разница между «положить имена в корень» и «отдать по {@code import std as s}»
+     * только в том, куда библиотеку установили, — сама она об этом не знает.
+     */
+    Map<String, Supplier<Library>> rootLibraries() {
+        Map<String, Supplier<Library>> root = new LinkedHashMap<>();
+        if (this != NONE) {
+            root.put("std", Std::library);
+        }
+        return root;
+    }
+}

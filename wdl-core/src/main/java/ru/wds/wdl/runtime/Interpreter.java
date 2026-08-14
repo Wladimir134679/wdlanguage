@@ -6,10 +6,12 @@ import ru.wds.wdl.ast.op.*;
 import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.ast.visitor.*;
 import ru.wds.wdl.module.Unit;
+import ru.wds.wdl.embed.NativeTrait;
 import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.LinkError;
 import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.resolve.Resolution;
+import ru.wds.wdl.resolve.ScriptTraitShape;
 import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
@@ -28,6 +30,7 @@ import ru.wds.wdl.value.Value;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Интерпретатор: выполняет дерево, полученное от парсера.
@@ -52,9 +55,11 @@ public final class Interpreter
      * <p>
      * Перед первой инструкцией объявления функций верхнего уровня помечаются в области
      * видимости запуска — см. {@link #hoistDeclarations}.
+     *
+     * @return значение последней инструкции-выражения файла, см. {@link #execute}
      */
-    public void run(Program program, ExecutionContext context) {
-        execute(program, context);
+    public Value run(Program program, ExecutionContext context) {
+        return entering(context, () -> execute(program, context));
     }
 
     /**
@@ -65,8 +70,28 @@ public final class Interpreter
      * объявление класса без формы, интерпретатор скажет об этом прямо, а не
      * попытается угадать.
      */
-    public void run(Program program, Resolution resolution, ExecutionContext context) {
-        execute(program, context.withResolution(resolution));
+    public Value run(Program program, Resolution resolution, ExecutionContext context) {
+        ExecutionContext resolved = context.withResolution(resolution);
+        return entering(context, () -> execute(program, resolved));
+    }
+
+    /**
+     * Открывает выполнение: берёт замок запуска на время работы.
+     * <p>
+     * Это граница движка — сюда управление приходит от приложения, и с этого момента
+     * внутренности запуска трогает один поток. Про то, почему замок, а не конкурентные
+     * структуры, — в {@link Run}.
+     */
+    private Value entering(ExecutionContext context, Supplier<Value> body) {
+        Run run = context.run();
+        // Место для сообщения о переполнении — начало файла: до первой инструкции
+        // ничего точнее ещё не случилось.
+        run.enter(Span.point(0));
+        try {
+            return body.get();
+        } finally {
+            run.leave();
+        }
     }
 
     /**
@@ -80,25 +105,60 @@ public final class Interpreter
      * ничем не отличается от модуля. Иначе его переменные оказались бы в той же области,
      * что служит модулям корнем, и модуль видел бы имена того, кто его импортирует, —
      * а значит, работал бы по-разному в зависимости от места импорта.
+     * <p>
+     * Поэтому наружу отдаётся и сама эта область: имена, объявленные файлом, живут
+     * в ней, и без неё приложение не достало бы из скрипта ни функции-обработчика,
+     * ни класса. См. {@link Execution}.
      */
-    public void run(Unit unit, ExecutionContext context) {
-        try {
-            execute(unit.program(), context.nested().withUnit(unit));
-        } catch (WdlError error) {
-            throw error.inSource(unit.source());
-        }
+    public Execution run(Unit unit, ExecutionContext context) {
+        ExecutionContext file = context.nested().withUnit(unit);
+        Value result = entering(context, () -> {
+            try {
+                return execute(unit.program(), file);
+            } catch (WdlError error) {
+                throw error.inSource(unit.source());
+            }
+        });
+        // Область файла отдаётся наружу вместе с результатом: без неё приложение
+        // не добралось бы до того, что скрипт объявил, — см. Execution.
+        return new Execution(result, file);
     }
 
-    private void execute(Program program, ExecutionContext running) {
+    /**
+     * Выполняет инструкции файла и отвечает его результатом.
+     * <p>
+     * <b>Результат файла — значение его последней инструкции-выражения.</b> Правило
+     * то же, что у тела функции из одного выражения, и выбрано оно по той же причине,
+     * по которой {@code return} на верхнем уровне запрещён разбором: файл — это ещё
+     * и модуль, а у модуля значение уже есть ({@code ModuleValue}), и второй смысл
+     * у того же {@code return} завёл бы два ответа на один вопрос.
+     * <pre>{@code
+     * def total(price, count) => price * count
+     * total(120, 3)      // ← результат файла: 360
+     * }</pre>
+     * Ни одной инструкции-выражения в файле нет — результат {@code null}, как у функции,
+     * дошедшей до конца тела без {@code return}. Значение считает только тот, кто
+     * запустил файл: {@code Modules} его игнорирует, ему нужен модуль, а не число.
+     */
+    private Value execute(Program program, ExecutionContext running) {
         // Верхний уровень файла — тоже область: 'defer' на нём выполняется, когда файл
         // дочитан, чем бы он ни кончился.
         Deferred pending = new Deferred();
         ExecutionContext scoped = running.withDeferred(pending);
         RuntimeException flying = null;
+        Value result = NullValue.NULL;
         try {
             hoistDeclarations(program, scoped);
             for (Stmt statement : program.statements()) {
-                visit(statement, scoped);
+                // Инструкция-выражение вычисляется здесь, а не через visitExprStmt,
+                // ровно затем, чтобы её значение не потерялось: посетитель инструкций
+                // возвращает Void, и менять это ради одного случая — платить правкой
+                // всех реализаций за то, что нужно только на верхнем уровне файла.
+                if (statement instanceof ExprStmt expression) {
+                    result = valueOf(expression.expr(), scoped);
+                } else {
+                    visit(statement, scoped);
+                }
             }
         } catch (ControlSignal signal) {
             // break, continue или return вне своей конструкции. Парсер такое не пропускает,
@@ -119,6 +179,7 @@ public final class Interpreter
         if (flying != null) {
             throw flying;
         }
+        return result;
     }
 
     /**
@@ -169,6 +230,10 @@ public final class Interpreter
      * стека имеет смысл только на границе, где стек уже раскручен.
      */
     public Value eval(Expr expr, ExecutionContext context) {
+        return entering(context, () -> evaluate(expr, context));
+    }
+
+    private Value evaluate(Expr expr, ExecutionContext context) {
         try {
             return visit(expr, context);
         } catch (StackOverflowError e) {
@@ -461,14 +526,24 @@ public final class Interpreter
      */
     private WdlClass classOf(ClassDeclStmt stmt, ExecutionContext context) {
         WdlClass parent = parentOf(stmt, context);
-        List<WdlTrait> traits = mixinsOf(stmt, context);
+        List<TraitValue> traits = mixinsOf(stmt, context);
         ClassShape shape = shapeOf(stmt, parent, traits, context);
 
         if (context.scope().lookup(stmt.name()) instanceof WdlClass existing
                 && existing.shape() == shape) {
             return existing;
         }
-        WdlClass declared = new WdlClass(shape, context.scope(), context.unit(), parent, traits, this);
+        // Значению класса нужны только трейты на wdl: от них достаются методы
+        // и значения полей, которые ещё предстоит вычислить. Нативные трейты
+        // целиком описаны формой, и в значении им делать нечего.
+        List<WdlTrait> scripted = new ArrayList<>(traits.size());
+        for (TraitValue trait : traits) {
+            if (trait instanceof WdlTrait declaredTrait) {
+                scripted.add(declaredTrait);
+            }
+        }
+        WdlClass declared = new WdlClass(shape, context.scope(), context.unit(), parent, scripted,
+                context.run(), this);
         installFactories(declared, context);
         checkNotConstant(stmt.name(), stmt.nameSpan(), context);
         context.scope().define(stmt.name(), declared);
@@ -476,7 +551,7 @@ public final class Interpreter
     }
 
     private WdlTrait traitOf(TraitDeclStmt stmt, ExecutionContext context) {
-        TraitShape shape = context.linker().traitShape(stmt);
+        ScriptTraitShape shape = context.linker().traitShape(stmt);
         if (context.scope().lookup(stmt.name()) instanceof WdlTrait existing
                 && existing.shape() == shape) {
             return existing;
@@ -491,11 +566,12 @@ public final class Interpreter
      * Собирает форму класса. Ошибка связывания — обычная ошибка скрипта: место у неё
      * есть, а стадия человека не интересует.
      */
-    private ClassShape shapeOf(ClassDeclStmt stmt, WdlClass parent, List<WdlTrait> traits,
+    private ClassShape shapeOf(ClassDeclStmt stmt, WdlClass parent, List<TraitValue> traits,
                                ExecutionContext context) {
         List<TraitShape> mixins = new ArrayList<>(traits.size());
-        for (WdlTrait trait : traits) {
-            mixins.add(trait.shape());
+        for (TraitValue trait : traits) {
+            mixins.add(trait instanceof WdlTrait declared ? declared.shape()
+                    : ((NativeTrait) trait).shape());
         }
         try {
             return context.linker().classShape(stmt, parent == null ? null : parent.shape(), mixins);
@@ -536,20 +612,33 @@ public final class Interpreter
                 + parent.title() + "' — это " + value.type().title() + " (" + value + ")");
     }
 
-    /** Подмешанные трейты — тем же правилом, что и родитель. */
-    private List<WdlTrait> mixinsOf(ClassDeclStmt stmt, ExecutionContext context) {
-        List<WdlTrait> traits = new ArrayList<>(stmt.traits().size());
+    /**
+     * Подмешанные трейты — тем же правилом, что и родитель.
+     * <p>
+     * Трейт языка и трейт от приложения ({@link NativeTrait}) равноправны: у обоих
+     * есть форма, а требования обоих проверяет один и тот же {@code Linker}. Разница
+     * появится дальше, при сборке значения класса, и автору скрипта не видна.
+     */
+    private List<TraitValue> mixinsOf(ClassDeclStmt stmt, ExecutionContext context) {
+        List<TraitValue> traits = new ArrayList<>(stmt.traits().size());
         for (ClassDeclStmt.TraitRef reference : stmt.traits()) {
             Value value = typeValue(reference.type(), reference.title(), "трейт",
                     reference.span(), context);
-            if (value instanceof WdlTrait trait) {
-                traits.add(trait);
+            if (value instanceof WdlTrait || value instanceof NativeTrait) {
+                traits.add((TraitValue) value);
                 continue;
             }
             if (value instanceof ClassValue) {
                 throw new WdlRuntimeError(ErrorKind.DECLARATION, reference.span(), "'" + reference.title()
                         + "' — класс, а не трейт: подмешать можно только трейт,"
                         + " у класса есть конструктор");
+            }
+            if (value instanceof TraitValue) {
+                // Чужая реализация TraitValue: формы у неё нет, а значит и связывать
+                // класс нечем. Трейт от приложения объявляется построителем NativeTrait.
+                throw new WdlRuntimeError(ErrorKind.DECLARATION, reference.span(), "трейт '"
+                        + reference.title() + "' объявлен не построителем NativeTrait:"
+                        + " подмешать можно трейт языка или трейт, собранный им");
             }
             throw new WdlRuntimeError(ErrorKind.DECLARATION, reference.span(), "подмешать можно только трейт, а '"
                     + reference.title() + "' — это " + value.type().title() + " (" + value + ")");
@@ -639,8 +728,8 @@ public final class Interpreter
      */
     private void installFactories(WdlClass declared, ExecutionContext context) {
         for (ClassDeclStmt.Factory factory : declared.shape().factories()) {
-            declared.statics().put(factory.name(),
-                    new UserFunction(factory.function(), declared.closure(), declared.unit(), this));
+            declared.statics().put(factory.name(), new UserFunction(factory.function(),
+                    declared.closure(), declared.unit(), context.run(), this));
         }
     }
 
@@ -1351,7 +1440,7 @@ public final class Interpreter
      */
     @Override
     public Value visitFunction(FunctionExpr expr, ExecutionContext context) {
-        return new UserFunction(expr, context.scope(), context.unit(), this);
+        return new UserFunction(expr, context.scope(), context.unit(), context.run(), this);
     }
 
     /**

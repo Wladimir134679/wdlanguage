@@ -38,20 +38,31 @@ import java.util.Objects;
  * Замыкание отвечает на вопрос «какие имена видно», юнит — «в каком файле мы находимся»:
  * функция из модуля, вызванная из главного скрипта, объявляет классы по формам своего
  * файла и сообщает об ошибках его строками.
+ * <p>
+ * И третье, что она несёт с собой, — {@link Run сеанс}: модули, формы классов, классы
+ * ошибок своего запуска. <b>Этих трёх ссылок хватает, чтобы выполнить функцию откуда
+ * угодно.</b> Приложение вправе достать значение-функцию из области видимости, отдать
+ * его в свой обработчик, в очередь, в другой поток — и позвать; она выполнится там же,
+ * где была объявлена, увидит те же переменные и те же импорты, а её изменения увидят
+ * все, кто смотрит на ту же область. От вызывающего ей нужен только вывод.
  */
 public final class UserFunction implements FunctionValue {
 
     private final FunctionExpr declaration;
     private final Environment closure;
     private final Unit unit;
+    /** Запуск, которому функция принадлежит: см. javadoc класса и {@link Run}. */
+    private final Run run;
     /** Интерпретатор безсостоятельный, поэтому делить один экземпляр безопасно. */
     private final Interpreter interpreter;
     private final Arity arity;
 
-    UserFunction(FunctionExpr declaration, Environment closure, Unit unit, Interpreter interpreter) {
+    UserFunction(FunctionExpr declaration, Environment closure, Unit unit, Run run,
+                 Interpreter interpreter) {
         this.declaration = Objects.requireNonNull(declaration, "declaration");
         this.closure = Objects.requireNonNull(closure, "closure");
         this.unit = Objects.requireNonNull(unit, "unit");
+        this.run = Objects.requireNonNull(run, "run");
         this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
         this.arity = arityOf(declaration);
     }
@@ -80,8 +91,28 @@ public final class UserFunction implements FunctionValue {
         return arity;
     }
 
+    /**
+     * Вызывает функцию — изнутри скрипта или снаружи, из приложения.
+     * <p>
+     * Разница между этими двумя случаями ровно одна и вся здесь: вызов изнутри уже
+     * идёт под замком своего запуска, а вызов снаружи его берёт. Дальше кода два раза
+     * не написано — тело одно, и оно не знает, кто его начал.
+     */
     @Override
     public Value call(CallContext context, List<Value> arguments, Span span) {
+        if (run.insideCurrentThread()) {
+            return body(context, arguments, span);
+        }
+        // Внешний вход: чужой поток, другой запуск или приложение вовсе без запуска.
+        run.enter(span);
+        try {
+            return body(context, arguments, span);
+        } finally {
+            run.leave();
+        }
+    }
+
+    private Value body(CallContext context, List<Value> arguments, Span span) {
         if (context.callDepth() >= ExecutionContext.MAX_CALL_DEPTH) {
             // Рекурсия без выхода — не «эта операция не удалась», а «выполнение дальше
             // не идёт»: поймать такое обработчиком нельзя, иначе цикл с try съел бы
@@ -92,7 +123,7 @@ public final class UserFunction implements FunctionValue {
         Environment local = closure.child();
         // Контекст создаётся до связывания: в нём же вычисляются значения по умолчанию,
         // и оттого они видят параметры, связанные левее, — область у них одна и та же.
-        ExecutionContext inner = ExecutionContext.call(local, context, unit, name(), span);
+        ExecutionContext inner = ExecutionContext.call(local, context, run, unit, name(), span);
         List<FunctionExpr.Param> params = declaration.params();
         for (int i = 0; i < params.size(); i++) {
             // Параметры — всегда локальные: одноимённая внешняя переменная остаётся

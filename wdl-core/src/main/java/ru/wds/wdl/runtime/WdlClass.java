@@ -2,12 +2,14 @@ package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
+import ru.wds.wdl.embed.NativeTrait;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.FieldSlot;
 import ru.wds.wdl.resolve.MethodSlot;
+import ru.wds.wdl.resolve.NativeTraitShape;
+import ru.wds.wdl.resolve.ScriptTraitShape;
 import ru.wds.wdl.resolve.Shape;
-import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
@@ -57,6 +59,12 @@ final class WdlClass implements ClassValue {
      */
     private final MapValue statics = new MapValue();
     /**
+     * Запуск, которому класс принадлежит. Нужен затем же, зачем функции: связанный
+     * метод — это {@link UserFunction}, и она обязана унести сеанс с собой, чтобы
+     * приложение могло позвать её из своего потока. См. {@link Run}.
+     */
+    private final Run run;
+    /**
      * Интерпретатор нужен, чтобы выполнить тело метода и значения по умолчанию.
      * Он безсостоятельный, поэтому держать на него ссылку безопасно, а альтернатива —
      * протаскивать его аргументом через {@link ClassValue}, у второй реализации
@@ -65,12 +73,13 @@ final class WdlClass implements ClassValue {
     private final Interpreter interpreter;
 
     WdlClass(ClassShape shape, Environment closure, Unit unit, WdlClass parent,
-             List<WdlTrait> traits, Interpreter interpreter) {
+             List<WdlTrait> traits, Run run, Interpreter interpreter) {
         this.shape = Objects.requireNonNull(shape, "shape");
         this.closure = Objects.requireNonNull(closure, "closure");
         this.unit = Objects.requireNonNull(unit, "unit");
         this.parent = parent;
         this.traits = List.copyOf(traits);
+        this.run = Objects.requireNonNull(run, "run");
         this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
 
         Map<String, Method> table = new LinkedHashMap<>();
@@ -140,7 +149,8 @@ final class WdlClass implements ClassValue {
     private FunctionValue bind(InstanceObjectValue container, Method method) {
         InstanceObjectValue self = container.identity();
         return new UserFunction(method.declaration(),
-                new InstanceScope(self, (WdlClass) self.owner(), method), method.unit(), interpreter);
+                new InstanceScope(self, (WdlClass) self.owner(), method), method.unit(),
+                run, interpreter);
     }
 
     /**
@@ -161,6 +171,21 @@ final class WdlClass implements ClassValue {
      */
     @Override
     public Value instantiate(List<Value> arguments, CallContext caller, Span span) {
+        // Создание — такой же вход в скрипт, как вызов: приложение вправе позвать
+        // 'new' само, и конструктор — обычный код на wdl. Правило то же, что
+        // у UserFunction.call: изнутри запуска замок уже наш, снаружи его надо взять.
+        if (run.insideCurrentThread()) {
+            return create(arguments, caller, span);
+        }
+        run.enter(span);
+        try {
+            return create(arguments, caller, span);
+        } finally {
+            run.leave();
+        }
+    }
+
+    private Value create(List<Value> arguments, CallContext caller, Span span) {
         if (caller.callDepth() >= ExecutionContext.MAX_CALL_DEPTH) {
             // Создание считается вызовом: 'class Node(next = new Node())' обязано
             // остановить выполнение, а не свалить чужое приложение StackOverflowError.
@@ -219,7 +244,7 @@ final class WdlClass implements ClassValue {
             Environment local = Scope.under(klass.closure);
             // Кадр называется 'new Имя': в трассировке ошибка из значения по умолчанию
             // или из аргумента родителю должна показывать создание, а не пустоту.
-            ExecutionContext inner = ExecutionContext.call(local, caller, klass.unit,
+            ExecutionContext inner = ExecutionContext.call(local, caller, run, klass.unit,
                     "new " + klass.name(), span);
             bound.put(klass.shape, bindParams(klass.shape.params(), level, local, inner));
 
@@ -266,13 +291,18 @@ final class WdlClass implements ClassValue {
         if (slot.owner() instanceof ClassShape owner) {
             return bound.get(owner)[slot.paramIndex()];
         }
-        WdlTrait trait = traitOf((TraitShape) slot.owner());
+        if (slot.owner() instanceof NativeTraitShape declared) {
+            // У трейта от приложения значение поля готово: вычислять нечего,
+            // а значит и области, в которой вычислять, не нужно.
+            return declared.defaultOf(slot.name());
+        }
+        WdlTrait trait = traitOf((ScriptTraitShape) slot.owner());
         ExecutionContext inner = ExecutionContext.call(Scope.under(trait.closure()), caller,
-                trait.unit(), "new " + name(), span);
+                run, trait.unit(), "new " + name(), span);
         return interpreter.visit(slot.param().defaultValue(), inner);
     }
 
-    private WdlTrait traitOf(TraitShape shape) {
+    private WdlTrait traitOf(ScriptTraitShape shape) {
         for (WdlClass klass = this; klass != null; klass = klass.parent) {
             for (WdlTrait trait : klass.traits) {
                 if (trait.shape() == shape) {
@@ -303,6 +333,9 @@ final class WdlClass implements ClassValue {
         return switch (classOrTrait) {
             case WdlClass other -> shape.conformsTo(other.shape);
             case WdlTrait other -> shape.conformsTo(other.shape());
+            // Трейт от приложения отвечает так же: сравниваются формы, а форма
+            // у него одна на всю его жизнь — как и у трейта, объявленного скриптом.
+            case NativeTrait other -> shape.conformsTo(other.shape());
             default -> false;
         };
     }

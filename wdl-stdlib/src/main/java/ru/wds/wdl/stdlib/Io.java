@@ -72,13 +72,21 @@ public final class Io implements Library {
     public Environment installTo(Environment scope) {
         Objects.requireNonNull(scope, "scope");
 
-        scope.define(Files.CLASS.name(), Files.CLASS);
+        // Тот же класс File, что кладёт std, если std в этом запуске установлен:
+        // область модуля стоит на корне запуска, значит спросить его можно прямо здесь.
+        NativeClass file = Files.in(scope);
+        scope.define(file.name(), file);
         scope.defineConstant("SEPARATOR", StringValue.of(java.io.File.separator));
 
         // Классы потоков собираются здесь, а не статическим полем: они обещают трейт
         // Closeable, а он объявлен прелюдией и принадлежит запуску.
-        NativeClass reader = Streams.reader(scope);
-        NativeClass writer = Streams.writer(scope);
+        // Общее у чтения и записи вынесено в родителя — и путь, и close(), и само
+        // обещание Closeable, — поэтому 'r is io.Stream' отвечает, не спрашивая,
+        // что именно открыли.
+        NativeClass stream = Streams.stream(scope);
+        NativeClass reader = Streams.reader(stream);
+        NativeClass writer = Streams.writer(stream);
+        scope.define(stream.name(), stream);
         scope.define(reader.name(), reader);
         scope.define(writer.name(), writer);
 
@@ -86,15 +94,15 @@ public final class Io implements Library {
         // пока не позовут close(), в отличие от read/write, которые всё делают внутри.
         scope.define("open", BuiltinFunction.of("open", Arity.exactly(1),
                 (context, arguments, span) ->
-                        Streams.open(Files.pathOf(arguments.get(0), span), reader, context, span)));
+                        Streams.open(Files.pathOf(arguments, 0), reader, context, span)));
 
         scope.define("create", BuiltinFunction.of("create", Arity.exactly(1),
                 (context, arguments, span) ->
-                        Streams.create(Files.pathOf(arguments.get(0), span), writer, context, span)));
+                        Streams.create(Files.pathOf(arguments, 0), writer, context, span)));
 
         scope.define("appendTo", BuiltinFunction.of("appendTo", Arity.exactly(1),
                 (context, arguments, span) ->
-                        Streams.append(Files.pathOf(arguments.get(0), span), writer, context, span)));
+                        Streams.append(Files.pathOf(arguments, 0), writer, context, span)));
 
         scope.define("read", one("read", (path, span) ->
                 StringValue.of(Files.io(span, () ->
@@ -112,8 +120,8 @@ public final class Io implements Library {
         // с ним читаются, а «ничего» никому не нужно.
         scope.define("write", BuiltinFunction.of("write", Arity.exactly(2),
                 (context, arguments, span) -> {
-                    Path path = Files.pathOf(arguments.get(0), span);
-                    String data = arguments.get(1).display();
+                    Path path = Files.pathOf(arguments, 0);
+                    String data = arguments.at(1).display();
                     Files.io(span, () -> java.nio.file.Files.writeString(
                             path, data, StandardCharsets.UTF_8));
                     return arguments.get(0);
@@ -121,8 +129,8 @@ public final class Io implements Library {
 
         scope.define("append", BuiltinFunction.of("append", Arity.exactly(2),
                 (context, arguments, span) -> {
-                    Path path = Files.pathOf(arguments.get(0), span);
-                    String data = arguments.get(1).display();
+                    Path path = Files.pathOf(arguments, 0);
+                    String data = arguments.at(1).display();
                     Files.io(span, () -> java.nio.file.Files.writeString(path, data,
                             StandardCharsets.UTF_8, StandardOpenOption.CREATE,
                             StandardOpenOption.APPEND));
@@ -170,7 +178,7 @@ public final class Io implements Library {
     /** Функция от одного пути — таких здесь большинство. */
     private static BuiltinFunction one(String name, PathFunction body) {
         return BuiltinFunction.of(name, Arity.exactly(1), (context, arguments, span) ->
-                body.apply(Files.pathOf(arguments.get(0), span), span));
+                body.apply(Files.pathOf(arguments, 0), span));
     }
 
     @FunctionalInterface

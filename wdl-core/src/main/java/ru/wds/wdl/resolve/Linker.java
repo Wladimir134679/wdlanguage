@@ -1,9 +1,9 @@
 package ru.wds.wdl.resolve;
 
-import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.TraitDeclStmt;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Requirement;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -40,7 +40,7 @@ import java.util.Map;
 public final class Linker {
 
     private final Map<ClassDeclStmt, List<Linked>> classes = new IdentityHashMap<>();
-    private final Map<TraitDeclStmt, TraitShape> traits = new IdentityHashMap<>();
+    private final Map<TraitDeclStmt, ScriptTraitShape> traits = new IdentityHashMap<>();
 
     /** Пустой линкер: по одному на запуск, вместе с его контекстом выполнения. */
     public Linker() {
@@ -69,8 +69,8 @@ public final class Linker {
      * строится из одного объявления. Кэш нужен по той же причине, что у класса:
      * трейт, объявленный внутри функции, обязан оставаться одним трейтом для {@code is}.
      */
-    public TraitShape traitShape(TraitDeclStmt declaration) {
-        return traits.computeIfAbsent(declaration, TraitShape::new);
+    public ScriptTraitShape traitShape(TraitDeclStmt declaration) {
+        return traits.computeIfAbsent(declaration, ScriptTraitShape::new);
     }
 
     /**
@@ -134,24 +134,23 @@ public final class Linker {
      */
     private static void checkRequirements(ClassShape shape) {
         for (TraitShape trait : shape.traits()) {
-            for (FunctionExpr.Param required : trait.requiredFields()) {
-                if (!shape.fields().containsKey(required.name())) {
+            for (String required : trait.requiredFields()) {
+                if (!shape.fields().containsKey(required)) {
                     throw new LinkError(shape.declaration().nameSpan(), unmet(shape, trait)
-                            + "нет поля '" + required.name() + "'. Объявите его в заголовке класса");
+                            + "нет поля '" + required + "'. Объявите его в заголовке класса");
                 }
             }
-            for (TraitDeclStmt.Requirement required : trait.requiredMethods()) {
+            for (Requirement required : trait.requiredMethods()) {
                 MethodSlot provided = shape.methods().get(required.name());
                 if (provided == null) {
                     throw new LinkError(shape.declaration().nameSpan(), unmet(shape, trait)
                             + "нет метода '" + required.name() + "'");
                 }
-                Arity expected = ClassShape.arityOf(required.params());
                 Arity actual = ClassShape.arityOf(provided.declaration().params());
-                if (!actual.accepts(expected.min()) || !actual.accepts(expected.max())) {
+                if (!required.satisfiedBy(actual)) {
                     throw new LinkError(shape.declaration().nameSpan(), unmet(shape, trait)
                             + "метод '" + required.name() + "' должен принимать "
-                            + expected.describeArguments() + ", а принимает "
+                            + required.arity().describeArguments() + ", а принимает "
                             + actual.describeArguments());
                 }
             }

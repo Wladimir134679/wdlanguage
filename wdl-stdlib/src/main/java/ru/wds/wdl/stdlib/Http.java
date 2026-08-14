@@ -1,9 +1,11 @@
 package ru.wds.wdl.stdlib;
 
+import ru.wds.wdl.embed.Args;
 import ru.wds.wdl.embed.Library;
 import ru.wds.wdl.embed.NativeClass;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
@@ -80,18 +82,22 @@ public final class Http implements Library {
      * Метод остался ровно один — {@code ok()}, потому что «успех» это диапазон,
      * а не поле.
      */
-    static final NativeClass RESPONSE = NativeClass.named("Response")
-            .field("status")
-            .field("body", StringValue.EMPTY)
-            .field("headers", new MapValue())
-            .field("url", StringValue.EMPTY)
-            .method("ok", Arity.exactly(0), (self, context, arguments, span) -> {
-                Value status = self.get("status");
-                long code = status instanceof NumberValue number ? number.asLong() : 0;
-                return BoolValue.of(code >= 200 && code < 300);
-            })
-            .build();
+    private static NativeClass responseClass() {
+        return NativeClass.named("Response")
+                .field("status")
+                .field("body", StringValue.EMPTY)
+                .field("headers", new MapValue())
+                .field("url", StringValue.EMPTY)
+                .method("ok", Arity.exactly(0), (self, context, arguments, span) -> {
+                    Value status = self.get("status");
+                    long code = status instanceof NumberValue number ? number.asLong() : 0;
+                    return BoolValue.of(code >= 200 && code < 300);
+                })
+                .build();
+    }
 
+    /** Класс ответа этого запуска: собирается вместе с модулем, как и всё остальное. */
+    private NativeClass responseClass;
     private HttpClient client;
 
     private Http() {
@@ -111,31 +117,32 @@ public final class Http implements Library {
     public Environment installTo(Environment scope) {
         Objects.requireNonNull(scope, "scope");
 
-        scope.define(RESPONSE.name(), RESPONSE);
+        responseClass = responseClass();
+        scope.define(responseClass.name(), responseClass);
 
         scope.define("get", BuiltinFunction.of("get", Arity.between(1, 2),
-                (context, arguments, span) -> send("GET", arguments.get(0), null,
-                        options(arguments, 1, span), context, span)));
+                (context, arguments, span) -> send("GET", url(arguments), null,
+                        options(arguments, 1), context, span)));
 
         scope.define("post", BuiltinFunction.of("post", Arity.between(2, 3),
-                (context, arguments, span) -> send("POST", arguments.get(0), arguments.get(1),
-                        options(arguments, 2, span), context, span)));
+                (context, arguments, span) -> send("POST", url(arguments), arguments.at(1),
+                        options(arguments, 2), context, span)));
 
         scope.define("put", BuiltinFunction.of("put", Arity.between(2, 3),
-                (context, arguments, span) -> send("PUT", arguments.get(0), arguments.get(1),
-                        options(arguments, 2, span), context, span)));
+                (context, arguments, span) -> send("PUT", url(arguments), arguments.at(1),
+                        options(arguments, 2), context, span)));
 
         scope.define("delete", BuiltinFunction.of("delete", Arity.between(1, 2),
-                (context, arguments, span) -> send("DELETE", arguments.get(0), null,
-                        options(arguments, 1, span), context, span)));
+                (context, arguments, span) -> send("DELETE", url(arguments), null,
+                        options(arguments, 1), context, span)));
 
         // Общая форма: метод и тело приходят опциями. Всё остальное — сокращения к ней.
         scope.define("request", BuiltinFunction.of("request", Arity.between(1, 2),
                 (context, arguments, span) -> {
-                    MapValue options = options(arguments, 1, span);
+                    MapValue options = options(arguments, 1);
                     String method = text(options, "method", "GET", span).toUpperCase(Locale.ROOT);
                     Value body = options.has("body") ? options.get("body") : null;
-                    return send(method, arguments.get(0), body, options, context, span);
+                    return send(method, url(arguments), body, options, context, span);
                 }));
 
         return scope;
@@ -165,9 +172,8 @@ public final class Http implements Library {
         return client;
     }
 
-    private Value send(String method, Value address, Value body, MapValue options,
+    private Value send(String method, URI uri, Value body, MapValue options,
                        CallContext context, Span span) {
-        URI uri = uri(address, span);
         HttpRequest.BodyPublisher payload = body == null || body == NullValue.NULL
                 ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(body.display(), StandardCharsets.UTF_8);
@@ -196,7 +202,7 @@ public final class Http implements Library {
                     + reason(wrong));
         }
 
-        return RESPONSE.instantiate(List.of(
+        return responseClass.instantiate(List.of(
                 IntValue.of(response.statusCode()),
                 StringValue.of(response.body()),
                 headersOf(response),
@@ -219,8 +225,8 @@ public final class Http implements Library {
             return;
         }
         if (!(given instanceof MapValue headers)) {
-            throw new WdlRuntimeError(span, "http: 'headers' должны быть объектом, а здесь "
-                    + given.type().title() + " (" + given + ")");
+            throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                    Args.because("http: 'headers'", "ожидался объект", given));
         }
         headers.entries().forEach((name, value) -> {
             try {
@@ -237,36 +243,25 @@ public final class Http implements Library {
         });
     }
 
-    private static URI uri(Value address, Span span) {
-        String text = Std.text(address, span, "http: адрес");
+    /** Адрес запроса — первым аргументом у всех форм. */
+    private static URI url(Args arguments) {
+        String text = arguments.string(0, "адрес").trim();
         URI uri;
         try {
-            uri = URI.create(text.trim());
+            uri = URI.create(text);
         } catch (IllegalArgumentException wrong) {
-            throw new WdlRuntimeError(span, "http: неверный адрес '" + text + "'");
+            throw arguments.bad(0, "адрес", "ожидался разбираемый адрес");
         }
         String scheme = uri.getScheme();
         if (scheme == null || !(scheme.equals("http") || scheme.equals("https"))) {
-            throw new WdlRuntimeError(span, "http: адрес должен начинаться с http:// или https://,"
-                    + " а здесь '" + text + "'");
+            throw arguments.bad(0, "адрес", "ожидался адрес, начинающийся с http:// или https://");
         }
         return uri;
     }
 
     /** Опции запроса: объект или ничего. */
-    private static MapValue options(List<Value> arguments, int index, Span span) {
-        if (arguments.size() <= index) {
-            return new MapValue();
-        }
-        Value given = arguments.get(index);
-        if (given == NullValue.NULL) {
-            return new MapValue();
-        }
-        if (given instanceof MapValue options) {
-            return options;
-        }
-        throw new WdlRuntimeError(span, "http: опции запроса должны быть объектом, а здесь "
-                + given.type().title() + " (" + given + ")");
+    private static MapValue options(Args arguments, int index) {
+        return arguments.object(index, "опции запроса", new MapValue());
     }
 
     private static Duration timeout(MapValue options, Span span) {
@@ -275,8 +270,8 @@ public final class Http implements Library {
             return DEFAULT_TIMEOUT;
         }
         if (!(given instanceof NumberValue number) || number.asDouble() <= 0) {
-            throw new WdlRuntimeError(span, "http: 'timeout' — это секунды ожидания,"
-                    + " положительное число, а здесь " + given);
+            throw new WdlRuntimeError(ErrorKind.VALUE, span, Args.because("http: 'timeout'",
+                    "ожидались секунды ожидания, положительное число", given));
         }
         return Duration.ofMillis((long) (number.asDouble() * 1000));
     }
@@ -286,7 +281,11 @@ public final class Http implements Library {
         if (given == NullValue.NULL) {
             return fallback;
         }
-        return Std.text(given, span, "http: '" + key + "'");
+        if (given instanceof StringValue string) {
+            return string.value();
+        }
+        throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                Args.because("http: '" + key + "'", "ожидалась строка", given));
     }
 
     private static String reason(Throwable failure) {

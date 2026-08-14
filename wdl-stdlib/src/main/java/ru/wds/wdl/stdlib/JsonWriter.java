@@ -29,27 +29,57 @@ import java.util.Map;
  */
 final class JsonWriter {
 
+    /**
+     * Как значение превращается в данные перед записью.
+     * <p>
+     * Через это работает трейт {@code Serializable}: экземпляр класса, который обещал
+     * {@code toJson()}, пишется тем, что вернул его метод. Хук отдельно от писателя,
+     * потому что вызвать метод скрипта тот не может — ему нужен контекст выполнения,
+     * а JSON про выполнение ничего не знает.
+     */
+    @FunctionalInterface
+    interface Replacer {
+        /** Значение, которое надо записать вместо этого, или то же самое. */
+        Value replace(Value value);
+    }
+
     private final StringBuilder out = new StringBuilder();
     /** Что сейчас пишется: по этому набору и виден круг. */
     private final Map<Value, Boolean> writing = new IdentityHashMap<>();
     private final String indent;
     private final Span span;
+    private final Replacer replacer;
 
-    private JsonWriter(String indent, Span span) {
+    private JsonWriter(String indent, Span span, Replacer replacer) {
         this.indent = indent;
         this.span = span;
+        this.replacer = replacer;
     }
 
     /**
      * @param indent сколько пробелов на уровень; {@code 0} — писать в одну строку
      */
-    static String write(Value value, int indent, Span span) {
-        JsonWriter writer = new JsonWriter(" ".repeat(indent), span);
+    static String write(Value value, int indent, Span span, Replacer replacer) {
+        JsonWriter writer = new JsonWriter(" ".repeat(indent), span, replacer);
         writer.value(value, 0);
         return writer.out.toString();
     }
 
-    private void value(Value value, int depth) {
+    private void value(Value raw, int depth) {
+        Value replaced = replacer.replace(raw);
+        if (replaced != raw) {
+            // Пока пишется то, во что превратился объект, отмечен он сам: иначе круг
+            // через toJson() уходил бы в бесконечность — каждый вызов даёт новую карту,
+            // и по ней одной круга не видно.
+            enter(raw);
+            write(replaced, depth);
+            leave(raw);
+            return;
+        }
+        write(raw, depth);
+    }
+
+    private void write(Value value, int depth) {
         switch (value) {
             case NullValue ignored -> out.append("null");
             case BoolValue bool -> out.append(bool.value() ? "true" : "false");

@@ -4,8 +4,6 @@ import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.Value;
 
-import java.util.List;
-
 /**
  * Тело метода нативного класса — Java-лямбда вместо дерева.
  * <p>
@@ -16,9 +14,11 @@ import java.util.List;
  * <p>
  * Число аргументов проверено до входа сюда, по {@code Arity}, объявленной
  * при регистрации метода, — поэтому тело начинается с дела, а не с проверок.
+ * Тип аргумента при этом остаётся на теле, и спрашивают о нём у {@link Args}:
+ * {@code args.string(0, "содержимое")}.
  */
 @FunctionalInterface
 public interface NativeMethod {
 
-    Value call(NativeInstance self, CallContext context, List<Value> arguments, Span span);
+    Value call(NativeInstance self, CallContext context, Args arguments, Span span);
 }

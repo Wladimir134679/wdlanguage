@@ -56,23 +56,18 @@ public final class ExecutionContext implements CallContext {
     private final Frame frame;
     private final Unit unit;
     /**
-     * Реестр модулей — изменяемое, что несёт контекст, и это не оговорка:
-     * «модуль выполняется один раз за запуск» — свойство запуска, а не области видимости,
-     * поэтому вложенный контекст обязан делить реестр с внешним, а не заводить свой.
+     * Сеанс, которому принадлежит это место выполнения: модули, формы классов, классы
+     * ошибок, замок.
+     * <p>
+     * Изменяемое, что несёт контекст, собрано здесь, и это не оговорка: «модуль
+     * выполняется один раз за запуск», «форма класса одна на запуск», «классы ошибок
+     * сняты один раз» — всё это свойства <b>запуска</b>, а не области видимости.
+     * Поэтому вложенный контекст обязан делить сеанс с внешним, а не заводить свой.
+     * <p>
+     * И по той же причине сеанс носят с собой функция и класс: вытащенная наружу
+     * функция остаётся частью своего запуска, откуда бы её ни позвали. См. {@link Run}.
      */
-    private final Modules modules;
-    /**
-     * Собранные формы классов — по той же причине общие на весь запуск. Объявление
-     * класса внутри функции выполняется на каждый вызов, и если бы вложенный контекст
-     * заводил свой {@link Linker}, каждый вызов давал бы новую форму, а {@code is}
-     * переставал бы узнавать свои же экземпляры.
-     */
-    private final Linker linker;
-    /**
-     * Классы ошибок этого запуска. Общий на весь запуск по той же причине, что
-     * и {@link #linker}: снят он один раз, с корневой области, до первой строки скрипта.
-     */
-    private final PreludeTypes exceptions;
+    private final Run run;
     /**
      * Отложенные действия текущей области или {@code null}, если их в ней нет.
      * <p>
@@ -83,15 +78,12 @@ public final class ExecutionContext implements CallContext {
     private final Deferred deferred;
 
     private ExecutionContext(Environment scope, Output output, Frame frame, Unit unit,
-                             Modules modules, Linker linker, PreludeTypes exceptions,
-                             Deferred deferred) {
+                             Run run, Deferred deferred) {
         this.scope = Objects.requireNonNull(scope, "scope");
         this.output = Objects.requireNonNull(output, "output");
         this.frame = frame;
         this.unit = Objects.requireNonNull(unit, "unit");
-        this.modules = Objects.requireNonNull(modules, "modules");
-        this.linker = Objects.requireNonNull(linker, "linker");
-        this.exceptions = Objects.requireNonNull(exceptions, "exceptions");
+        this.run = Objects.requireNonNull(run, "run");
         this.deferred = deferred;
     }
 
@@ -125,12 +117,10 @@ public final class ExecutionContext implements CallContext {
      * из реестра, а не из области.
      */
     public static ExecutionContext of(Environment scope, Output output) {
-        PreludeTypes exceptions = new PreludeTypes();
-        ExecutionContext context = new ExecutionContext(scope, output, null, Unit.none(),
-                new Modules(new ModuleUnits(ModuleSource.none()), NativeModules.none(), scope),
-                new Linker(), exceptions, null);
+        Run run = new Run(scope);
+        ExecutionContext context = new ExecutionContext(scope, output, null, Unit.none(), run, null);
         Prelude.installTo(context);
-        exceptions.captureFrom(scope);
+        run.exceptions().captureFrom(scope);
         return context;
     }
 
@@ -144,10 +134,17 @@ public final class ExecutionContext implements CallContext {
      * Текущая область видимости запоминается как корневая для всех модулей — они
      * увидят встроенные функции и библиотеки, положенные до этого вызова, и не увидят
      * локальных имён того, кто их импортирует.
+     * <p>
+     * <b>Меняется сам сеанс, а не его копия.</b> Контекст по-прежнему неизменяем —
+     * возвращается новый, — но {@link Run} у запуска один от начала до конца, и это
+     * важнее: классы прелюдии созданы раньше этого вызова, и достанься им сеанс
+     * без модулей, {@code report()} у ошибки выполнялся бы не в том запуске, где она
+     * случилась. Отсюда правило: собирать запуск до первой инструкции скрипта, как
+     * и обещано выше.
      */
     public ExecutionContext withModules(ModuleUnits units) {
-        return new ExecutionContext(scope, output, frame, unit,
-                new Modules(units, modules.natives(), scope), linker, exceptions, deferred);
+        run.useModules(new Modules(units, run.modules().natives(), scope));
+        return this;
     }
 
     /**
@@ -160,11 +157,12 @@ public final class ExecutionContext implements CallContext {
      * <p>
      * Ставится до запуска, вместе с {@link #withModules}: реестр выполненного
      * принадлежит запуску, и менять его состав посреди работы значило бы,
-     * что одно и то же имя в двух местах скрипта означает разное.
+     * что одно и то же имя в двух местах скрипта означает разное. Меняется при этом
+     * сам сеанс — почему именно так, разобрано у {@link #withModules}.
      */
     public ExecutionContext withNativeModules(NativeModules natives) {
-        return new ExecutionContext(scope, output, frame, unit,
-                new Modules(modules.units(), natives, scope), linker, exceptions, deferred);
+        run.useModules(new Modules(run.modules().units(), natives, scope));
+        return this;
     }
 
     /**
@@ -177,7 +175,7 @@ public final class ExecutionContext implements CallContext {
      * а вот реестр модулей у копий общий — потому закрывать и можно отсюда.
      */
     public void shutdownModules() {
-        modules.shutdown();
+        run.modules().shutdown();
     }
 
     /**
@@ -204,46 +202,54 @@ public final class ExecutionContext implements CallContext {
      * <p>
      * Кадр, наоборот, помнит файл <b>вызывающего</b>: {@code callSite} — место в его
      * тексте, и осмысленно оно только в его исходнике.
+     * <p>
+     * Сеанс же берётся у <b>функции</b>, и это то, ради чего {@link Run} и заведён.
+     * Раньше он доставался у вызывающего, и функция, позванная приложением из своего
+     * потока, начинала выполнение без модулей, без форм классов и без классов ошибок —
+     * снаружи запуска, к которому принадлежит. Теперь вызывающий не решает ничего,
+     * кроме одного: <b>куда печатать</b>.
      *
+     * @param run      сеанс вызываемой функции — её модули, формы и классы ошибок
      * @param function имя вызванной функции — оно и попадёт в трассировку
      * @param callSite место вызова в тексте вызывающего
      */
-    static ExecutionContext call(Environment scope, CallContext caller, Unit unit,
+    static ExecutionContext call(Environment scope, CallContext caller, Run run, Unit unit,
                                  String function, Span callSite) {
-        // Реестр модулей, собранные формы и классы ошибок принадлежат запуску, а не файлу:
-        // функция, вызванная из чужого движка, к его модулям отношения не имеет — там
-        // начинается свой запуск.
-        ExecutionContext running = caller instanceof ExecutionContext context ? context : null;
-        Modules known = running != null
-                ? running.modules
-                : new Modules(new ModuleUnits(ModuleSource.none()), NativeModules.none(), scope);
-        Linker shapes = running != null ? running.linker : new Linker();
-        PreludeTypes errors = running != null ? running.exceptions : new PreludeTypes();
+        // Кадр и файл для него — вызывающего: 'callSite' указывает в его текст. Если
+        // вызывающий не из этого запуска (или вовсе не скрипт), путь начинается здесь,
+        // и это честно: до границы движка трассировка скрипта не достаёт.
+        ExecutionContext running = caller instanceof ExecutionContext context
+                && context.run == run ? context : null;
         Unit callerUnit = running != null ? running.unit : Unit.none();
         Frame parent = running != null ? running.frame : null;
         // Отложенное вызванной функции не наследуется: 'defer' принадлежит своей области,
         // а тело вызова — это другая область в другом файле.
         return new ExecutionContext(scope, caller::write,
-                Frame.of(function, callSite, callerUnit, parent), unit, known, shapes, errors, null);
+                Frame.of(function, callSite, callerUnit, parent), unit, run, null);
     }
 
     public Environment scope() {
         return scope;
     }
 
+    /** Сеанс, которому принадлежит это место выполнения. */
+    Run run() {
+        return run;
+    }
+
     /** Модули этого запуска: где их искать и какие уже выполнены. */
     Modules modules() {
-        return modules;
+        return run.modules();
     }
 
     /** Формы классов этого запуска: кто с кем связан и что уже собрано. */
     Linker linker() {
-        return linker;
+        return run.linker();
     }
 
     /** Классы ошибок этого запуска: по ним движок отвечает на {@code catch (e is ...)}. */
     PreludeTypes exceptions() {
-        return exceptions;
+        return run.exceptions();
     }
 
     /** Кадр текущего вызова или {@code null} на верхнем уровне файла. */
@@ -269,14 +275,13 @@ public final class ExecutionContext implements CallContext {
 
     /** Тот же контекст, но выполняющий другой файл. */
     public ExecutionContext withUnit(Unit newUnit) {
-        return new ExecutionContext(scope, output, frame, newUnit, modules, linker, exceptions,
-                deferred);
+        return new ExecutionContext(scope, output, frame, newUnit, run, deferred);
     }
 
     /** Тот же контекст, но знающий план объявлений разобранной программы. */
     public ExecutionContext withResolution(Resolution newResolution) {
         return new ExecutionContext(scope, output, frame, unit.withResolution(newResolution),
-                modules, linker, exceptions, deferred);
+                run, deferred);
     }
 
     public Output output() {
@@ -295,8 +300,7 @@ public final class ExecutionContext implements CallContext {
 
     /** Тот же контекст, но с другим окружением: вход в блок, функцию, итерацию. */
     public ExecutionContext withScope(Environment newScope) {
-        return new ExecutionContext(newScope, output, frame, unit, modules, linker, exceptions,
-                deferred);
+        return new ExecutionContext(newScope, output, frame, unit, run, deferred);
     }
 
     /**
@@ -304,7 +308,7 @@ public final class ExecutionContext implements CallContext {
      * у которого есть {@code defer}.
      */
     ExecutionContext withDeferred(Deferred own) {
-        return new ExecutionContext(scope, output, frame, unit, modules, linker, exceptions, own);
+        return new ExecutionContext(scope, output, frame, unit, run, own);
     }
 
     /** Отложенные действия текущей области или {@code null}. */

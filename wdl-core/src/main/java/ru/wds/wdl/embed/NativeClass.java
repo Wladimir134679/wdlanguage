@@ -6,6 +6,7 @@ import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.Requirement;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
@@ -37,11 +38,19 @@ import java.util.stream.Collectors;
  *         .field("path")
  *         .method("read", Arity.exactly(0), (self, ctx, args, span) -> read(self, span))
  *         .method("write", Arity.exactly(1), (self, ctx, args, span) -> write(self, args, span))
- *         .factory("temp", Arity.exactly(0), (ctx, args, span) -> ...)
+ *         .factory("temp", Arity.exactly(0), (type, ctx, args, span) -> ...)
  *         .build();
  *
  * scope.define(file.name(), file);
  * }</pre>
+ *
+ * <h2>Класс собирается на запуск</h2>
+ * Построитель зовут из {@link Library#installTo}, а не из статического поля. Причина
+ * та же, по которой в ядре нет изменяемой статики: поля самого класса ({@link #statics()})
+ * изменяемы, и скрипт вправе в них писать — значит, класс, общий для всех запусков,
+ * переносил бы состояние одного скрипта в другой. Сборка стоит недорого, а фабрика
+ * получает свой класс аргументом ({@link NativeFactory}), поэтому ссылаться
+ * на статическое поле незачем.
  *
  * <h2>Правила те же, что у классов языка</h2>
  * Заголовок — список полей: сколько их, столько и аргументов у {@code new}, а поле
@@ -54,37 +63,73 @@ import java.util.stream.Collectors;
  * <h2>Трейты</h2>
  * Класс может подмешать трейт — {@code .with(closeable)}, — и тогда {@code is}
  * отвечает {@code true} и ему. Требования трейта проверяются <b>при сборке класса</b>,
- * то есть при старте приложения: забыли метод — исключение из построителя, а не
- * непонятная ошибка у автора скрипта через месяц. Это то же обещание и в тот же
+ * то есть при старте приложения: забыли метод или ошиблись в числе его аргументов —
+ * исключение из построителя, а не непонятная ошибка у автора скрипта через месяц.
+ * Это то же обещание, то же правило («поле закрывает поле, метод — метод») и тот же
  * момент, что у класса на wdl, где требования проверяет {@code Linker} на строке
  * {@code class}.
  * <p>
- * Методов по умолчанию трейт нативному классу не приносит: метод в плоской таблице
- * держит кусок дерева, а у Java-метода дерева нет. Трейт здесь — контракт, и только.
+ * Поля со значением {@link NativeTrait нативный трейт} классу приносит — они пишутся
+ * в экземпляр до своих. А вот <b>методов с телом не приносит ни один трейт</b>: метод
+ * в плоской таблице держит кусок дерева, а у Java-метода дерева нет. По той же причине
+ * трейт, написанный на wdl (скажем, {@code Closeable} из прелюдии), остаётся здесь
+ * только контрактом: его поля — выражения, а вычислять их тут нечем.
  *
- * <h2>Чего у нативного класса пока нет</h2>
- * Наследования: {@code is} отвечает {@code true} самому классу и подмешанным трейтам,
- * но не предку. Когда понадобится, сюда добавится ссылка на родителя — таблица методов
- * здесь и так плоская, как у классов языка.
+ * <h2>Наследование</h2>
+ * Внутри Java-модуля иерархия строится обычным {@link Builder#extending}: заголовок
+ * родителя продолжается своими полями, таблица методов склеивается плоско,
+ * {@code init} выполняются от дальнего предка к потомку, {@code is} отвечает
+ * {@code true} предку и его трейтам.
+ * <p>
+ * <b>Обратного пока нет:</b> класс на wdl не может наследоваться от нативного —
+ * плоскую таблицу по Java-методам не собрать, и {@code class My : net.Server}
+ * даёт внятный отказ. Композиция через {@link NativeTrait} закрывает этот случай
+ * лучше: {@code class My with net.Handler} связывает слабее и читается яснее.
  */
 public final class NativeClass implements ClassValue {
 
     private final String name;
+    private final NativeClass parent;
+    /** Заголовок целиком: поля родителя, затем свои. */
     private final List<Field> fields;
-    private final NativeMethod init;
+    /** Конструкторы от дальнего предка к этому классу — в порядке выполнения. */
+    private final List<NativeMethod> inits;
+    /** Плоская таблица: методы родителя, затем свои — побеждает последний. */
     private final Map<String, Entry> methods;
     private final List<TraitValue> traits;
+    /** Поля, пришедшие от трейтов готовыми значениями: пишутся до своих. */
+    private final Map<String, Value> traitFields;
     private final MapValue statics = new MapValue();
     private final Arity arity;
 
-    private NativeClass(Builder builder) {
+    private NativeClass(Builder builder, List<Field> allFields, Map<String, Entry> allMethods) {
         this.name = builder.name;
-        this.fields = List.copyOf(builder.fields);
-        this.init = builder.init;
-        this.methods = Collections.unmodifiableMap(new LinkedHashMap<>(builder.methods));
-        this.traits = List.copyOf(builder.traits);
+        this.parent = builder.parent;
+        this.fields = List.copyOf(allFields);
+        this.methods = Collections.unmodifiableMap(new LinkedHashMap<>(allMethods));
+        this.traits = List.copyOf(builder.allTraits());
         this.arity = arityOf(fields);
         builder.statics.forEach(statics::put);
+
+        List<NativeMethod> chain = new ArrayList<>();
+        if (parent != null) {
+            chain.addAll(parent.inits);
+        }
+        if (builder.init != null) {
+            chain.add(builder.init);
+        }
+        this.inits = List.copyOf(chain);
+
+        // Поля, объявленные трейтом со значением, достаются классу — как и классу
+        // на wdl. Порядок тот же: трейты слева направо, свои поля последними
+        // и потому побеждают.
+        Map<String, Value> donated = new LinkedHashMap<>();
+        for (TraitValue trait : this.traits) {
+            if (trait instanceof NativeTrait declared) {
+                donated.putAll(declared.declaredFields());
+            }
+        }
+        this.traitFields = Collections.unmodifiableMap(donated);
     }
 
     public static Builder named(String name) {
@@ -120,18 +165,24 @@ public final class NativeClass implements ClassValue {
      * <p>
      * Порядок тот же, что у классов языка: к моменту, когда библиотека получает
      * управление, поля уже записаны. Поэтому {@code init} может проверить их,
-     * посчитать производное и завести Java-состояние.
+     * посчитать производное и завести Java-состояние. С родителем порядок
+     * тоже языковой — конструкторы выполняются от дальнего предка к этому классу,
+     * и каждый видит объект, собранный целиком.
      */
     @Override
     public Value instantiate(List<Value> arguments, CallContext context, Span span) {
         NativeInstance instance = new NativeInstance(this);
+        traitFields.forEach(instance::put);
         for (int i = 0; i < fields.size(); i++) {
             Field field = fields.get(i);
             Value given = i < arguments.size() ? arguments.get(i) : field.defaultValue;
             instance.put(field.name, given == null ? NullValue.NULL : given);
         }
-        if (init != null) {
-            init.call(instance, context, arguments, span);
+        if (!inits.isEmpty()) {
+            Args args = Args.of("new " + name, arguments, context, span);
+            for (NativeMethod body : inits) {
+                body.call(instance, context, args, span);
+            }
         }
         return instance;
     }
@@ -151,16 +202,26 @@ public final class NativeClass implements ClassValue {
         return new Bound(entry, self, this.name);
     }
 
+    /** Родитель или {@code null}. Родитель ровно один — из-за заголовка. */
+    public NativeClass parent() {
+        return parent;
+    }
+
     /**
-     * Сам класс и подмешанные трейты. Наследования у нативных классов пока нет,
-     * поэтому цепочки предков в ответе тоже нет.
+     * Сам класс, его предки и подмешанные трейты — свои и доставшиеся от предков.
      * <p>
-     * Сравнение по ссылке, а не по имени: трейт прелюдии принадлежит запуску,
-     * и класс, собранный для одного запуска, честно не совпадает с трейтом другого.
+     * Сравнение по ссылке, а не по имени: класс и трейт собираются на запуск,
+     * и собранное для одного запуска честно не совпадает с собранным для другого.
      */
     @Override
     public boolean conformsTo(Value classOrTrait) {
-        return classOrTrait == this || traits.contains(classOrTrait);
+        for (NativeClass ancestor = this; ancestor != null; ancestor = ancestor.parent) {
+            if (classOrTrait == ancestor) {
+                return true;
+            }
+        }
+        // Трейты здесь уже собраны по всей цепочке — см. Builder.allTraits().
+        return traits.contains(classOrTrait);
     }
 
     @Override
@@ -181,6 +242,9 @@ public final class NativeClass implements ClassValue {
     private record Entry(String name, Arity arity, NativeMethod body) {
     }
 
+    private record FactoryEntry(String name, Arity arity, NativeFactory body) {
+    }
+
     /** Метод, связанный с экземпляром: обычное значение-функция, как и у классов языка. */
     private record Bound(Entry entry, NativeInstance self, String className) implements FunctionValue {
 
@@ -196,7 +260,7 @@ public final class NativeClass implements ClassValue {
 
         @Override
         public Value call(CallContext context, List<Value> arguments, Span span) {
-            return entry.body().call(self, context, arguments, span);
+            return entry.body().call(self, context, Args.of(name(), arguments, context, span), span);
         }
 
         @Override
@@ -215,11 +279,39 @@ public final class NativeClass implements ClassValue {
         private final List<Field> fields = new ArrayList<>();
         private final Map<String, Entry> methods = new LinkedHashMap<>();
         private final Map<String, Value> statics = new LinkedHashMap<>();
+        private final Map<String, FactoryEntry> factories = new LinkedHashMap<>();
         private final List<TraitValue> traits = new ArrayList<>();
         private NativeMethod init;
+        private NativeClass parent;
 
         private Builder(String name) {
             this.name = requireName(name, "имя класса");
+        }
+
+        /**
+         * Родитель — класс, собранный этим же построителем.
+         * <p>
+         * Внутри Java-модуля иерархия строится без участия языка: заголовок родителя
+         * продолжается своими полями, таблица методов склеивается плоско (свои
+         * побеждают), {@code init} выполняются от дальнего предка к потомку,
+         * а {@code is} начинает отвечать {@code true} предку и его трейтам.
+         * <p>
+         * Поля самого класса ({@code statics}) не наследуются — как и у классов wdl:
+         * {@code Base.of} на потомке не появляется, потому что фабрика знает,
+         * что создаёт.
+         * <p>
+         * Наследовать <b>от</b> нативного класса скрипт по-прежнему не может:
+         * плоскую таблицу по Java-методам не собрать, и {@code class My : net.Server}
+         * даёт внятный отказ.
+         */
+        public Builder extending(NativeClass superclass) {
+            Objects.requireNonNull(superclass, "superclass");
+            if (parent != null) {
+                throw new IllegalArgumentException("у класса '" + name + "' уже есть родитель '"
+                        + parent.name() + "'");
+            }
+            this.parent = superclass;
+            return this;
         }
 
         /** Обязательное поле: аргумент {@code new} без значения по умолчанию. */
@@ -274,23 +366,122 @@ public final class NativeClass implements ClassValue {
          * Фабрика — функция на самом классе: {@code File.temp()}.
          * <p>
          * Не отдельный вид члена, а место записи: она ложится в {@link #statics()}
-         * обычным значением, и снаружи то же самое сделало бы присваивание.
+         * обычным значением, и снаружи то же самое сделало бы присваивание. Собирается
+         * она при {@link #build()}, потому что телу нужен готовый класс — см.
+         * {@link NativeFactory}.
          */
-        public Builder factory(String factoryName, Arity factoryArity, BuiltinFunction.Body body) {
+        public Builder factory(String factoryName, Arity factoryArity, NativeFactory body) {
             requireName(factoryName, "имя фабрики");
-            return constant(factoryName,
-                    BuiltinFunction.of(name + "." + factoryName, factoryArity, body));
+            Objects.requireNonNull(factoryArity, "arity");
+            Objects.requireNonNull(body, "body");
+            checkStaticFree(factoryName);
+            factories.put(factoryName, new FactoryEntry(factoryName, factoryArity, body));
+            return this;
         }
 
         /** Поле самого класса: {@code File.SEPARATOR}. */
         public Builder constant(String constantName, Value value) {
             requireName(constantName, "имя поля класса");
             Objects.requireNonNull(value, "value");
-            if (statics.put(constantName, value) != null) {
-                throw new IllegalArgumentException("поле класса '" + constantName
+            checkStaticFree(constantName);
+            statics.put(constantName, value);
+            return this;
+        }
+
+        /** Заголовок целиком: поля родителя, затем свои. */
+        private List<Field> allFields() {
+            if (parent == null) {
+                return List.copyOf(fields);
+            }
+            List<Field> merged = new ArrayList<>(parent.fields);
+            merged.addAll(fields);
+            return merged;
+        }
+
+        /** Плоская таблица методов: родительские, затем свои — побеждает последний. */
+        private Map<String, Entry> allMethods() {
+            if (parent == null) {
+                return new LinkedHashMap<>(methods);
+            }
+            Map<String, Entry> merged = new LinkedHashMap<>(parent.methods);
+            merged.putAll(methods);
+            return merged;
+        }
+
+        /** Трейты всей цепочки: родительские, затем свои. */
+        private List<TraitValue> allTraits() {
+            if (parent == null) {
+                return List.copyOf(traits);
+            }
+            List<TraitValue> merged = new ArrayList<>(parent.traits);
+            traits.stream().filter(trait -> !merged.contains(trait)).forEach(merged::add);
+            return merged;
+        }
+
+        /**
+         * Заголовок после склейки с родительским: имена не повторяются, обязательное
+         * не идёт после необязательного.
+         * <p>
+         * Проверка отдельно от {@link #field}, потому что своё поле законно, а вместе
+         * с родительским может и не быть: родитель с необязательным полем и потомок
+         * с обязательным дают заголовок, который нечем заполнить.
+         */
+        private void checkHeader(List<Field> header) {
+            Field optional = null;
+            for (int i = 0; i < header.size(); i++) {
+                Field field = header.get(i);
+                for (int j = 0; j < i; j++) {
+                    if (header.get(j).name.equals(field.name)) {
+                        throw new IllegalStateException("поле '" + field.name + "' класса '" + name
+                                + "' уже объявлено у родителя '" + parent.name() + "'");
+                    }
+                }
+                if (field.defaultValue != null) {
+                    optional = field;
+                } else if (optional != null) {
+                    throw new IllegalStateException("поле '" + field.name + "' класса '" + name
+                            + "' без значения по умолчанию не может идти после поля '"
+                            + optional.name + "' со значением");
+                }
+            }
+        }
+
+        /**
+         * Проверяет обещания трейта — тем же правилом, что {@code Linker} у классов
+         * на wdl: поле закрывает только поле, метод — только метод, и число аргументов
+         * метода обязано покрывать требуемое.
+         */
+        private void checkRequirements(TraitValue trait, List<Field> allFields,
+                                       Map<String, Entry> allMethods) {
+            for (String required : trait.requiredFields()) {
+                if (allFields.stream().noneMatch(field -> field.name.equals(required))) {
+                    throw new IllegalStateException(unmet(trait) + "нет поля '" + required
+                            + "'. Объявите его в заголовке класса");
+                }
+            }
+            for (Requirement required : trait.requiredMethods()) {
+                Entry provided = allMethods.get(required.name());
+                if (provided == null) {
+                    throw new IllegalStateException(unmet(trait) + "нет метода '"
+                            + required.name() + "'");
+                }
+                if (!required.satisfiedBy(provided.arity())) {
+                    throw new IllegalStateException(unmet(trait) + "метод '" + required.name()
+                            + "' должен принимать " + required.arity().describeArguments()
+                            + ", а принимает " + provided.arity().describeArguments());
+                }
+            }
+        }
+
+        private String unmet(TraitValue trait) {
+            return "класс '" + name + "' не выполняет требование трейта '" + trait.name() + "': ";
+        }
+
+        private void checkStaticFree(String memberName) {
+            if (statics.containsKey(memberName) || factories.containsKey(memberName)) {
+                throw new IllegalArgumentException("поле класса '" + memberName
                         + "' у '" + name + "' уже объявлено");
             }
-            return this;
         }
 
         /**
@@ -315,17 +506,22 @@ public final class NativeClass implements ClassValue {
          * приложения, и «забыл close» должно падать там же, где написано {@code .with}.
          */
         public NativeClass build() {
-            for (TraitValue trait : traits) {
-                for (String required : trait.requiredMethods()) {
-                    if (!methods.containsKey(required)
-                            && fields.stream().noneMatch(field -> field.name.equals(required))) {
-                        throw new IllegalStateException("класс '" + name
-                                + "' не выполняет требование трейта '" + trait.name()
-                                + "': нет метода '" + required + "'");
-                    }
-                }
+            List<Field> allFields = allFields();
+            Map<String, Entry> allMethods = allMethods();
+            checkHeader(allFields);
+            // Требования проверяются по всему, что у класса есть, — вместе
+            // с унаследованным: обещание трейта выполняет класс целиком.
+            for (TraitValue trait : allTraits()) {
+                checkRequirements(trait, allFields, allMethods);
             }
-            return new NativeClass(this);
+            NativeClass built = new NativeClass(this, allFields, allMethods);
+            // Фабрики — последними: их телу нужен готовый класс, чтобы было чем
+            // создавать экземпляр.
+            factories.forEach((factoryName, factory) -> built.statics.put(factoryName,
+                    BuiltinFunction.of(name + "." + factoryName, factory.arity(),
+                            (context, arguments, span) ->
+                                    factory.body().call(built, context, arguments, span))));
+            return built;
         }
 
         private static String requireName(String value, String what) {

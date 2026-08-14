@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.embed.Args;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
@@ -23,10 +24,16 @@ import java.util.Objects;
  */
 public final class BuiltinFunction implements FunctionValue {
 
-    /** Реализация встроенной функции. Число аргументов уже проверено. */
+    /**
+     * Реализация встроенной функции. Число аргументов уже проверено.
+     * <p>
+     * Аргументы приходят {@link Args} — обычным списком значений, который вдобавок
+     * умеет отвечать за их тип: {@code args.string(0, "путь")} вместо проверки руками
+     * и своего текста ошибки в каждом теле.
+     */
     @FunctionalInterface
     public interface Body {
-        Value apply(CallContext context, List<Value> arguments, Span span);
+        Value apply(CallContext context, Args arguments, Span span);
     }
 
     private final String name;
@@ -55,7 +62,7 @@ public final class BuiltinFunction implements FunctionValue {
 
     @Override
     public Value call(CallContext context, List<Value> arguments, Span span) {
-        return body.apply(context, arguments, span);
+        return body.apply(context, Args.of(name, arguments, context, span), span);
     }
 
     @Override

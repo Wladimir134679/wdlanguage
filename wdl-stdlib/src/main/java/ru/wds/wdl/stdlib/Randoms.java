@@ -2,7 +2,7 @@ package ru.wds.wdl.stdlib;
 
 import ru.wds.wdl.embed.NativeClass;
 import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.WdlRuntimeError;
+import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.types.ArrayValue;
@@ -22,10 +22,21 @@ import java.util.Random;
  * <p>
  * Разделение то же, что и везде: что выразимо — полем, чтобы это было видно в печати
  * и в переборе; что не выразимо — состоянием, о котором скрипт не знает.
+ * <p>
+ * Класс собирается на запуск — по той же причине, что и {@link Files}.
  */
 final class Randoms {
 
-    static final NativeClass CLASS = NativeClass.named("Random")
+    private Randoms() {
+    }
+
+    /** Класс {@code Random} этого запуска: тот, что уже в области, или новый. */
+    static NativeClass in(Environment scope) {
+        return Types.in(scope, "Random", Randoms::build);
+    }
+
+    private static NativeClass build() {
+        return NativeClass.named("Random")
             // Зерно необязательно: без него генератор непредсказуем, с ним —
             // повторяем, и это то, ради чего зерно вообще задают.
             .field("seed", NullValue.NULL)
@@ -41,31 +52,24 @@ final class Randoms {
                     FloatValue.of(random(self).nextDouble()))
 
             .method("int", Arity.exactly(1), (self, context, arguments, span) -> {
-                NumberValue bound = Std.number(arguments.get(0), span, "Random.int", "граница");
-                if (!bound.isInteger() || bound.asLong() <= 0) {
-                    throw new WdlRuntimeError(span,
-                            "Random.int(): граница должна быть целым положительным числом, а здесь " + bound);
+                long limit = arguments.integer(0, "граница");
+                if (limit <= 0) {
+                    throw arguments.bad(0, "граница", "ожидалось положительное число");
                 }
-                long limit = bound.asLong();
                 return IntValue.of(limit <= Integer.MAX_VALUE
                         ? random(self).nextInt((int) limit)
                         : Math.floorMod(random(self).nextLong(), limit));
             })
 
             .method("pick", Arity.exactly(1), (self, context, arguments, span) -> {
-                if (!(arguments.get(0) instanceof ArrayValue array)) {
-                    throw new WdlRuntimeError(span, "Random.pick(): выбирать можно из массива, а здесь "
-                            + arguments.get(0).type().title());
-                }
+                ArrayValue array = arguments.array(0, "откуда выбирать");
                 if (array.isEmpty()) {
-                    throw new WdlRuntimeError(span, "Random.pick(): массив пуст, выбирать не из чего");
+                    throw arguments.bad(0, "откуда выбирать", "ожидался непустой массив");
                 }
                 return array.get(random(self).nextInt(array.size()));
             })
 
             .build();
-
-    private Randoms() {
     }
 
     private static Random random(NativeInstance self) {
