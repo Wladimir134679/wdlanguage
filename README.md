@@ -77,6 +77,16 @@
                                  # → wdl-cli/build/install/wdl/bin/wdl
 ```
 
+## Для Intellij IDEA Run context menu
+Быстрый запуск по ПКМ файла скрипта
+
+[run-wdl.bat](run-wdl.bat)
+```
+- Program: $ProjectFileDir$\run-wdl.bat
+- Arguments: "$FileName$" "$FileDir$" UTF-8
+- Working directory: $FileDir$
+```
+
 ## Состояние
 
 Работает конвейер `исходник → токены → AST → выполнение`:

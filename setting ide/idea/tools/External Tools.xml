@@ -1,0 +1,24 @@
+<!--
+  Внешний инструмент IDEA: запуск открытого .wdl-файла через run-wdl.bat.
+
+  Файл кладётся в %APPDATA%\JetBrains\IntelliJIdea<версия>\tools\ при закрытой IDE
+  (иначе выходящая IDEA перезапишет его своим состоянием).
+
+  Скрипту передаются имя файла и его каталог — вторым аргументом, чтобы
+  относительные пути внутри скрипта считались от места, где он лежит.
+
+  Третий аргумент — кодировка вывода: консоль IDEA читает UTF-8, а сам скрипт без
+  подсказки ориентируется на кодовую страницу Windows (cp866), где нет даже тире.
+-->
+<toolSet name="External Tools">
+  <tool name="Запустить wdl-скрипт" description="Выполняет текущий .wdl-файл через :wdl-cli"
+        showInMainMenu="true" showInEditor="true" showInProject="true" showInSearchPopup="true"
+        disabled="false" useConsole="true" showConsoleOnStdOut="true" showConsoleOnStdErr="true"
+        synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="$ProjectFileDir$\run-wdl.bat" />
+      <option name="PARAMETERS" value="&quot;$FileName$&quot; &quot;$FileDir$&quot; UTF-8" />
+      <option name="WORKING_DIRECTORY" value="$FileDir$" />
+    </exec>
+  </tool>
+</toolSet>

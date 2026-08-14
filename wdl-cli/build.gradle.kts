@@ -26,8 +26,15 @@ application {
 
 // Пути в --args пользователь пишет от корня репозитория, а не от каталога модуля:
 // `--args="examples/lexer-check.wdl"` должно работать как есть.
+// `-Pwdl.dir=<каталог>` переносит запуск в другое место — скрипт видит свои
+// относительные пути от него (этим пользуется `run-wdl.bat` в корне репозитория).
 tasks.named<JavaExec>("run") {
-    workingDir = rootDir
+    workingDir = providers.gradleProperty("wdl.dir").map { file(it) }.getOrElse(rootDir)
+
+    // Вывод задачи Gradle перехватывает трубой, живой консоли у скрипта нет — и он
+    // печатает в UTF-8, тогда как консоль Windows обычно в cp866. `-Pwdl.encoding=`
+    // сообщает фактическую кодовую страницу вызывающего (этим пользуется run-wdl.bat).
+    providers.gradleProperty("wdl.encoding").orNull?.let { jvmArgs("-Dwdl.console.encoding=$it") }
 }
 
 /**
