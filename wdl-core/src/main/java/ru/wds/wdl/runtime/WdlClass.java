@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.embed.NativeTrait;
@@ -11,10 +12,12 @@ import ru.wds.wdl.resolve.NativeTraitShape;
 import ru.wds.wdl.resolve.ScriptTraitShape;
 import ru.wds.wdl.resolve.Shape;
 import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.Arguments;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.MapValue;
@@ -178,6 +181,16 @@ final class WdlClass implements ClassValue {
      */
     @Override
     public Value instantiate(List<Value> arguments, CallContext caller, Span span) {
+        return instantiate(Arguments.positional(arguments), caller, span);
+    }
+
+    /**
+     * То же создание по разложенному набору: у класса на wdl значения по умолчанию
+     * отложенные, поэтому пропуск в середине — {@code new Point(y: 3)} — доживает сюда
+     * и заполняется там же, где связываются параметры.
+     */
+    @Override
+    public Value instantiate(Arguments arguments, CallContext caller, Span span) {
         // Создание — такой же вход в скрипт, как вызов: приложение вправе позвать
         // 'new' само, и конструктор — обычный код на wdl. Правило то же, что
         // у UserFunction.call: изнутри запуска мы уже внутри, снаружи надо войти.
@@ -192,7 +205,7 @@ final class WdlClass implements ClassValue {
         }
     }
 
-    private Value create(List<Value> arguments, CallContext caller, Span span) {
+    private Value create(Arguments arguments, CallContext caller, Span span) {
         if (caller.callDepth() >= ExecutionContext.MAX_CALL_DEPTH) {
             // Создание считается вызовом: 'class Node(next = new Node())' обязано
             // остановить выполнение, а не свалить чужое приложение StackOverflowError.
@@ -244,9 +257,9 @@ final class WdlClass implements ClassValue {
      * параметром: это список аргументов, а не источник поля, и побочный эффект
      * в нём не должен зависеть от того, какие имена завёл потомок.
      */
-    private Map<Shape, Value[]> bindLineage(List<Value> arguments, CallContext caller, Span span) {
+    private Map<Shape, Value[]> bindLineage(Arguments arguments, CallContext caller, Span span) {
         Map<Shape, Value[]> bound = new IdentityHashMap<>();
-        List<Value> level = arguments;
+        Arguments level = arguments;
         for (WdlClass klass = this; klass != null; klass = klass.parent) {
             Environment local = Scope.under(klass.closure);
             // Кадр называется 'new Имя': в трассировке ошибка из значения по умолчанию
@@ -256,9 +269,27 @@ final class WdlClass implements ClassValue {
             bound.put(klass.shape, bindParams(klass.shape.params(), level, local, inner));
 
             ClassDeclStmt.Superclass reference = klass.shape.declaration().parent();
-            level = reference == null ? List.of() : evaluate(reference.arguments(), inner);
+            level = reference == null ? Arguments.none() : parentArguments(klass, reference, inner, span);
         }
         return bound;
+    }
+
+    /**
+     * Аргументы родителю — с именами, если они там написаны: {@code : Shape(radius: r)}.
+     * <p>
+     * Раскладка тем же связывателем, что у обычного вызова, но ошибок здесь ждать почти
+     * не приходится: имена в заголовке родителя проверил {@code Linker} ещё при связывании
+     * класса, когда форма родителя стала известна. Это тот редкий случай, когда язык
+     * успевает сказать об опечатке до первого {@code new}.
+     */
+    private Arguments parentArguments(WdlClass klass, ClassDeclStmt.Superclass reference,
+                                      ExecutionContext inner, Span span) {
+        List<Value> values = evaluate(reference.arguments(), inner);
+        if (!Binder.anyNamed(reference.arguments())) {
+            return Arguments.positional(values);
+        }
+        return Binder.bind(klass.parent.signature(), reference.arguments(), values,
+                Binder.Callee.klass(klass.parent.name()), span);
     }
 
     /**
@@ -267,12 +298,14 @@ final class WdlClass implements ClassValue {
      * Имена связываются по мере вычисления, поэтому значение по умолчанию видит
      * параметры левее себя — то же правило, что у функции, и тот же список параметров.
      */
-    private Value[] bindParams(List<FunctionExpr.Param> params, List<Value> arguments,
+    private Value[] bindParams(List<FunctionExpr.Param> params, Arguments arguments,
                                Environment local, ExecutionContext inner) {
         Value[] values = new Value[params.size()];
         for (int i = 0; i < params.size(); i++) {
             FunctionExpr.Param param = params.get(i);
-            values[i] = i < arguments.size()
+            // Как и у функции: спрашивается «заполнена ли позиция», а не длина списка, —
+            // именованное создание вправе задать поле, пропустив предыдущее.
+            values[i] = arguments.has(i)
                     ? arguments.get(i)
                     : interpreter.visit(param.defaultValue(), inner);
             local.define(param.name(), values[i]);
@@ -280,9 +313,10 @@ final class WdlClass implements ClassValue {
         return values;
     }
 
-    private List<Value> evaluate(List<ru.wds.wdl.ast.expr.Expr> expressions, ExecutionContext context) {
-        List<Value> values = new ArrayList<>(expressions.size());
-        expressions.forEach(expression -> values.add(interpreter.visit(expression, context)));
+    /** Значения аргументов заголовка — в порядке записи, как и у обычного вызова. */
+    private List<Value> evaluate(List<Argument> arguments, ExecutionContext context) {
+        List<Value> values = new ArrayList<>(arguments.size());
+        arguments.forEach(argument -> values.add(interpreter.visit(argument.value(), context)));
         return values;
     }
 
@@ -328,6 +362,21 @@ final class WdlClass implements ClassValue {
     @Override
     public Arity arity() {
         return shape.arity();
+    }
+
+    /**
+     * Контракт создания: имена полей заголовка. Значения по умолчанию отложенные —
+     * по той же причине, что у функции: там стоит выражение, а не готовое значение.
+     */
+    @Override
+    public Signature signature() {
+        List<Signature.Param> params = new ArrayList<>(shape.params().size());
+        for (FunctionExpr.Param param : shape.params()) {
+            params.add(param.hasDefault()
+                    ? Signature.Param.lazy(param.name())
+                    : Signature.Param.required(param.name()));
+        }
+        return Signature.of(params);
     }
 
     /**

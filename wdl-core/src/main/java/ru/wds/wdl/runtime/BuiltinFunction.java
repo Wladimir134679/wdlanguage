@@ -5,6 +5,7 @@ import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
 
 import java.util.List;
@@ -37,17 +38,34 @@ public final class BuiltinFunction implements FunctionValue {
     }
 
     private final String name;
-    private final Arity arity;
+    private final Signature signature;
     private final Body body;
 
-    private BuiltinFunction(String name, Arity arity, Body body) {
+    private BuiltinFunction(String name, Signature signature, Body body) {
         this.name = Objects.requireNonNull(name, "name");
-        this.arity = Objects.requireNonNull(arity, "arity");
+        this.signature = Objects.requireNonNull(signature, "signature");
         this.body = Objects.requireNonNull(body, "body");
     }
 
+    /**
+     * Функция, которую зовут только по позиции: имена параметров не объявлены.
+     * <p>
+     * Форма остаётся законной и после появления именованных аргументов — у
+     * {@code println} с любым числом аргументов имён нет и быть не может.
+     */
     public static BuiltinFunction of(String name, Arity arity, Body body) {
-        return new BuiltinFunction(name, arity, body);
+        return new BuiltinFunction(name, Signature.positional(arity), body);
+    }
+
+    /**
+     * Функция с объявленными именами параметров: {@code gui.grid(rows: 2, cols: 3)}.
+     * <p>
+     * Значения по умолчанию здесь — готовые значения, а не выражения, поэтому пропуск
+     * в середине закрывает связыватель, и тело получает привычный плотный список.
+     * Ему не нужно знать, что вызов был именованным.
+     */
+    public static BuiltinFunction of(String name, Signature signature, Body body) {
+        return new BuiltinFunction(name, signature, body);
     }
 
     @Override
@@ -57,7 +75,12 @@ public final class BuiltinFunction implements FunctionValue {
 
     @Override
     public Arity arity() {
-        return arity;
+        return signature.arity();
+    }
+
+    @Override
+    public Signature signature() {
+        return signature;
     }
 
     @Override

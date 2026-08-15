@@ -52,6 +52,23 @@ class NativeClassTest {
     }
 
     @Test
+    @DisplayName("имена полей становятся контрактом создания: 'new Point(y: 3)' работает")
+    void headerNamesTheParameters() {
+        NativeClass point = NativeClass.named("Point")
+                .field("x")
+                .field("y", IntValue.of(0))
+                .build();
+
+        assertTrue(point.signature().namesKnown());
+        assertEquals(0, point.signature().indexOf("x"));
+        assertEquals(1, point.signature().indexOf("y"));
+        assertEquals(-1, point.signature().indexOf("z"));
+        // Значение по умолчанию здесь готовое, поэтому пропуск закрывает связыватель,
+        // а сам класс о именованных аргументах ничего не знает.
+        assertEquals(IntValue.of(0), point.signature().params().get(1).constant());
+    }
+
+    @Test
     @DisplayName("поле объявляется один раз")
     void duplicateField() {
         assertEquals("поле 'x' класса 'Point' уже объявлено",

@@ -34,6 +34,17 @@ public non-sealed interface ClassValue extends Value {
     Arity arity();
 
     /**
+     * Контракт создания: имена параметров заголовка и их обязательность.
+     * <p>
+     * То же правило, что у {@link FunctionValue#signature()}: по умолчанию имён нет
+     * и {@code new} остаётся позиционным. Класс на wdl берёт имена из заголовка,
+     * встроенный — из объявленных полей.
+     */
+    default Signature signature() {
+        return Signature.positional(arity());
+    }
+
+    /**
      * Создаёт экземпляр.
      * <p>
      * Число аргументов проверено вызывающим по {@link #arity()} — до входа сюда,
@@ -41,6 +52,18 @@ public non-sealed interface ClassValue extends Value {
      * с дела, а не с проверок. Ровно то же правило, что у функции.
      */
     Value instantiate(List<Value> arguments, CallContext context, Span span);
+
+    /**
+     * Создаёт экземпляр по разложенным аргументам.
+     * <p>
+     * Переопределяется по той же причине и теми же, что и
+     * {@link FunctionValue#call(CallContext, Arguments, Span)}: пропуск в середине
+     * доживает сюда только у класса с отложенными значениями по умолчанию, то есть
+     * у класса, написанного на wdl.
+     */
+    default Value instantiate(Arguments arguments, CallContext context, Span span) {
+        return instantiate(arguments.asList(), context, span);
+    }
 
     /**
      * Метод, связанный с этим экземпляром, или {@code null}, если такого метода нет.

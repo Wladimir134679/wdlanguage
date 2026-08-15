@@ -5,15 +5,22 @@
 ```wdl
 import sys.gui as gui
 
-win = new gui.Window("Привет, WDL!", 300, 150)
-win.setLayout(gui.flow())
+win = new gui.Window(title: "Привет, WDL!", width: 300, height: 150)
+win.setLayout(layout: gui.flow())
 
-btn = new gui.Button("Нажми меня")
-btn.onClick(def () => gui.alert("Кнопка нажата!", "Привет"))
+btn = new gui.Button(text: "Нажми меня")
+btn.onClick(handler: def () => gui.alert("Кнопка нажата!", title: "Привет"))
 
-win.add(btn)
+win.add(component: btn)
 win.show()
 ```
+
+Все параметры этого модуля **названы**, поэтому у чисел и строк в скобках видно
+назначение: `new gui.Window(title: "…", width: 300)` вместо `new gui.Window("…", 300, 150)`.
+Позиционная запись при этом остаётся законной — правила общие для всего языка,
+см. [именованные аргументы](functions.md#именованные-аргументы). Готовые примеры —
+[`examples/gui_counter.wdl`](../examples/gui_counter.wdl) и
+[`examples/gui_todo.wdl`](../examples/gui_todo.wdl).
 
 ---
 
@@ -67,7 +74,7 @@ import sys.gui as gui
 * **Методы**:
   * `onClick(handler)` — зарегистрировать функцию-обработчик клика.
   * `setText(text)` / `getText()` — сменить/получить текст кнопки.
-  * `setEnabled(boolean)` — включить/отключить доступность кнопки.
+  * `setEnabled(enabled)` — включить/отключить доступность кнопки.
 
 ### Текстовая метка (`Label`)
 Однострочная текстовая надпись (на базе `JLabel`).
@@ -100,7 +107,7 @@ import sys.gui as gui
 * **Конструктор**: `new gui.CheckBox(text = "", checked = false)`
 * **Методы**:
   * `isChecked()` — проверить, выбран ли флажок (возвращает `true`/`false`).
-  * `setChecked(boolean)` — установить состояние флажка.
+  * `setChecked(checked)` — установить состояние флажка.
   * `onChange(handler)` — обработчик изменения состояния.
 
 ### Выпадающий список (`ComboBox`)
@@ -108,7 +115,7 @@ import sys.gui as gui
 
 * **Конструктор**: `new gui.ComboBox(items = [])`
 * **Методы**:
-  * `addItem(text)` — добавить пункт в список.
+  * `addItem(item)` — добавить пункт в список.
   * `clear()` — очистить список элементов.
   * `getSelectedIndex()` / `setSelectedIndex(index)` — получить/установить индекс выбранного элемента.
   * `getSelectedItem()` — получить текущий выбранный элемент.
@@ -118,7 +125,13 @@ import sys.gui as gui
 
 ## Менеджеры компоновки (Layouts)
 
-Модуль предоставляет фабричные функции для управления размещением элементов:
+Модуль предоставляет фабричные функции для управления размещением элементов.
+Их параметры **названы**, поэтому вместо `gui.grid(2, 3, 4, 4)` можно писать
+`gui.grid(rows: 2, cols: 3, hgap: 4, vgap: 4)` и пропускать середину:
+`gui.grid(2, 3, vgap: 8)` — см. [именованные аргументы](functions.md#именованные-аргументы).
+То же у диалогов (`gui.alert("готово", title: "Отчёт")`), у методов окна
+(`win.setSize(width: 800, height: 600)`) и у создания компонентов
+(`new gui.Window(title: "Счёт", width: 400)`).
 
 * `gui.flow(align = "center", hgap = 5, vgap = 5)` — размещение элементов друг за другом (`FlowLayout`). Выравнивание `align`: `"left"`, `"center"`, `"right"`.
 * `gui.border(hgap = 0, vgap = 0)` — размещение по сторонам света (`BorderLayout`). Элементы добавляются с ограничением: `"North"`, `"South"`, `"East"`, `"West"`, `"Center"`.
@@ -130,8 +143,8 @@ import sys.gui as gui
 
 ## Модальные диалоговые окна и утилиты
 
-* `gui.alert(message, title = "Информация")` — показывает всплывающее окно сообщения.
-* `gui.confirm(message, title = "Подтверждение")` — показывает окно подтверждения с кнопками Да/Нет. Возвращает `true` или `false`.
-* `gui.prompt(message, defaultText = "")` — показывает окно ввода строки. Возвращает введённый текст или `null`, если пользователь отменил ввод.
+* `gui.alert(text, title = "Информация")` — показывает всплывающее окно сообщения.
+* `gui.confirm(text, title = "Подтверждение")` — показывает окно подтверждения с кнопками Да/Нет. Возвращает `true` или `false`.
+* `gui.prompt(text, initial = "")` — показывает окно ввода строки. Возвращает введённый текст или `null`, если пользователь отменил ввод.
 * `gui.runLater(handler)` — выполняет функцию асинхронно в потоке обработчика Swing EDT.
 * `gui.wait()` / `gui.loop()` — явно заблокировать выполнение текущего скрипта до закрытия всех окон GUI.

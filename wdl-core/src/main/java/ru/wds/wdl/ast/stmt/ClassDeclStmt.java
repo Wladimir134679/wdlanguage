@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.source.Span;
@@ -81,7 +82,7 @@ public record ClassDeclStmt(
      *
      * @param type выражение, дающее класс; чаще всего {@code VariableExpr}
      */
-    public record Superclass(Expr type, List<Expr> arguments, Span span) {
+    public record Superclass(Expr type, List<Argument> arguments, Span span) {
 
         public Superclass {
             Objects.requireNonNull(type, "type");

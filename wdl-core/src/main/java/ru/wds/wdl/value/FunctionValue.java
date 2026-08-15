@@ -26,6 +26,20 @@ public non-sealed interface FunctionValue extends Value {
     Arity arity();
 
     /**
+     * Контракт вызова: имена параметров и их обязательность.
+     * <p>
+     * По умолчанию — контракт без имён, выведенный из {@link #arity()}. Такую функцию
+     * можно звать только позиционно, и это ровно то поведение, какое было у языка
+     * до именованных аргументов. Функция, написанная приложением, продолжает работать,
+     * ничего не переопределяя; имена объявляет тот, кто их знает, —
+     * {@code runtime.UserFunction} из дерева, {@code runtime.BuiltinFunction}
+     * из своего описания.
+     */
+    default Signature signature() {
+        return Signature.positional(arity());
+    }
+
+    /**
      * Выполняет функцию. Число аргументов уже проверено по {@link #arity()}.
      *
      * @param context среда выполнения: вывод и всё, что понадобится дальше
@@ -33,6 +47,20 @@ public non-sealed interface FunctionValue extends Value {
      * @param span место вызова в скрипте — чтобы ошибка внутри функции указывала на него
      */
     Value call(CallContext context, List<Value> arguments, Span span);
+
+    /**
+     * Выполняет функцию по разложенным аргументам — тот же вызов, но с ответом
+     * на вопрос «эта позиция пропущена?».
+     * <p>
+     * Переопределять его нужно только тому, у кого значение по умолчанию
+     * {@linkplain Signature.Param#lazy(String) отложенное}: пропуск доживает до вызова
+     * лишь в этом случае. Всем остальным пропуск не достаётся вовсе — связыватель
+     * подставляет готовые значения и обрезает хвост, — поэтому здесь достаточно
+     * свести набор к обычному списку.
+     */
+    default Value call(CallContext context, Arguments arguments, Span span) {
+        return call(context, arguments.asList(), span);
+    }
 
     @Override
     default ValueType type() {

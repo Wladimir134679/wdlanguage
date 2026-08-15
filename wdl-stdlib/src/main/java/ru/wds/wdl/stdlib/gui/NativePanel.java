@@ -5,6 +5,7 @@ import ru.wds.wdl.embed.NativeInstance;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.stdlib.Types;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.BoolValue;
 import ru.wds.wdl.value.types.NullValue;
@@ -45,7 +46,8 @@ public final class NativePanel {
                     return NullValue.NULL;
                 })
 
-                .method("add", Arity.between(1, 2), (self, context, args, span) -> {
+                .method("add", Signature.of(Signature.Param.required("component"),
+                        Signature.Param.optional("constraint")), (self, context, args, span) -> {
                     Component comp = ComponentUtils.extractComponent(args.at(0));
                     if (comp == null) {
                         throw args.bad(0, "компонент", "ожидался UI-компонент");
@@ -61,7 +63,8 @@ public final class NativePanel {
                     return NullValue.NULL;
                 })
 
-                .method("setLayout", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setLayout", Signature.of(Signature.Param.required("layout")),
+                        (self, context, args, span) -> {
                     LayoutManager lm = Layouts.extractLayout(args.at(0));
                     if (lm == null) {
                         throw args.bad(0, "компоновщик", "ожидался объект Layout");
@@ -71,7 +74,8 @@ public final class NativePanel {
                     return NullValue.NULL;
                 })
 
-                .method("setEnabled", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setEnabled", Signature.of(Signature.Param.required("enabled")),
+                        (self, context, args, span) -> {
                     boolean enabled = args.at(0).isTruthy();
                     panel(self).setEnabled(enabled);
                     self.put("enabled", BoolValue.of(enabled));

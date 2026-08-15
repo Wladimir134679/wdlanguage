@@ -1,6 +1,7 @@
 package ru.wds.wdl.parser;
 
 import ru.wds.wdl.ast.expr.AccessExpr;
+import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.ArrayExpr;
 import ru.wds.wdl.ast.expr.BinaryExpr;
 import ru.wds.wdl.ast.expr.CallExpr;
@@ -99,11 +100,11 @@ final class DefaultValues {
             case AccessExpr access -> firstUse(names, access.target(), access.key());
             case CallExpr call -> {
                 VariableExpr inCallee = findUse(call.callee(), names);
-                yield inCallee != null ? inCallee : firstUse(names, call.arguments());
+                yield inCallee != null ? inCallee : inArguments(names, call.arguments());
             }
             case NewExpr created -> {
                 VariableExpr inCallee = findUse(created.callee(), names);
-                yield inCallee != null ? inCallee : firstUse(names, created.arguments());
+                yield inCallee != null ? inCallee : inArguments(names, created.arguments());
             }
             case ArrayExpr array -> firstUse(names, array.elements());
             case ObjectExpr object -> {
@@ -120,6 +121,20 @@ final class DefaultValues {
             case LiteralExpr ignored -> null;
             case ErrorExpr ignored -> null;
         };
+    }
+
+    /**
+     * То же по списку аргументов вызова: имя параметра слева от двоеточия к поиску
+     * отношения не имеет — это имя <b>чужого</b> параметра, а не обращение к своему.
+     */
+    private static VariableExpr inArguments(List<String> names, List<Argument> arguments) {
+        for (Argument argument : arguments) {
+            VariableExpr use = findUse(argument.value(), names);
+            if (use != null) {
+                return use;
+            }
+        }
+        return null;
     }
 
     private static VariableExpr firstUse(List<String> names, Expr... exprs) {

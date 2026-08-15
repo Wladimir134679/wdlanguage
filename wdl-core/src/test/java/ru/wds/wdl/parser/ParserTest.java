@@ -160,6 +160,36 @@ class ParserTest {
         assertEquals("(+ (get a \"x\") (get b \"y\"))", tree("a.x + b.y"));
     }
 
+    // --- именованные аргументы -----------------------------------------------
+
+    @Test
+    @DisplayName("именованный аргумент виден в дереве вместе с именем")
+    void namedArgument() {
+        assertEquals("(call greet \"мир\" (punct: \"?\"))", tree("greet(\"мир\", punct: \"?\")"));
+        assertEquals("(call f (a: 1) (b: (+ x 1)))", tree("f(a: 1, b: x + 1)"));
+        assertEquals("(new Point (y: 3) (x: 1))", tree("new Point(y: 3, x: 1)"));
+    }
+
+    @Test
+    @DisplayName("двоеточие в аргументе не путается с тернарником")
+    void colonDoesNotClashWithTernary() {
+        assertEquals("(call f (?: a b c))", tree("f(a ? b : c)"));
+        assertEquals("(?: a (call f (x: 1)) (call g))", tree("a ? f(x: 1) : g()"));
+    }
+
+    @Test
+    @DisplayName("позиционный аргумент после именованного — ошибка разбора")
+    void positionalAfterNamed() {
+        assertTrue(diagnose("f(a: 1, 2)").renderAll()
+                .contains("после именованного аргумента 'a' позиционный аргумент не имеет позиции"));
+    }
+
+    @Test
+    @DisplayName("одно имя дважды в одном вызове — ошибка разбора")
+    void duplicateName() {
+        assertTrue(diagnose("f(a: 1, a: 2)").renderAll().contains("аргумент 'a' указан дважды"));
+    }
+
     // --- создание и проверка класса ------------------------------------------
 
     @Test

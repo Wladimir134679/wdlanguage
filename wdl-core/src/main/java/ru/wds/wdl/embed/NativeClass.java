@@ -7,6 +7,7 @@ import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.Requirement;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
@@ -101,6 +102,7 @@ public final class NativeClass implements ClassValue {
     private final Map<String, Value> traitFields;
     private final MapValue statics = new MapValue();
     private final Arity arity;
+    private final Signature signature;
 
     private NativeClass(Builder builder, List<Field> allFields, Map<String, Entry> allMethods) {
         this.name = builder.name;
@@ -109,6 +111,7 @@ public final class NativeClass implements ClassValue {
         this.methods = Collections.unmodifiableMap(new LinkedHashMap<>(allMethods));
         this.traits = List.copyOf(builder.allTraits());
         this.arity = arityOf(fields);
+        this.signature = signatureOf(fields);
         builder.statics.forEach(statics::put);
 
         List<NativeMethod> chain = new ArrayList<>();
@@ -144,6 +147,24 @@ public final class NativeClass implements ClassValue {
         return Arity.between(required, fields.size());
     }
 
+    /**
+     * Контракт создания собирается из объявленных полей — имена у встроенного класса
+     * уже есть, и {@code new Window(title: "Счёт")} достаётся ему даром.
+     * <p>
+     * Значения по умолчанию тут <b>готовые</b>, а не выражения: их подставит связыватель,
+     * и {@code instantiate} получит привычный плотный список. Поэтому встроенному классу
+     * не нужно ничего знать про именованные аргументы.
+     */
+    private static Signature signatureOf(List<Field> fields) {
+        List<Signature.Param> params = new ArrayList<>(fields.size());
+        for (Field field : fields) {
+            params.add(field.defaultValue == null
+                    ? Signature.Param.required(field.name)
+                    : Signature.Param.optional(field.name, field.defaultValue));
+        }
+        return Signature.of(params);
+    }
+
     @Override
     public String name() {
         return name;
@@ -152,6 +173,11 @@ public final class NativeClass implements ClassValue {
     @Override
     public Arity arity() {
         return arity;
+    }
+
+    @Override
+    public Signature signature() {
+        return signature;
     }
 
     @Override
@@ -239,10 +265,18 @@ public final class NativeClass implements ClassValue {
     private record Field(String name, Value defaultValue) {
     }
 
-    private record Entry(String name, Arity arity, NativeMethod body) {
+    private record Entry(String name, Signature signature, NativeMethod body) {
+
+        Arity arity() {
+            return signature.arity();
+        }
     }
 
-    private record FactoryEntry(String name, Arity arity, NativeFactory body) {
+    private record FactoryEntry(String name, Signature signature, NativeFactory body) {
+
+        Arity arity() {
+            return signature.arity();
+        }
     }
 
     /** Метод, связанный с экземпляром: обычное значение-функция, как и у классов языка. */
@@ -256,6 +290,11 @@ public final class NativeClass implements ClassValue {
         @Override
         public Arity arity() {
             return entry.arity();
+        }
+
+        @Override
+        public Signature signature() {
+            return entry.signature();
         }
 
         @Override
@@ -332,8 +371,9 @@ public final class NativeClass implements ClassValue {
             }
             if (defaultValue == null && !fields.isEmpty()
                     && fields.get(fields.size() - 1).defaultValue != null) {
-                // То же правило, что в языке: пропуск в середине списка нечем записать,
-                // пока нет именованных аргументов.
+                // То же правило, что в языке: позиционное создание читается по префиксу
+                // списка полей. Именованные аргументы его не отменяют — они дают
+                // пропуск записать, но не делают 'new Point(1)' понятнее.
                 throw new IllegalArgumentException("поле '" + fieldName + "' класса '" + name
                         + "' без значения по умолчанию не может идти после поля со значением");
             }
@@ -350,12 +390,21 @@ public final class NativeClass implements ClassValue {
             return this;
         }
 
-        /** Метод экземпляра. */
+        /** Метод экземпляра, который зовут только по позиции. */
         public Builder method(String methodName, Arity methodArity, NativeMethod body) {
+            return method(methodName, Signature.positional(
+                    Objects.requireNonNull(methodArity, "arity")), body);
+        }
+
+        /**
+         * Метод экземпляра с объявленными именами параметров:
+         * {@code window.size(width: 400, height: 300)}.
+         */
+        public Builder method(String methodName, Signature methodSignature, NativeMethod body) {
             requireName(methodName, "имя метода");
-            Objects.requireNonNull(methodArity, "arity");
+            Objects.requireNonNull(methodSignature, "signature");
             Objects.requireNonNull(body, "body");
-            if (methods.put(methodName, new Entry(methodName, methodArity, body)) != null) {
+            if (methods.put(methodName, new Entry(methodName, methodSignature, body)) != null) {
                 throw new IllegalArgumentException("метод '" + methodName + "' класса '"
                         + name + "' уже объявлен");
             }
@@ -371,11 +420,17 @@ public final class NativeClass implements ClassValue {
          * {@link NativeFactory}.
          */
         public Builder factory(String factoryName, Arity factoryArity, NativeFactory body) {
+            return factory(factoryName, Signature.positional(
+                    Objects.requireNonNull(factoryArity, "arity")), body);
+        }
+
+        /** Фабрика с объявленными именами параметров: {@code File.temp(prefix: "wdl")}. */
+        public Builder factory(String factoryName, Signature factorySignature, NativeFactory body) {
             requireName(factoryName, "имя фабрики");
-            Objects.requireNonNull(factoryArity, "arity");
+            Objects.requireNonNull(factorySignature, "signature");
             Objects.requireNonNull(body, "body");
             checkStaticFree(factoryName);
-            factories.put(factoryName, new FactoryEntry(factoryName, factoryArity, body));
+            factories.put(factoryName, new FactoryEntry(factoryName, factorySignature, body));
             return this;
         }
 
@@ -518,7 +573,7 @@ public final class NativeClass implements ClassValue {
             // Фабрики — последними: их телу нужен готовый класс, чтобы было чем
             // создавать экземпляр.
             factories.forEach((factoryName, factory) -> built.statics.put(factoryName,
-                    BuiltinFunction.of(name + "." + factoryName, factory.arity(),
+                    BuiltinFunction.of(name + "." + factoryName, factory.signature(),
                             (context, arguments, span) ->
                                     factory.body().call(built, context, arguments, span))));
             return built;

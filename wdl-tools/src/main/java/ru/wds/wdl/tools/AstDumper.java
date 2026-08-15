@@ -157,7 +157,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
             ClassDeclStmt.Superclass parent = stmt.parent();
             line(depth + 1, "родитель " + parent.title() + ", аргументов: "
                     + parent.arguments().size(), parent.span());
-            parent.arguments().forEach(argument -> visit(argument, depth + 2));
+            arguments(parent.arguments(), depth + 2);
         }
         for (ClassDeclStmt.TraitRef trait : stmt.traits()) {
             line(depth + 1, "трейт " + trait.title(), trait.span());
@@ -317,11 +317,29 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         return visit(expr.key(), depth + 1);
     }
 
+    /**
+     * Аргументы вызова, создания и заголовка родителя — одинаково во всех трёх местах.
+     * <p>
+     * У именованного аргумента печатается строка с именем, а выражение уходит на уровень
+     * ниже: имя — часть записи вызова, а не часть выражения, и в дампе это должно быть
+     * видно так же, как в исходнике.
+     */
+    private void arguments(List<Argument> arguments, int depth) {
+        for (Argument argument : arguments) {
+            if (argument.isNamed()) {
+                line(depth, "аргумент '" + argument.name() + "'", argument.span());
+                visit(argument.value(), depth + 1);
+            } else {
+                visit(argument.value(), depth);
+            }
+        }
+    }
+
     @Override
     public Void visitCall(CallExpr expr, Integer depth) {
         line(depth, "вызов, аргументов: " + expr.arguments().size(), expr);
         visit(expr.callee(), depth + 1);
-        expr.arguments().forEach(argument -> visit(argument, depth + 1));
+        arguments(expr.arguments(), depth + 1);
         return null;
     }
 
@@ -329,7 +347,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     public Void visitNew(NewExpr expr, Integer depth) {
         line(depth, "создание, аргументов: " + expr.arguments().size(), expr);
         visit(expr.callee(), depth + 1);
-        expr.arguments().forEach(argument -> visit(argument, depth + 1));
+        arguments(expr.arguments(), depth + 1);
         return null;
     }
 

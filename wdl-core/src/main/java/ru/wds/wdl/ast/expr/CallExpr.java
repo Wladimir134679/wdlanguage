@@ -16,12 +16,16 @@ import java.util.StringJoiner;
  * <p>
  * Метода в языке нет как отдельного понятия: {@code точка.строкой()} — это обращение
  * по ключу, давшее функцию, и вызов результата. Два узла вместо особого случая.
+ * <p>
+ * Аргументы хранятся {@link Argument в порядке записи}, а не по позициям параметров:
+ * позиции считает выполнение, а дерево обязано помнить текст. От этого зависит порядок
+ * вычисления — он идёт так, как читается строка, даже если имена переставлены.
  *
  * @param callee    выражение, дающее функцию
  * @param arguments аргументы в порядке записи
  * @param span      место в исходнике: от начала {@code callee} до закрывающей скобки
  */
-public record CallExpr(Expr callee, List<Expr> arguments, Span span) implements Expr {
+public record CallExpr(Expr callee, List<Argument> arguments, Span span) implements Expr {
 
     public CallExpr {
         Objects.requireNonNull(callee, "callee");

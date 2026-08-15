@@ -1035,21 +1035,30 @@ public final class Parser {
      * тем же кодом, без единого особого случая. Отдельного «вызова метода» в языке нет.
      */
     private Expr call(Expr callee) {
-        List<Expr> arguments = new ArrayList<>();
+        List<Argument> arguments = new ArrayList<>();
         Token close = argumentList(arguments);
         return new CallExpr(callee, arguments, callee.span().to(close.span()));
     }
 
     /**
      * Список аргументов в скобках — общий для вызова, создания и заголовка родителя.
+     * <p>
+     * Общий он не по бережливости: правило именованных аргументов должно быть одним
+     * и тем же везде, где в скобках стоит список, — и {@code f(count: 2)},
+     * и {@code new Point(y: 3)}, и {@code : Shape(radius: r)} разбираются здесь.
      *
      * @return закрывающая скобка, чтобы вызывающий знал, где кончился список
      */
-    Token argumentList(List<Expr> arguments) {
+    Token argumentList(List<Argument> arguments) {
         cursor.advance(); // (
+        Argument firstNamed = null;
         while (!cursor.check(TokenType.RPAREN) && !cursor.check(TokenType.EOF)) {
             int before = cursor.position();
-            arguments.add(expression(0));
+            Argument argument = argument(arguments, firstNamed);
+            if (argument.isNamed() && firstNamed == null) {
+                firstNamed = argument;
+            }
+            arguments.add(argument);
             if (cursor.match(TokenType.COMMA) || cursor.check(TokenType.RPAREN)) {
                 continue;
             }
@@ -1058,6 +1067,46 @@ public final class Parser {
             cursor.ensureProgress(before);
         }
         return cursor.expect(TokenType.RPAREN, "закрывающую скобку ')'");
+    }
+
+    /**
+     * Один аргумент: {@code выражение} или {@code имя: выражение}.
+     * <p>
+     * Именованный узнаётся по двум токенам вперёд — {@code имя} и {@code ':'}, — и этого
+     * достаточно без всякого отката: выражение никогда не начинается с имени
+     * с двоеточием следом. Та же проверка, что у {@linkplain #objectKey() ключа объекта},
+     * и то же значение двоеточия: «вот значение для этого имени».
+     * <p>
+     * Имя — только {@code WORD}. Ключевые слова, которые ключом объекта разрешены,
+     * здесь запрещены по простой причине: параметр ключевым словом называться не может,
+     * поэтому такое имя всё равно некуда было бы отнести.
+     * <p>
+     * Обе ошибки — дубликат имени и позиционный аргумент после именованного — ловятся
+     * здесь, при разборе: и то и другое видно в самом тексте вызова, ждать выполнения
+     * незачем. Разбор при этом не прерывается, аргумент возвращается как есть —
+     * дерево должно остаться целым для форматтера и подсказок редактора.
+     */
+    private Argument argument(List<Argument> collected, Argument firstNamed) {
+        Token name = cursor.peek();
+        if (name.type() == TokenType.WORD && cursor.peek(1).type() == TokenType.COLON) {
+            cursor.advance(); // имя
+            cursor.advance(); // ':'
+            for (Argument existing : collected) {
+                if (name.text().equals(existing.name())) {
+                    diagnostics.error(name.span(),
+                            "аргумент '" + name.text() + "' указан дважды");
+                    break;
+                }
+            }
+            return Argument.named(name.text(), name.span(), expression(0));
+        }
+
+        Expr value = expression(0);
+        if (firstNamed != null) {
+            diagnostics.error(value.span(), "после именованного аргумента '" + firstNamed.name()
+                    + "' позиционный аргумент не имеет позиции. Укажите имя");
+        }
+        return Argument.positional(value);
     }
 
     /**
@@ -1083,7 +1132,7 @@ public final class Parser {
                             + describe(cursor.peek()) + ". Скобки обязательны, даже пустые");
             return new ErrorExpr(keyword.span().to(target.span()));
         }
-        List<Expr> arguments = new ArrayList<>();
+        List<Argument> arguments = new ArrayList<>();
         Token close = argumentList(arguments);
         return new NewExpr(target, arguments, keyword.span().to(close.span()));
     }

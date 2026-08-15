@@ -1,5 +1,6 @@
 package ru.wds.wdl.parser;
 
+import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.BodyStyle;
 import ru.wds.wdl.ast.expr.CallExpr;
 import ru.wds.wdl.ast.expr.Expr;
@@ -199,7 +200,7 @@ final class TypeParser {
         if (type == null) {
             return null;
         }
-        List<Expr> arguments = List.of();
+        List<Argument> arguments = List.of();
         if (type instanceof CallExpr call) {
             arguments = call.arguments();
             type = call.callee();
@@ -502,9 +503,11 @@ final class TypeParser {
      * и один из аргументов стал бы недоступен.
      * <p>
      * <b>После параметра со значением по умолчанию обязательных быть не может.</b>
-     * Причина не эстетическая: пропуск в середине нечем записать, пока в языке нет
-     * именованных аргументов, а число аргументов проверяется одним отрезком
-     * ({@link ru.wds.wdl.value.Arity}) до входа в функцию.
+     * Причина не эстетическая: позиционный вызов читается по префиксу списка параметров,
+     * и у {@code def f(a = 1, b)} вызов {@code f(1)} оказался бы либо ошибкой, либо
+     * тихой догадкой о том, куда пошла единица. Именованные аргументы это правило
+     * не отменяют: они дают пропуск записать, но не делают позиционный вызов понятнее.
+     * Число аргументов при этом остаётся одним отрезком ({@link ru.wds.wdl.value.Arity}).
      */
     private void addParameter(List<FunctionExpr.Param> params, Token name, Expr defaultValue,
                               boolean callSignature) {

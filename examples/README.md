@@ -22,6 +22,7 @@ wdl-cli/build/install/wdl/bin/wdl examples/hello.wdl
 | [const.wdl](const.wdl) | `const`: заморожено имя, а не содержимое |
 | [functions.wdl](functions.wdl) | объявления, `return`, `=>`, анонимные функции, замыкания |
 | [defaults.wdl](defaults.wdl) | значения параметров по умолчанию и когда они вычисляются |
+| [named-args.wdl](named-args.wdl) | `f(name: value)`: пропуск в середине, свободный порядок, имена в `new` |
 
 ## Классы и трейты
 

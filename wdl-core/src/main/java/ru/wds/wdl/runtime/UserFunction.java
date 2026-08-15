@@ -3,12 +3,15 @@ package ru.wds.wdl.runtime;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.Arguments;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.NullValue;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
@@ -57,6 +60,8 @@ public final class UserFunction implements FunctionValue {
     /** Интерпретатор безсостоятельный, поэтому делить один экземпляр безопасно. */
     private final Interpreter interpreter;
     private final Arity arity;
+    /** Контракт вызова: имена параметров нужны, чтобы принимать именованные аргументы. */
+    private final Signature signature;
     /**
      * Замок {@code synchronized}-функции или {@code null}, если модификатора нет.
      * <p>
@@ -76,6 +81,7 @@ public final class UserFunction implements FunctionValue {
         this.run = Objects.requireNonNull(run, "run");
         this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
         this.arity = arityOf(declaration);
+        this.signature = signatureOf(declaration);
         this.guard = guard;
     }
 
@@ -93,6 +99,24 @@ public final class UserFunction implements FunctionValue {
         return Arity.between(required, params.size());
     }
 
+    /**
+     * Контракт вызова: имена из заголовка функции.
+     * <p>
+     * Значения по умолчанию объявлены {@linkplain Signature.Param#lazy(String)
+     * отложенными} — и это не оговорка, а суть: по умолчанию здесь стоит <b>выражение</b>,
+     * которое считается в области вызова и видит параметры левее себя. Подставить его
+     * снаружи, до входа в функцию, значило бы посчитать его не там и не тогда.
+     */
+    private static Signature signatureOf(FunctionExpr declaration) {
+        List<Signature.Param> params = new ArrayList<>(declaration.params().size());
+        for (FunctionExpr.Param param : declaration.params()) {
+            params.add(param.hasDefault()
+                    ? Signature.Param.lazy(param.name())
+                    : Signature.Param.required(param.name()));
+        }
+        return Signature.of(params);
+    }
+
     @Override
     public String name() {
         return declaration.title();
@@ -101,6 +125,11 @@ public final class UserFunction implements FunctionValue {
     @Override
     public Arity arity() {
         return arity;
+    }
+
+    @Override
+    public Signature signature() {
+        return signature;
     }
 
     /**
@@ -113,6 +142,15 @@ public final class UserFunction implements FunctionValue {
      */
     @Override
     public Value call(CallContext context, List<Value> arguments, Span span) {
+        return call(context, Arguments.positional(arguments), span);
+    }
+
+    /**
+     * Тот же вызов, но по разложенному набору: у функции на wdl значение по умолчанию —
+     * выражение, поэтому пропуск в середине доживает именно сюда и заполняется в теле.
+     */
+    @Override
+    public Value call(CallContext context, Arguments arguments, Span span) {
         if (run.insideCurrentThread()) {
             return guarded(context, arguments, span);
         }
@@ -138,7 +176,7 @@ public final class UserFunction implements FunctionValue {
      * прерыванием — иначе {@code t.interrupt()} не достал бы поток, застрявший здесь,
      * и остановка зациклившегося скрипта перестала бы работать.
      */
-    private Value guarded(CallContext context, List<Value> arguments, Span span) {
+    private Value guarded(CallContext context, Arguments arguments, Span span) {
         if (guard == null) {
             return body(context, arguments, span);
         }
@@ -155,7 +193,7 @@ public final class UserFunction implements FunctionValue {
         }
     }
 
-    private Value body(CallContext context, List<Value> arguments, Span span) {
+    private Value body(CallContext context, Arguments arguments, Span span) {
         // Прерывание проверяется и здесь, а не только в циклах: рекурсия без цикла —
         // такое же зацикливание, и остановить её снаружи надо той же кнопкой.
         if (Thread.currentThread().isInterrupted()) {
@@ -176,7 +214,10 @@ public final class UserFunction implements FunctionValue {
         for (int i = 0; i < params.size(); i++) {
             // Параметры — всегда локальные: одноимённая внешняя переменная остаётся
             // нетронутой, даже если функция параметру что-то присвоит.
-            local.define(params.get(i).name(), i < arguments.size()
+            // Пропуск бывает и в середине — именованный вызов может задать третий
+            // параметр, не задав второго, — поэтому спрашивается «заполнена ли позиция»,
+            // а не «хватило ли длины списка».
+            local.define(params.get(i).name(), arguments.has(i)
                     ? arguments.get(i)
                     // Значение по умолчанию считается заново на каждом вызове: снимок,
                     // сделанный при объявлении, сделал бы один массив или объект общим

@@ -5,6 +5,7 @@ import ru.wds.wdl.embed.NativeInstance;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.stdlib.Types;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.types.BoolValue;
 import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.StringValue;
@@ -39,7 +40,7 @@ public final class NativeLabel {
                     return NullValue.NULL;
                 })
 
-                .method("setText", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setText", Signature.of(Signature.Param.required("text")), (self, context, args, span) -> {
                     String text = args.string(0, "текст");
                     label(self).setText(text);
                     self.put("text", StringValue.of(text));
@@ -49,7 +50,7 @@ public final class NativeLabel {
                 .method("getText", Arity.exactly(0), (self, context, args, span) ->
                         StringValue.of(label(self).getText()))
 
-                .method("setEnabled", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setEnabled", Signature.of(Signature.Param.required("enabled")), (self, context, args, span) -> {
                     boolean enabled = args.at(0).isTruthy();
                     label(self).setEnabled(enabled);
                     self.put("enabled", BoolValue.of(enabled));

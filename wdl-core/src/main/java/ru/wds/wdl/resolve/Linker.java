@@ -1,5 +1,7 @@
 package ru.wds.wdl.resolve;
 
+import ru.wds.wdl.ast.expr.Argument;
+import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.TraitDeclStmt;
 import ru.wds.wdl.value.Arity;
@@ -119,11 +121,67 @@ public final class Linker {
         if (parent == null || reference == null) {
             return;
         }
-        int given = reference.arguments().size();
-        if (!parent.arity().accepts(given)) {
-            throw new LinkError(reference.span(), "класс '" + shape.name() + "' передаёт родителю '"
-                    + parent.name() + "' " + given + " аргументов, а '" + parent.name()
-                    + "' принимает " + parent.arity().describeArguments());
+        List<Argument> arguments = reference.arguments();
+        boolean named = arguments.stream().anyMatch(Argument::isNamed);
+        if (!named) {
+            int given = arguments.size();
+            if (!parent.arity().accepts(given)) {
+                throw new LinkError(reference.span(), "класс '" + shape.name() + "' передаёт родителю '"
+                        + parent.name() + "' " + given + " аргументов, а '" + parent.name()
+                        + "' принимает " + parent.arity().describeArguments());
+            }
+            return;
+        }
+        checkParentNames(shape, parent, reference, arguments);
+    }
+
+    /**
+     * Имена в заголовке родителя: {@code class Circle(r) : Shape(radius: r)}.
+     * <p>
+     * Проверяются здесь, а не при создании экземпляра, и это подарок связывания:
+     * заголовок родителя известен ровно тогда, когда известна его форма, поэтому
+     * опечатка в имени падает на объявлении класса — до первого {@code new}, а не
+     * от случая к случаю. Правила те же, что у обычного вызова, и это не совпадение:
+     * список аргументов в скобках в языке один.
+     */
+    private static void checkParentNames(ClassShape shape, ClassShape parent,
+                                         ClassDeclStmt.Superclass reference, List<Argument> arguments) {
+        List<FunctionExpr.Param> params = parent.params();
+        boolean[] taken = new boolean[params.size()];
+        int position = 0;
+        for (Argument argument : arguments) {
+            int index = position;
+            if (argument.isNamed()) {
+                index = -1;
+                for (int i = 0; i < params.size(); i++) {
+                    if (params.get(i).name().equals(argument.name())) {
+                        index = i;
+                        break;
+                    }
+                }
+                if (index < 0) {
+                    throw new LinkError(argument.nameSpan(), "класс '" + parent.name()
+                            + "' не принимает параметра '" + argument.name() + "'");
+                }
+            } else {
+                position++;
+            }
+            if (index >= params.size()) {
+                throw new LinkError(reference.span(), "класс '" + shape.name() + "' передаёт родителю '"
+                        + parent.name() + "' " + arguments.size() + " аргументов, а '" + parent.name()
+                        + "' принимает " + parent.arity().describeArguments());
+            }
+            if (taken[index]) {
+                throw new LinkError(argument.span(), "параметр '" + params.get(index).name()
+                        + "' класса '" + parent.name() + "' уже задан позиционно");
+            }
+            taken[index] = true;
+        }
+        for (int i = 0; i < params.size(); i++) {
+            if (!taken[i] && !params.get(i).hasDefault()) {
+                throw new LinkError(reference.span(), "обязательный параметр '" + params.get(i).name()
+                        + "' класса '" + parent.name() + "' не передан");
+            }
         }
     }
 

@@ -194,7 +194,7 @@ class FunctionParserTest {
         CallExpr call = assertInstanceOf(CallExpr.class,
                 assertInstanceOf(ExprStmt.class, single("применить(def(x) => x * 2, 5)")).expr());
         assertEquals(2, call.arguments().size());
-        assertInstanceOf(FunctionExpr.class, call.arguments().get(0));
+        assertInstanceOf(FunctionExpr.class, call.arguments().get(0).value());
     }
 
     @Test

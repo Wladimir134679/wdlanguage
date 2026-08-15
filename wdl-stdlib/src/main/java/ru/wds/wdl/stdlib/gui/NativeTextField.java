@@ -6,6 +6,7 @@ import ru.wds.wdl.embed.NativeInstance;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.stdlib.Types;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.types.BoolValue;
 import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.StringValue;
@@ -40,7 +41,7 @@ public final class NativeTextField {
                     return NullValue.NULL;
                 })
 
-                .method("setText", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setText", Signature.of(Signature.Param.required("text")), (self, context, args, span) -> {
                     String text = args.string(0, "текст");
                     textField(self).setText(text);
                     self.put("text", StringValue.of(text));
@@ -50,20 +51,20 @@ public final class NativeTextField {
                 .method("getText", Arity.exactly(0), (self, context, args, span) ->
                         StringValue.of(textField(self).getText()))
 
-                .method("setEnabled", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setEnabled", Signature.of(Signature.Param.required("enabled")), (self, context, args, span) -> {
                     boolean enabled = args.at(0).isTruthy();
                     textField(self).setEnabled(enabled);
                     self.put("enabled", BoolValue.of(enabled));
                     return NullValue.NULL;
                 })
 
-                .method("onChange", Arity.exactly(1), (self, context, args, span) -> {
+                .method("onChange", Signature.of(Signature.Param.required("handler")), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
                     textField(self).getDocument().addDocumentListener(GuiEvents.toDocumentListener(callback, context));
                     return NullValue.NULL;
                 })
 
-                .method("onEnter", Arity.exactly(1), (self, context, args, span) -> {
+                .method("onEnter", Signature.of(Signature.Param.required("handler")), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
                     textField(self).addActionListener(GuiEvents.toActionListener(callback, context));
                     return NullValue.NULL;

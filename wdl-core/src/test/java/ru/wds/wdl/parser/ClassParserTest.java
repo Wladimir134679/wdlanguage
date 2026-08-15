@@ -111,6 +111,16 @@ class ClassParserTest {
     }
 
     @Test
+    @DisplayName("аргументы родителя можно назвать по именам")
+    void parentArgumentsCanBeNamed() {
+        ClassDeclStmt circle = classOf("class Circle(r) : Shape(title: \"круг\", kind: \"round\")");
+        assertEquals(2, circle.parent().arguments().size());
+        assertEquals("title", circle.parent().arguments().get(0).name());
+        assertEquals("\"круг\"", SExprPrinter.print(circle.parent().arguments().get(0)));
+        assertEquals("kind", circle.parent().arguments().get(1).name());
+    }
+
+    @Test
     @DisplayName("порядок частей заголовка фиксирован")
     void headerOrderIsFixed() {
         assertTrue(errorOf("class A(x) with Loud : Shape()").contains("родитель указывается перед трейтами"));

@@ -22,5 +22,5 @@ import java.util.List;
  * разного: вызов считает, создание заводит новое состояние. Разница видна в тексте
  * скрипта и должна быть видна в дереве.
  */
-public record NewExpr(Expr callee, List<Expr> arguments, Span span) implements Expr {
+public record NewExpr(Expr callee, List<Argument> arguments, Span span) implements Expr {
 }

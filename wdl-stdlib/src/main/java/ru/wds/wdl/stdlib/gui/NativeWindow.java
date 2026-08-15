@@ -6,6 +6,7 @@ import ru.wds.wdl.embed.NativeInstance;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.stdlib.Types;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
@@ -77,7 +78,8 @@ public final class NativeWindow {
                     return NullValue.NULL;
                 })
 
-                .method("add", Arity.between(1, 2), (self, context, args, span) -> {
+                .method("add", Signature.of(Signature.Param.required("component"),
+                        Signature.Param.optional("constraint")), (self, context, args, span) -> {
                     Component comp = ComponentUtils.extractComponent(args.at(0));
                     if (comp == null) {
                         throw args.bad(0, "компонент", "ожидался UI-компонент");
@@ -93,7 +95,8 @@ public final class NativeWindow {
                     return NullValue.NULL;
                 })
 
-                .method("setLayout", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setLayout", Signature.of(Signature.Param.required("layout")),
+                        (self, context, args, span) -> {
                     LayoutManager lm = Layouts.extractLayout(args.at(0));
                     if (lm == null) {
                         throw args.bad(0, "компоновщик", "ожидался объект Layout");
@@ -103,14 +106,16 @@ public final class NativeWindow {
                     return NullValue.NULL;
                 })
 
-                .method("setTitle", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setTitle", Signature.of(Signature.Param.required("title")),
+                        (self, context, args, span) -> {
                     String title = args.string(0, "заголовок");
                     frame(self).setTitle(title);
                     self.put("title", StringValue.of(title));
                     return NullValue.NULL;
                 })
 
-                .method("setSize", Arity.exactly(2), (self, context, args, span) -> {
+                .method("setSize", Signature.of(Signature.Param.required("width"),
+                        Signature.Param.required("height")), (self, context, args, span) -> {
                     int w = (int) args.integer(0, "ширина");
                     int h = (int) args.integer(1, "высота");
                     frame(self).setSize(w, h);
@@ -124,7 +129,8 @@ public final class NativeWindow {
                     return NullValue.NULL;
                 })
 
-                .method("onClose", Arity.exactly(1), (self, context, args, span) -> {
+                .method("onClose", Signature.of(Signature.Param.required("handler")),
+                        (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
                     frame(self).addWindowListener(GuiEvents.toWindowCloseListener(callback, context));
                     return NullValue.NULL;

@@ -15,6 +15,7 @@ import ru.wds.wdl.resolve.ScriptTraitShape;
 import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.Arguments;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.TraitValue;
@@ -1329,6 +1330,11 @@ public final class Interpreter
      * функцию, — переменная, поле объекта, элемент массива, результат другого вызова.
      * Число аргументов проверяется здесь, до входа в функцию, поэтому сообщение
      * одинаково для всех функций, а сама функция начинается с дела, а не с проверок.
+     * <p>
+     * <b>Аргументы вычисляются в порядке записи</b>, а не в порядке параметров:
+     * побочные эффекты идут так, как читается строка, даже если имена переставлены.
+     * Раскладка по позициям — после, и только если имена вообще есть: вызов без имён
+     * идёт прежним путём, тем же списком и с тем же сообщением об ошибке.
      */
     @Override
     public Value visitCall(CallExpr expr, ExecutionContext context) {
@@ -1338,14 +1344,20 @@ public final class Interpreter
                     "вызвать можно только функцию, а здесь " + callee.type().title() + " (" + callee + ")");
         }
 
-        List<Value> arguments = new ArrayList<>(expr.arguments().size());
-        for (Expr argument : expr.arguments()) {
-            arguments.add(valueOf(argument, context));
+        List<Value> values = evaluate(expr.arguments(), context);
+        Arguments arguments;
+        if (Binder.anyNamed(expr.arguments())) {
+            arguments = Binder.bind(function.signature(), expr.arguments(), values,
+                    Binder.Callee.function(function.name()), expr.span());
+        } else {
+            if (!function.arity().accepts(values.size())) {
+                throw new WdlRuntimeError(ErrorKind.CALL, expr.span(), "функция '" + function.name()
+                        + "' принимает " + function.arity().describeArguments()
+                        + ", а передано " + values.size());
+            }
+            arguments = Arguments.positional(values);
         }
-        if (!function.arity().accepts(arguments.size())) {
-            throw new WdlRuntimeError(ErrorKind.CALL, expr.span(), "функция '" + function.name() + "' принимает "
-                    + function.arity().describeArguments() + ", а передано " + arguments.size());
-        }
+
         if (function instanceof UserFunction) {
             return function.call(context, arguments, expr.span());
         }
@@ -1357,6 +1369,15 @@ public final class Interpreter
         } catch (RuntimeException | LinkageError foreign) {
             throw WdlRuntimeError.fromJava(expr.span(), foreign, moduleOf(expr.callee(), context));
         }
+    }
+
+    /** Значения аргументов — строго в порядке записи в исходнике. */
+    private List<Value> evaluate(List<Argument> arguments, ExecutionContext context) {
+        List<Value> values = new ArrayList<>(arguments.size());
+        for (Argument argument : arguments) {
+            values.add(valueOf(argument.value(), context));
+        }
+        return values;
     }
 
     /**
@@ -1395,13 +1416,18 @@ public final class Interpreter
                     + "а здесь " + target.type().title() + " (" + target + ")");
         }
 
-        List<Value> arguments = new ArrayList<>(expr.arguments().size());
-        for (Expr argument : expr.arguments()) {
-            arguments.add(valueOf(argument, context));
-        }
-        if (!declared.arity().accepts(arguments.size())) {
-            throw new WdlRuntimeError(ErrorKind.CALL, expr.span(), "класс '" + declared.name() + "' принимает "
-                    + declared.arity().describeArguments() + ", а передано " + arguments.size());
+        List<Value> values = evaluate(expr.arguments(), context);
+        Arguments arguments;
+        if (Binder.anyNamed(expr.arguments())) {
+            arguments = Binder.bind(declared.signature(), expr.arguments(), values,
+                    Binder.Callee.klass(declared.name()), expr.span());
+        } else {
+            if (!declared.arity().accepts(values.size())) {
+                throw new WdlRuntimeError(ErrorKind.CALL, expr.span(), "класс '" + declared.name()
+                        + "' принимает " + declared.arity().describeArguments()
+                        + ", а передано " + values.size());
+            }
+            arguments = Arguments.positional(values);
         }
         // Класс, написанный на wdl, и класс, встроенный приложением, здесь неразличимы —
         // кроме одного: у второго конструктор написан на Java, и оттуда может прилететь

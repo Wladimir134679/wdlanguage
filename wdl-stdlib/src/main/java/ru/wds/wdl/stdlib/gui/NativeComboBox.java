@@ -6,6 +6,7 @@ import ru.wds.wdl.embed.NativeInstance;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.stdlib.Types;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.BoolValue;
 import ru.wds.wdl.value.types.IntValue;
@@ -46,7 +47,7 @@ public final class NativeComboBox {
                     return NullValue.NULL;
                 })
 
-                .method("addItem", Arity.exactly(1), (self, context, args, span) -> {
+                .method("addItem", Signature.of(Signature.Param.required("item")), (self, context, args, span) -> {
                     String itemStr = args.at(0).display();
                     comboBox(self).addItem(itemStr);
                     return NullValue.NULL;
@@ -60,7 +61,7 @@ public final class NativeComboBox {
                 .method("getSelectedIndex", Arity.exactly(0), (self, context, args, span) ->
                         IntValue.of(comboBox(self).getSelectedIndex()))
 
-                .method("setSelectedIndex", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setSelectedIndex", Signature.of(Signature.Param.required("index")), (self, context, args, span) -> {
                     int index = (int) args.integer(0, "индекс");
                     comboBox(self).setSelectedIndex(index);
                     return NullValue.NULL;
@@ -71,14 +72,14 @@ public final class NativeComboBox {
                     return selected != null ? StringValue.of(selected.toString()) : NullValue.NULL;
                 })
 
-                .method("setEnabled", Arity.exactly(1), (self, context, args, span) -> {
+                .method("setEnabled", Signature.of(Signature.Param.required("enabled")), (self, context, args, span) -> {
                     boolean enabled = args.at(0).isTruthy();
                     comboBox(self).setEnabled(enabled);
                     self.put("enabled", BoolValue.of(enabled));
                     return NullValue.NULL;
                 })
 
-                .method("onChange", Arity.exactly(1), (self, context, args, span) -> {
+                .method("onChange", Signature.of(Signature.Param.required("handler")), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
                     comboBox(self).addActionListener(GuiEvents.toActionListener(callback, context));
                     return NullValue.NULL;

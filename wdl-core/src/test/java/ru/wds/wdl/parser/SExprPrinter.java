@@ -3,6 +3,7 @@ package ru.wds.wdl.parser;
 import ru.wds.wdl.ast.expr.*;
 import ru.wds.wdl.ast.visitor.ExprVisitor;
 
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -58,7 +59,7 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
     @Override
     public String visitCall(CallExpr expr, Void context) {
         StringBuilder sb = new StringBuilder("(call ").append(visit(expr.callee(), context));
-        expr.arguments().forEach(argument -> sb.append(' ').append(visit(argument, context)));
+        arguments(sb, expr.arguments(), context);
         return sb.append(')').toString();
     }
 
@@ -66,8 +67,30 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
     @Override
     public String visitNew(NewExpr expr, Void context) {
         StringBuilder sb = new StringBuilder("(new ").append(visit(expr.callee(), context));
-        expr.arguments().forEach(argument -> sb.append(' ').append(visit(argument, context)));
+        arguments(sb, expr.arguments(), context);
         return sb.append(')').toString();
+    }
+
+    /**
+     * Аргументы: позиционный печатается выражением, именованный — парой,
+     * как и пара объекта. {@code greet("мир", punct: "?")} →
+     * {@code (call greet "мир" (punct: "?"))}.
+     */
+    private void arguments(StringBuilder sb, List<Argument> arguments, Void context) {
+        for (Argument argument : arguments) {
+            sb.append(' ');
+            if (argument.isNamed()) {
+                sb.append('(').append(argument.name()).append(": ")
+                        .append(visit(argument.value(), context)).append(')');
+            } else {
+                sb.append(visit(argument.value(), context));
+            }
+        }
+    }
+
+    /** Отдельный аргумент — для тестов, которым нужен один элемент списка. */
+    static String print(Argument argument) {
+        return print(argument.value());
     }
 
     @Override
