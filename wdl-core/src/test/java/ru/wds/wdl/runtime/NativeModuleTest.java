@@ -12,8 +12,6 @@ import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.types.IntValue;
@@ -77,7 +75,7 @@ class NativeModuleTest {
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
-        Unit unit = Unit.of(source, program, Resolver.resolve(program, diagnostics));
+        Unit unit = Unit.of(source, program);
         new Interpreter().run(unit, context);
         return printed.toString();
     }
@@ -282,7 +280,7 @@ class NativeModuleTest {
                 """);
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
-        new Interpreter().run(Unit.of(source, program, Resolution.none()), context);
+        new Interpreter().run(Unit.of(source, program), context);
 
         assertEquals(List.of(), closed);
         context.shutdownModules();
@@ -321,7 +319,7 @@ class NativeModuleTest {
                 """);
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
-        new Interpreter().run(Unit.of(source, program, Resolution.none()), context);
+        new Interpreter().run(Unit.of(source, program), context);
 
         context.shutdownModules();
         assertEquals(List.of("sys/good"), closed);

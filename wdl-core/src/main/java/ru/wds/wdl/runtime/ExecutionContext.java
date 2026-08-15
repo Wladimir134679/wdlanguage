@@ -5,7 +5,6 @@ import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.Linker;
-import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.ScriptThreads;
@@ -299,31 +298,14 @@ public final class ExecutionContext implements CallContext {
         return frame;
     }
 
-    /** Файл, который сейчас выполняется: исходник, формы его классов и его каталог. */
+    /** Файл, который сейчас выполняется: исходник, его дерево и его каталог. */
     public Unit unit() {
         return unit;
-    }
-
-    /**
-     * План объявлений выполняемого файла: что резолвер разрешил объявить до первой
-     * инструкции.
-     * <p>
-     * Здесь, а не в интерпретаторе, потому что интерпретатор безсостоятельный
-     * и разделяется между запусками, а план принадлежит конкретному файлу.
-     */
-    public Resolution resolution() {
-        return unit.resolution();
     }
 
     /** Тот же контекст, но выполняющий другой файл. */
     public ExecutionContext withUnit(Unit newUnit) {
         return new ExecutionContext(scope, output, frame, newUnit, run, deferred);
-    }
-
-    /** Тот же контекст, но знающий план объявлений разобранной программы. */
-    public ExecutionContext withResolution(Resolution newResolution) {
-        return new ExecutionContext(scope, output, frame, unit.withResolution(newResolution),
-                run, deferred);
     }
 
     public Output output() {

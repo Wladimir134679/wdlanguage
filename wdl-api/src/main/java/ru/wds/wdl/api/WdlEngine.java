@@ -7,8 +7,6 @@ import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.value.Value;
@@ -142,13 +140,7 @@ public final class WdlEngine {
         if (diagnostics.hasErrors()) {
             throw WdlException.syntax(diagnostics);
         }
-        // Резолвер расставляет объявления типов так, чтобы родитель выполнялся раньше
-        // потомка, и ловит круг в наследовании. Ошибки его — такие же ошибки разбора.
-        Resolution resolution = Resolver.resolve(program, diagnostics);
-        if (diagnostics.hasErrors()) {
-            throw WdlException.syntax(diagnostics);
-        }
-        return new WdlScript(this, Unit.of(source, program, resolution), moduleSource);
+        return new WdlScript(this, Unit.of(source, program), moduleSource);
     }
 
     /**

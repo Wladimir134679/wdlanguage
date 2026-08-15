@@ -338,7 +338,6 @@ public void close() {
 ```java
 ModuleUnits modules = new ModuleUnits(ModuleSource.ofDirectory(Path.of("scripts")));
 
-Resolution resolution = Resolver.resolve(program, diagnostics);
 ExecutionContext context = ExecutionContext.of(scope, logger::info).withModules(modules);
 ```
 

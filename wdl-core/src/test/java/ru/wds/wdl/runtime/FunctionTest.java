@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Timeout;
 import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
+import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
 import ru.wds.wdl.source.Source;
 
@@ -27,12 +28,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Timeout(value = 30, unit = TimeUnit.SECONDS)
 class FunctionTest {
 
-    private static Program parse(String code) {
+    /** Юнитом, а не голой программой: так же запускает файл и консольный {@code wdl}. */
+    private static Unit parse(String code) {
         Source source = Source.ofString(code);
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
-        return program;
+        return Unit.of(source, program);
     }
 
     private static String run(String code) {
@@ -204,17 +206,35 @@ class FunctionTest {
                 """));
     }
 
-    // --- объявления помечаются до выполнения ---------------------------------
+    // --- объявление существует со своей строки -------------------------------
 
     @Test
-    @DisplayName("функцию можно вызвать выше её объявления")
-    void declarationsAreHoisted() {
-        assertEquals("5", printed("println(сумма(2, 3))\ndef сумма(a, b) => a + b"));
+    @DisplayName("вызов выше объявления — ошибка, называющая строку объявления")
+    void callAboveDeclarationIsAnError() {
+        // Стадии до выполнения нет: инструкции идут подряд, и на первой строке имени
+        // ещё не существует. Сообщение поэтому называет причину, а не симптом.
+        String message = errorOf("println(сумма(2, 3))\ndef сумма(a, b) => a + b").getMessage();
+        assertTrue(message.contains("переменная 'сумма' не определена"), message);
+        assertTrue(message.contains("объявление стоит ниже, на строке 2"), message);
+    }
+
+    @Test
+    @DisplayName("функция видит функцию, объявленную ниже: имя ищется в момент вызова")
+    void bodySeesLaterDeclarations() {
+        // Самый частый случай на практике, и он работает без всякого преданализа:
+        // тело выполняется тогда, когда объявлены уже обе функции.
+        assertEquals("4", printed("""
+                def main() => helper(2)
+                def helper(n) => n * 2
+                println(main())
+                """));
     }
 
     @Test
     @DisplayName("две функции могут вызывать друг друга")
     void mutualRecursion() {
+        // По той же причине: к первому вызову обе уже объявлены, а замыкание —
+        // ссылка на область, а не снимок её значений.
         assertEquals("true false", printed("""
                 def чётное(n) => n == 0 ? true : нечётное(n - 1)
                 def нечётное(n) => n == 0 ? false : чётное(n - 1)
@@ -224,14 +244,53 @@ class FunctionTest {
     }
 
     @Test
-    @DisplayName("объявление внутри блока в корень не поднимается")
-    void onlyTopLevelIsHoisted() {
+    @DisplayName("выбор реализации по условию: имя заводится присваиванием, а не def")
+    void conditionalImplementation() {
+        // 'def' в ветке принадлежит области ветки и наружу не выходит — правило блока
+        // осталось прежним. Наружу отдаёт присваивание: имя заводится на верхнем уровне,
+        // а какая функция в него попадёт, решает условие.
+        assertEquals("тихо", printed("""
+                debug = false
+                log = null
+                if (debug) {
+                    log = def(msg) => println("[отладка] ", msg)
+                } else {
+                    log = def(msg) => println(msg)
+                }
+                log("тихо")
+                """));
+    }
+
+    @Test
+    @DisplayName("объявление внутри блока наружу не выходит")
+    void declarationBelongsToItsScope() {
         assertEquals("тут", printed("if (true) { def внутренняя() => \"тут\"\n println(внутренняя()) }"));
         assertTrue(errorOf("if (true) { def внутренняя() => 1 }\nprintln(внутренняя())")
                 .getMessage().contains("не определена"));
         // Объявление внутри функции живёт только в её вызове
         assertTrue(errorOf("def снаружи() { def внутри() => 1\n return внутри(); }\nснаружи()\nвнутри()")
                 .getMessage().contains("не определена"));
+    }
+
+    @Test
+    @DisplayName("имя, объявленное во вложенной области, диагностика находит и называет")
+    void hintPointsIntoNestedScope() {
+        String message = errorOf("""
+                def снаружи() { def внутри() => 1
+                    return внутри(); }
+                внутри()
+                """).getMessage();
+        assertTrue(message.contains("внутри вложенной области"), message);
+    }
+
+    @Test
+    @DisplayName("константа выше и одноимённая функция ниже — ошибка на строке def")
+    void constantBlocksLaterFunction() {
+        // Раньше это держалось на побочном эффекте: помеченное объявление выполнялось
+        // второй раз, уже после заморозки имени. Теперь оно выполняется ровно один раз
+        // и на своей строке — а результат тот же.
+        assertTrue(errorOf("const A = 1\ndef A() => 2").getMessage()
+                .contains("нельзя объявить"));
     }
 
     // --- рекурсия ------------------------------------------------------------
@@ -264,13 +323,13 @@ class FunctionTest {
         // Счётчик движка до предела не дойдёт: он рассчитан на обычный поток, а здесь стек
         // нарочно крошечный. Проверяется вторая линия защиты — та, что превращает
         // StackOverflowError в остановку выполнения с внятным сообщением.
-        Program program = parse("def вниз(n) => n <= 0 ? 0 : вниз(n - 1)\nвниз("
+        Unit unit = parse("def вниз(n) => n <= 0 ? 0 : вниз(n - 1)\nвниз("
                 + (ExecutionContext.MAX_CALL_DEPTH - 2) + ")");
 
         Throwable[] thrown = new Throwable[1];
         Thread thread = new Thread(null, () -> {
             try {
-                new Interpreter().run(program, ExecutionContext.fresh(text -> { }));
+                new Interpreter().run(unit, ExecutionContext.fresh(text -> { }));
             } catch (Throwable t) {
                 thrown[0] = t;
             }

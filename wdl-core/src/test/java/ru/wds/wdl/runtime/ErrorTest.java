@@ -8,8 +8,6 @@ import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.value.Arity;
 
@@ -55,11 +53,9 @@ class ErrorTest {
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
-        Resolution resolution = Resolver.resolve(program, diagnostics);
-        assertFalse(diagnostics.hasErrors(), () -> "ошибки резолвера:\n" + diagnostics.renderAll());
         // Юнитом, а не голой программой: место броска и строки трассировки осмысленны
         // только вместе с исходником, а без него их и не показывают.
-        new Interpreter().run(Unit.of(source, program, resolution), ExecutionContext.fresh(output));
+        new Interpreter().run(Unit.of(source, program), ExecutionContext.fresh(output));
     }
 
     private static WdlRuntimeError errorOf(String code) {
@@ -348,14 +344,13 @@ class ErrorTest {
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
-        Resolution resolution = Resolver.resolve(program, diagnostics);
 
         ExecutionContext context = ExecutionContext.fresh(output::append);
         context.scope().define("query", BuiltinFunction.of("query", Arity.any(),
                 (ignoredContext, ignoredArguments, ignoredSpan) -> {
                     throw new IllegalStateException("база недоступна");
                 }));
-        new Interpreter().run(Unit.of(source, program, resolution), context);
+        new Interpreter().run(Unit.of(source, program), context);
         return oneLine(output);
     }
 
@@ -415,7 +410,8 @@ class ErrorTest {
     void shortFormsDoNotSwallowFatal() {
         Thread.currentThread().interrupt();
         try {
-            assertThrows(FatalError.class, () -> printed("x = try? runForever()\ndef runForever() { for (;;) { } }"));
+            assertThrows(FatalError.class,
+                    () -> printed("def runForever() { for (;;) { } }\nx = try? runForever()"));
         } finally {
             Thread.interrupted();
         }

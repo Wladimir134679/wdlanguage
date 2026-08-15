@@ -11,7 +11,6 @@ import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.module.NativeModules;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
@@ -75,8 +74,7 @@ class NativeTraitTest {
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
         ExecutionContext context = ExecutionContext.fresh(printed::append)
                 .withNativeModules(NativeModules.of(Map.of("sys/net", NativeTraitTest::net)));
-        Unit unit = Unit.of(source, program, Resolver.resolve(program, diagnostics));
-        assertFalse(diagnostics.hasErrors(), () -> "ошибки резолвера:\n" + diagnostics.renderAll());
+        Unit unit = Unit.of(source, program);
         new Interpreter().run(unit, context);
         return printed.toString();
     }

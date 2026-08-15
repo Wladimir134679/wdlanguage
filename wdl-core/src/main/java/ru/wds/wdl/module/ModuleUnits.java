@@ -5,8 +5,6 @@ import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 
 import java.util.ArrayDeque;
@@ -19,7 +17,7 @@ import java.util.Objects;
 /**
  * Разобранные модули одного запуска: ключ → {@link Unit}.
  * <p>
- * Здесь только разбор — {@code Lexer} → {@code Parser} → {@code Resolver} — и ни одной
+ * Здесь только разбор — {@code Lexer} → {@code Parser} — и ни одной
  * выполненной инструкции. Значения модулей появляются позже и живут в своём реестре.
  * <p>
  * <b>Файл читается тогда, когда выполняется его {@code import}, и не раньше.</b>
@@ -96,16 +94,12 @@ public final class ModuleUnits {
         Diagnostics diagnostics = new Diagnostics(moduleSource);
         List<Token> tokens = Lexer.tokenize(moduleSource, diagnostics);
         Program program = Parser.parseProgram(tokens, diagnostics);
-        Resolution resolution = Resolution.none();
-        if (!diagnostics.hasErrors()) {
-            resolution = Resolver.resolve(program, diagnostics);
-        }
         if (diagnostics.hasErrors()) {
             return new Loaded(null, "в модуле '" + key + "' есть ошибки:"
                     + System.lineSeparator() + diagnostics.renderAll(), false);
         }
 
-        Unit unit = new Unit(moduleSource, program, resolution, key);
+        Unit unit = new Unit(moduleSource, program, key);
         loaded.put(key, unit);
         return new Loaded(unit, null, false);
     }

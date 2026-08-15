@@ -9,7 +9,6 @@ import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 
 import java.util.ArrayList;
@@ -60,8 +59,7 @@ class LazyImportTest {
         Diagnostics diagnostics = new Diagnostics(script);
         Program program = Parser.parseProgram(Lexer.tokenize(script, diagnostics), diagnostics);
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
-        Unit unit = Unit.of(script, program, Resolver.resolve(program, diagnostics));
-        assertFalse(diagnostics.hasErrors(), () -> "ошибки резолвера:\n" + diagnostics.renderAll());
+        Unit unit = Unit.of(script, program);
 
         new Interpreter().run(unit, ExecutionContext.fresh(printed::append).withModules(units));
         return printed.toString();

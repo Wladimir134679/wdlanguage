@@ -10,8 +10,6 @@ import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 
 import java.util.Map;
@@ -51,9 +49,9 @@ class ModuleTest {
     private static Unit unitOf(Source source, Diagnostics diagnostics, ModuleUnits units) {
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
         if (diagnostics.hasErrors()) {
-            return Unit.of(source, program, Resolution.none());
+            return Unit.of(source, program);
         }
-        return Unit.of(source, program, Resolver.resolve(program, diagnostics));
+        return Unit.of(source, program);
     }
 
     private static WdlRuntimeError errorOf(String code, Map<String, String> modules) {
@@ -244,7 +242,7 @@ class ModuleTest {
         Source source = Source.ofString("import lib.math");
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
-        Unit unit = Unit.of(source, program, Resolver.resolve(program, diagnostics));
+        Unit unit = Unit.of(source, program);
 
         WdlRuntimeError error = assertThrows(WdlRuntimeError.class,
                 () -> new Interpreter().run(unit, ExecutionContext.fresh()));

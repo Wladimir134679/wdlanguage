@@ -10,7 +10,6 @@ import ru.wds.wdl.embed.NativeTrait;
 import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.LinkError;
 import ru.wds.wdl.resolve.Linker;
-import ru.wds.wdl.resolve.Resolution;
 import ru.wds.wdl.resolve.ScriptTraitShape;
 import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.source.Source;
@@ -55,26 +54,26 @@ public final class Interpreter
     /**
      * Выполняет скрипт целиком.
      * <p>
-     * Перед первой инструкцией объявления функций верхнего уровня помечаются в области
-     * видимости запуска — см. {@link #hoistDeclarations}.
+     * Никакой стадии между разбором и выполнением нет: инструкции выполняются подряд,
+     * сверху вниз, и объявление начинает существовать тогда, когда до него дошло
+     * выполнение. См. {@link #execute}.
+     * <p>
+     * Дерево при этом попадает в контекст юнитом — без исходника, потому что его тут
+     * и не дали. Нужно оно ровно на пути ошибки: по нему {@link Declarations} отвечает,
+     * что имя в файле есть, просто объявлено ниже. Вариант с исходником —
+     * {@link #run(Unit, ExecutionContext)}.
+     * <p>
+     * Готовый юнит при этом не подменяется: {@code Modules} выполняет файл модуля
+     * этим же методом, уже поставив его юнит в контекст, — и модуль обязан остаться
+     * при своём исходнике и своём ключе.
      *
-     * @return значение последней инструкции-выражения файла, см. {@link #execute}
+     * @return значение последней инструкции-выражения файла
      */
     public Value run(Program program, ExecutionContext context) {
-        return entering(context, () -> execute(program, context));
-    }
-
-    /**
-     * Выполняет скрипт, зная формы его классов и трейтов.
-     * <p>
-     * Формы собирает {@code Resolver} — стадия между парсером и интерпретатором.
-     * Скрипту без классов она не нужна, поэтому есть и вариант без неё; встретив
-     * объявление класса без формы, интерпретатор скажет об этом прямо, а не
-     * попытается угадать.
-     */
-    public Value run(Program program, Resolution resolution, ExecutionContext context) {
-        ExecutionContext resolved = context.withResolution(resolution);
-        return entering(context, () -> execute(program, resolved));
+        ExecutionContext known = context.unit().program() == null
+                ? context.withUnit(Unit.anonymous(program))
+                : context;
+        return entering(context, () -> execute(program, known));
     }
 
     /**
@@ -151,7 +150,6 @@ public final class Interpreter
         RuntimeException flying = null;
         Value result = NullValue.NULL;
         try {
-            hoistDeclarations(program, scoped);
             for (Stmt statement : program.statements()) {
                 // Инструкция-выражение вычисляется здесь, а не через visitExprStmt,
                 // ровно затем, чтобы её значение не потерялось: посетитель инструкций
@@ -183,45 +181,6 @@ public final class Interpreter
             throw flying;
         }
         return result;
-    }
-
-    /**
-     * Помечает объявления <b>верхнего уровня</b> до начала выполнения: функции, а следом
-     * трейты и классы — в порядке, который составил резолвер.
-     * <p>
-     * Отсюда три вещи, которых иначе бы не было: функцию можно вызвать выше её объявления
-     * по тексту, две функции могут вызывать друг друга, а скрипт можно писать сверху вниз —
-     * сначала главное, потом вспомогательное.
-     * <p>
-     * Только верхний уровень, и это не упрощение, а решение: объявление внутри блока или
-     * внутри другой функции принадлежит своей области видимости, и поднимать его в корень
-     * значило бы протаскивать имя наружу — ровно то, чего область видимости не должна
-     * допускать. Такое объявление начинает существовать, когда до него доходит выполнение.
-     * <p>
-     * Замыкание помеченной функции — та же область, куда её положили, поэтому повторное
-     * определение при выполнении самой инструкции даёт ровно то же значение. Гасить его
-     * незачем.
-     * <p>
-     * Константы сюда не входят: у {@code const} есть выражение-инициализатор, и вычислять
-     * его здесь значило бы выполнять пользовательский код до первой инструкции скрипта.
-     * Побочный эффект повторного определения, безобидный для функций, оказывается
-     * полезным именно здесь: {@code const A = 1} выше по тексту и {@code def A() {}} ниже
-     * дают ошибку на строке с {@code def}, потому что помеченное объявление выполняется
-     * ещё раз — уже после того, как имя заморожено.
-     */
-    private void hoistDeclarations(Program program, ExecutionContext context) {
-        for (Stmt statement : program.statements()) {
-            if (statement instanceof DefDeclStmt declaration) {
-                visitDefDecl(declaration, context);
-            }
-        }
-        // Трейты и классы — списком от резолвера, где родитель стоит раньше потомка.
-        // Класса, которому нужен родитель или трейт из другого файла, в этом списке нет:
-        // его связывать нечем, пока не выполнится 'import', и появляется он на своей
-        // строке — как класс внутри блока.
-        for (Stmt statement : context.resolution().hoisted()) {
-            visit(statement, context);
-        }
     }
 
     /**
@@ -496,10 +455,9 @@ public final class Interpreter
      * <p>
      * Здесь же класс и <b>связывается</b>: родитель с трейтами ищутся среди значений,
      * видимых в этой точке, и {@link Linker} собирает по ним форму — плоские таблицы
-     * плюс проверки требований трейтов и числа аргументов родителю. Раньше форма
-     * приходила готовой от резолвера, и ради этого приходилось разбирать модули
-     * до запуска; теперь всё, что нужно, уже стоит в области видимости, а модуля
-     * могло не быть на диске ещё секунду назад.
+     * плюс проверки требований трейтов и числа аргументов родителю. Всё, что для этого
+     * нужно, уже стоит в области видимости — поэтому родитель может прийти из модуля,
+     * которого секунду назад не было на диске, и отдельная стадия до запуска не нужна.
      * <p>
      * Значение собирается из формы и текущей области — она станет замыканием методов.
      * Поэтому класс, объявленный внутри функции, на каждом вызове даёт новое значение,
@@ -660,6 +618,7 @@ public final class Interpreter
      * то есть про случай, когда вычислять уже нечего. Общее «переменная не определена»
      * здесь хуже своего: человек написал заголовок класса, и подсказка нужна про
      * заголовок класса — что связывать можно объявленное выше или импортированное.
+     * Точное место объявления и круг в наследовании добавляет {@link Declarations}.
      * Дальше по цепочке подсказывать уже нечего, и работает обычная диагностика
      * обращения: «у модуля нет имени X» точнее всего, что можно придумать отсюда.
      */
@@ -668,9 +627,12 @@ public final class Interpreter
         if (type instanceof VariableExpr variable) {
             Value value = context.scope().lookup(variable.name());
             if (value == null) {
+                String hint = Declarations.typeHint(variable.name(), context);
                 throw new WdlRuntimeError(ErrorKind.NAME, span, "неизвестный " + what + " '" + title
-                        + "': наследоваться и подмешивать можно то, что объявлено в этом же"
-                        + " файле или импортировано выше по тексту");
+                        + "'" + (hint.isEmpty()
+                        ? ": наследоваться и подмешивать можно то, что объявлено в этом же"
+                        + " файле или импортировано выше по тексту"
+                        : hint));
             }
             return value;
         }
@@ -754,10 +716,7 @@ public final class Interpreter
      * <p>
      * Область — <b>текущая</b>, и никакой особый случай для этого не понадобился:
      * {@code import} внутри функции заводит имена в теле функции и исчезает вместе
-     * с ней, ровно как {@code def} или {@code const} на том же месте. По той же причине
-     * импорт не помечается до выполнения ({@link #hoistDeclarations}) — он не объявление
-     * верхнего уровня, а инструкция, у которой есть побочный эффект: выполнение
-     * чужого файла. Поднимать её значило бы выполнять чужой код до первой строки скрипта.
+     * с ней, ровно как {@code def} или {@code const} на том же месте.
      * <p>
      * Откуда взялся модуль — из файла или из библиотеки на Java, — здесь не видно
      * и видно быть не должно: значение у обоих одно, {@code ModuleValue}.
@@ -1269,7 +1228,10 @@ public final class Interpreter
     public Value visitVariable(VariableExpr expr, ExecutionContext context) {
         Value value = context.scope().lookup(expr.name());
         if (value == null) {
-            throw new WdlRuntimeError(ErrorKind.NAME, expr.span(), "переменная '" + expr.name() + "' не определена");
+            // Подсказка ищется по дереву файла и только здесь, на пути ошибки: чаще
+            // всего имя в файле есть, просто объявлено ниже — см. Declarations.
+            throw new WdlRuntimeError(ErrorKind.NAME, expr.span(), "переменная '" + expr.name()
+                    + "' не определена" + Declarations.hint(expr.name(), context));
         }
         return value;
     }
@@ -1527,13 +1489,15 @@ public final class Interpreter
         void write(Value value);
     }
 
-    private record VariablePlace(Environment scope, String name, Span span) implements Place {
+    private record VariablePlace(Environment scope, String name, Span span,
+                                 ExecutionContext context) implements Place {
 
         @Override
         public Value read() {
             Value value = scope.lookup(name);
             if (value == null) {
-                throw new WdlRuntimeError(ErrorKind.NAME, span, "переменная '" + name + "' не определена");
+                throw new WdlRuntimeError(ErrorKind.NAME, span, "переменная '" + name
+                        + "' не определена" + Declarations.hint(name, context));
             }
             return value;
         }
@@ -1571,7 +1535,8 @@ public final class Interpreter
 
     private Place resolvePlace(Expr target, ExecutionContext context) {
         return switch (target) {
-            case VariableExpr variable -> new VariablePlace(context.scope(), variable.name(), variable.span());
+            case VariableExpr variable ->
+                    new VariablePlace(context.scope(), variable.name(), variable.span(), context);
             case AccessExpr access -> new ContainerPlace(
                     this,
                     valueOf(access.target(), context),

@@ -4,8 +4,6 @@ import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 
 import java.io.IOException;
@@ -17,8 +15,13 @@ import java.nio.charset.StandardCharsets;
  * <p>
  * Файл {@code prelude.wdl} лежит рядом с этим классом и разбирается <b>один раз</b>
  * при его загрузке. Изменяемой статики здесь нет и правило ядра не нарушено: дерево
- * и план объявлений неизменяемы и от запуска не зависят — зависят от него значения
- * классов, а они создаются заново в каждой корневой области.
+ * неизменяемо и от запуска не зависит — зависят от него значения классов, а они
+ * создаются заново в каждой корневой области.
+ * <p>
+ * Классы в файле идут <b>сверху вниз по наследованию</b>: {@code Exception} раньше
+ * {@code RuntimeError}, тот раньше своих потомков. Иначе и нельзя — объявление
+ * связывается тогда, когда до него дошло выполнение, и родителя ищет среди значений,
+ * уже стоящих в области.
  * <p>
  * Почему на wdl, а не построителем нативных классов: весь смысл {@code Exception}
  * в том, чтобы от него наследовались, а наследоваться от нативного класса скрипт
@@ -29,20 +32,17 @@ final class Prelude {
     private static final String FILE = "prelude.wdl";
 
     private static final Program PROGRAM;
-    private static final Resolution RESOLUTION;
 
     static {
         Source source = read();
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
-        Resolution resolution = Resolver.resolve(program, diagnostics);
         if (diagnostics.hasErrors()) {
             // Прелюдия — часть движка, а не скрипта пользователя: сюда можно попасть
             // только собрав ядро со сломанным ресурсом.
             throw new IllegalStateException("прелюдия не разбирается:\n" + diagnostics.renderAll());
         }
         PROGRAM = program;
-        RESOLUTION = resolution;
     }
 
     private Prelude() {
@@ -57,7 +57,7 @@ final class Prelude {
      * снятого сразу после этого вызова, а не поиском имени в области.
      */
     static void installTo(ExecutionContext context) {
-        new Interpreter().run(PROGRAM, RESOLUTION, context);
+        new Interpreter().run(PROGRAM, context);
     }
 
     private static Source read() {

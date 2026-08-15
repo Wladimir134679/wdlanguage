@@ -10,8 +10,6 @@ import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.Unit;
@@ -182,22 +180,11 @@ public final class Main implements Callable<Integer> {
         // только тогда, когда выполнится их 'import': файла может ещё и не быть.
         ModuleUnits modules = new ModuleUnits(ModuleSource.ofDirectory(home(path)));
 
-        // Резолвер расставляет объявления типов верхнего уровня так, чтобы родитель
-        // выполнялся раньше потомка, и ловит круг в наследовании. Всё остальное —
-        // требования трейтов, аргументы родителю, неизвестные имена — называет
-        // выполнение, в тот момент, когда объявление класса до него доходит.
-        Resolution resolution = Resolver.resolve(program, diagnostics);
-        showDiagnostics(diagnostics);
-        if (diagnostics.hasErrors()) {
-            System.err.println("Разбор не удался: ошибок — " + diagnostics.errorCount() + ".");
-            return EXIT_SCRIPT_ERROR;
-        }
-
         // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
         // а не ядра: встроенный движок по умолчанию не печатает никуда.
         ExecutionContext context = standardContext().withModules(modules);
         try {
-            new Interpreter().run(Unit.of(source, program, resolution), context);
+            new Interpreter().run(Unit.of(source, program), context);
             return 0;
         } catch (WdlError e) {
             // Ошибка выполнения показывается так же, как ошибка разбора: с местом
@@ -324,17 +311,14 @@ public final class Main implements Callable<Integer> {
 
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(tokens, diagnostics);
-        Resolution resolution = diagnostics.hasErrors()
-                ? Resolution.none()
-                : Resolver.resolve(program, diagnostics);
         showDiagnostics(diagnostics);
         if (diagnostics.hasErrors()) {
             return;
         }
         try {
-            // Каждая строка REPL — своя программа, поэтому и формы у неё свои:
-            // класс живёт в области сеанса, а наследоваться можно в пределах ввода.
-            interpreter.run(program, resolution, context);
+            // Каждая строка REPL — своя программа, и выполняется она так же, как файл:
+            // инструкции подряд, объявление начинает существовать со своей строки.
+            interpreter.run(program, context);
         } catch (WdlError e) {
             System.err.println(report(e, source, withJavaTrace));
         }

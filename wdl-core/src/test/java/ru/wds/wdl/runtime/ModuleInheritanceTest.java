@@ -9,8 +9,6 @@ import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 
 import java.util.Map;
@@ -61,10 +59,7 @@ class ModuleInheritanceTest {
 
     private static Unit unitOf(Source source, Diagnostics diagnostics, ModuleUnits units) {
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
-        if (diagnostics.hasErrors()) {
-            return Unit.of(source, program, Resolution.none());
-        }
-        return Unit.of(source, program, Resolver.resolve(program, diagnostics));
+        return Unit.of(source, program);
     }
 
     /** Первое сообщение резолвера: то, что движок знает о скрипте до первой инструкции. */
@@ -245,16 +240,19 @@ class ModuleInheritanceTest {
                         class Circle : Shape("круг")
                         """, SHAPES));
 
-        assertEquals("переменная 'Circle' не определена", error.getMessage());
+        assertTrue(error.getMessage().startsWith("переменная 'Circle' не определена"),
+                error.getMessage());
     }
 
     @Test
-    @DisplayName("свой класс по-прежнему помечается заранее: порядок в файле свободен")
-    void localClassesKeepFreeOrder() {
+    @DisplayName("свой класс живёт по тому же правилу: объявление стоит выше использования")
+    void localClassesFollowTheSameRule() {
+        // Правило одно на все классы — и на свои, и на пришедшие из модуля:
+        // имя существует с той строки, где его завели.
         assertEquals("фигура круг" + NL, run("""
-                println(new Circle().text())
-                class Circle : Shape("круг")
                 class Shape(title) { def text() => "фигура " + title }
+                class Circle : Shape("круг")
+                println(new Circle().text())
                 """, Map.of()));
     }
 

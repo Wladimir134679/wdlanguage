@@ -6,9 +6,8 @@ import org.junit.jupiter.api.Timeout;
 import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
+import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 
 import java.util.concurrent.TimeUnit;
@@ -34,24 +33,13 @@ class ClassTest {
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
-        Resolution resolution = Resolver.resolve(program, diagnostics);
-        assertFalse(diagnostics.hasErrors(), () -> "ошибки резолвера:\n" + diagnostics.renderAll());
-        new Interpreter().run(program, resolution, ExecutionContext.fresh(output));
+        // Юнитом, а не голой программой: диагностика ищет объявления по дереву файла,
+        // а строку в сообщении считает по его исходнику.
+        new Interpreter().run(Unit.of(source, program), ExecutionContext.fresh(output));
     }
 
     private static WdlRuntimeError errorOf(String code) {
         return assertThrows(WdlRuntimeError.class, () -> printed(code));
-    }
-
-    /** Ошибка, найденная до выполнения: резолвером. */
-    private static String declarationError(String code) {
-        Source source = Source.ofString(code);
-        Diagnostics diagnostics = new Diagnostics(source);
-        Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
-        assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
-        Resolver.resolve(program, diagnostics);
-        assertTrue(diagnostics.hasErrors(), () -> "ожидалась ошибка объявления для:\n" + code);
-        return diagnostics.renderAll();
     }
 
     // --- поля и методы -------------------------------------------------------
@@ -445,23 +433,39 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("наследоваться можно от класса, объявленного ниже по тексту")
-    void forwardInheritance() {
+    @DisplayName("родитель объявляется выше потомка")
+    void parentGoesFirst() {
         assertEquals("true true", printed("""
-                class Circle(radius) : Shape("круг")
                 class Shape(name)
+                class Circle(radius) : Shape("круг")
                 c = new Circle(5)
                 println(c is Circle, " ", c is Shape)
                 """));
     }
 
     @Test
-    @DisplayName("круг в наследовании — ошибка до выполнения: такого порядка объявлений нет")
+    @DisplayName("родитель ниже потомка — ошибка, называющая строку объявления")
+    void parentBelowIsAnError() {
+        // Родитель ищется среди значений, видимых в этой точке: до своей строки
+        // класса ещё нет. Сообщение поэтому говорит не «нет такого имени», а где
+        // это имя объявлено на самом деле.
+        String message = errorOf("""
+                class Circle(radius) : Shape("круг")
+                class Shape(name)
+                """).getMessage();
+        assertTrue(message.contains("неизвестный класс 'Shape'"), message);
+        assertTrue(message.contains("объявление стоит ниже, на строке 2"), message);
+    }
+
+    @Test
+    @DisplayName("круг в наследовании: класс не находит родителя, и переставить их нельзя")
     void inheritanceCycle() {
-        // Единственное, что о наследовании видно из текста: расставить объявления так,
-        // чтобы родитель выполнялся раньше потомка, в этом случае невозможно.
-        assertTrue(declarationError("class A(x) : B(1)\nclass B(y) : A(1)")
-                .contains("циклическое наследование"));
+        // Родитель ищется среди значений, видимых в этой точке, поэтому объявление
+        // родителя обязано стоять выше. Здесь такого порядка не существует вовсе —
+        // и об этом говорит сообщение: переставить нечего.
+        String message = errorOf("class A(x) : B(1)\nclass B(y) : A(1)").getMessage();
+        assertTrue(message.contains("неизвестный класс 'B'"), message);
+        assertTrue(message.contains("наследуют друг друга"), message);
     }
 
     @Test

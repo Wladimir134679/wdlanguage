@@ -4,8 +4,6 @@ import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolution;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.runtime.ExecutionContext;
 import ru.wds.wdl.runtime.Interpreter;
 import ru.wds.wdl.runtime.Output;
@@ -31,13 +29,11 @@ final class Scripts {
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
-        Resolution resolution = Resolver.resolve(program, diagnostics);
-        assertFalse(diagnostics.hasErrors(), () -> "ошибки резолвера:\n" + diagnostics.renderAll());
 
         ExecutionContext context = ExecutionContext.fresh((Output) output::append)
                 .withNativeModules(Sys.modules());
         try {
-            new Interpreter().run(program, resolution, context);
+            new Interpreter().run(program, context);
         } finally {
             // Как в CLI: запуск кончился — модули закрываются, чем бы он ни кончился.
             context.shutdownModules();

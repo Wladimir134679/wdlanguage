@@ -9,7 +9,6 @@ import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
-import ru.wds.wdl.resolve.Resolver;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
@@ -132,7 +131,7 @@ class ThreadingTest {
         Diagnostics diagnostics = new Diagnostics(source);
         Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
-        Unit unit = Unit.of(source, program, Resolver.resolve(program, diagnostics));
+        Unit unit = Unit.of(source, program);
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
         return new Script(new Interpreter().run(unit, context), printed);
     }
