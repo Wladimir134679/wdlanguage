@@ -341,9 +341,10 @@ final class TypeParser {
         // Внутри метода и конструктора 'this' есть, 'super' — если есть родитель.
         state.allowSelf(true, hasParent);
 
-        List<FunctionExpr.Param> params = parameters("имени " + (isConstructor ? "конструктора" : "метода")
-                + " '" + name.text() + "'", true);
-        if (isConstructor && !params.isEmpty()) {
+        Params header = parameters("имени " + (isConstructor ? "конструктора" : "метода")
+                + " '" + name.text() + "'", true, true);
+        List<FunctionExpr.Param> params = header.params();
+        if (isConstructor && !(params.isEmpty() && header.rest() == null && header.namedRest() == null)) {
             diagnostics.error(name.span(), "конструктор не принимает параметров: "
                     + "список создания задаёт заголовок класса '" + className + "'");
         }
@@ -360,11 +361,12 @@ final class TypeParser {
                 return;
             }
             members.requirements.add(new TraitDeclStmt.Requirement(name.text(), params,
-                    start.span().to(name.span())));
+                    header.rest() != null, start.span().to(name.span())));
             return;
         }
 
-        FunctionExpr function = new FunctionExpr(name.text(), modifiers, params, body,
+        FunctionExpr function = new FunctionExpr(name.text(), modifiers, params,
+                header.rest(), header.namedRest(), body,
                 bodyStyle(body), start.span().to(body.span()));
         if (isConstructor) {
             if (members.constructor != null) {
@@ -408,7 +410,7 @@ final class TypeParser {
         String full = owner.text() + "." + name.text();
 
         state.allowSelf(false, false);
-        List<FunctionExpr.Param> params = parameters("имени фабрики '" + full + "'", true);
+        Params header = parameters("имени фабрики '" + full + "'", true, true);
         Stmt body = memberBody();
         if (body == null) {
             diagnostics.error(name.span(), "у фабрики '" + full + "' нет тела");
@@ -421,8 +423,8 @@ final class TypeParser {
             }
         }
         members.factories.add(new ClassDeclStmt.Factory(name.text(),
-                new FunctionExpr(full, modifiers, params, body, bodyStyle(body),
-                        start.span().to(body.span())),
+                new FunctionExpr(full, modifiers, header.params(), header.rest(), header.namedRest(),
+                        body, bodyStyle(body), start.span().to(body.span())),
                 start.span().to(body.span())));
     }
 
@@ -458,46 +460,143 @@ final class TypeParser {
     // --- параметры -----------------------------------------------------------
 
     /**
-     * Список параметров, возможно со значениями по умолчанию: {@code (a, b = 10)}.
+     * Разобранный заголовок: параметры по позициям и, отдельно, остатки.
+     * <p>
+     * Отдельно — потому что остаток позиции не занимает, а список параметров читается
+     * везде как список позиций. Подробнее — в {@link FunctionExpr.Rest}.
+     */
+    record Params(List<FunctionExpr.Param> params, FunctionExpr.Rest rest,
+                  FunctionExpr.Rest namedRest) {
+    }
+
+    /**
+     * Список параметров без остатков: {@code (a, b = 10)}.
+     * <p>
+     * Такой список у заголовка класса и трейта. Остаток там запрещён не из осторожности:
+     * заголовок класса задаёт ещё и поля, у каждого из которых есть номер параметра
+     * ({@code resolve.FieldSlot}), и поле-остаток требует сперва решить, чем оно является
+     * для наследника, для трейта и для требования. Отдельная работа, и она ничего
+     * не ломает: раскрытие в {@code new} классам достаётся и так — список аргументов
+     * в скобках в языке один.
+     */
+    List<FunctionExpr.Param> parameters(String owner, boolean callSignature) {
+        return parameters(owner, callSignature, false).params();
+    }
+
+    /**
+     * Список параметров, возможно со значениями по умолчанию и остатками:
+     * {@code (a, b = 10, *args, **named)}.
      * Запятая после последнего разрешена — как в массивах и аргументах.
      *
      * @param callSignature задаёт ли список число аргументов вызова или создания.
      *                      У заголовка трейта — нет: там параметр без значения это
      *                      не «обязательный аргумент», а требование к классу,
      *                      и порядок для него не значит ничего
+     * @param allowRest     разрешены ли остаточные параметры — то есть функция это
+     *                      или метод, а не заголовок типа
      */
-    List<FunctionExpr.Param> parameters(String owner, boolean callSignature) {
+    Params parameters(String owner, boolean callSignature, boolean allowRest) {
         cursor.expect(TokenType.LPAREN, "открывающую скобку '(' после " + owner);
         List<FunctionExpr.Param> params = new ArrayList<>();
+        FunctionExpr.Rest rest = null;
+        FunctionExpr.Rest namedRest = null;
         while (!cursor.check(TokenType.RPAREN) && !cursor.check(TokenType.EOF)) {
             int before = cursor.position();
-            if (cursor.check(TokenType.WORD)) {
+            if (cursor.check(TokenType.STAR) || cursor.check(TokenType.STARSTAR)) {
+                boolean named = cursor.check(TokenType.STARSTAR);
+                cursor.advance(); // * или **
+                FunctionExpr.Rest declared = restParameter(named, params, rest, namedRest, allowRest);
+                if (declared != null && named) {
+                    namedRest = declared;
+                } else if (declared != null) {
+                    rest = declared;
+                }
+            } else if (cursor.check(TokenType.WORD)) {
                 Token name = cursor.advance();
                 // Значение по умолчанию — обычное выражение, а не литерал: запятая
                 // оператором не является, поэтому список на нём не рвётся.
                 addParameter(params, name,
                         cursor.match(TokenType.ASSIGN) ? parser.expression(0) : null,
-                        callSignature);
-                if (cursor.match(TokenType.COMMA) || cursor.check(TokenType.RPAREN)) {
-                    continue;
-                }
-                diagnostics.error(cursor.peek().span(),
-                        "ожидалась ',' или ')' в списке параметров, найдено " + describe(cursor.peek()));
+                        callSignature, rest, namedRest);
             } else {
                 diagnostics.error(cursor.peek().span(),
                         "ожидалось имя параметра, найдено " + describe(cursor.peek()));
+                cursor.ensureProgress(before);
+                continue;
             }
+            if (cursor.match(TokenType.COMMA) || cursor.check(TokenType.RPAREN)) {
+                continue;
+            }
+            diagnostics.error(cursor.peek().span(),
+                    "ожидалась ',' или ')' в списке параметров, найдено " + describe(cursor.peek()));
             cursor.ensureProgress(before);
         }
         cursor.expect(TokenType.RPAREN, "закрывающую скобку ')' после списка параметров");
         if (callSignature) {
             DefaultValues.checkLookLeft(params, diagnostics);
         }
-        return params;
+        return new Params(params, rest, namedRest);
     }
 
     /**
-     * Добавляет параметр, поймав одноимённый и обязательный после необязательного.
+     * Остаточный параметр: {@code *args} или {@code **named}. Звёздочка уже прочитана.
+     * <p>
+     * Все запреты здесь — про порядок, и все они об одном: остаток заканчивает заголовок.
+     * Обычный параметр после {@code *args} потребовал бы понятия «только именованный
+     * параметр» — его в языке нет, и добавить его позже эта форма не мешает.
+     *
+     * @return объявленный остаток или {@code null}, если объявить его не вышло
+     */
+    private FunctionExpr.Rest restParameter(boolean named, List<FunctionExpr.Param> params,
+                                            FunctionExpr.Rest rest, FunctionExpr.Rest namedRest,
+                                            boolean allowRest) {
+        String stars = named ? "**" : "*";
+        if (!cursor.check(TokenType.WORD)) {
+            diagnostics.error(cursor.peek().span(), "после '" + stars
+                    + "' ожидалось имя остаточного параметра, найдено " + describe(cursor.peek()));
+            return null;
+        }
+        Token name = cursor.advance();
+        if (cursor.match(TokenType.ASSIGN)) {
+            // Выражение всё равно разбирается: иначе список порвётся на ровном месте
+            // и к одной ошибке добавится вторая, про неожиданный токен.
+            parser.expression(0);
+            diagnostics.error(name.span(), "у остаточного параметра '" + name.text()
+                    + "' не может быть значения по умолчанию: пустой остаток и есть его значение");
+        }
+        if (!allowRest) {
+            diagnostics.error(name.span(), "остаточный параметр '" + name.text() + "' здесь"
+                    + " не разрешён: этот список задаёт поля, а не аргументы вызова");
+            return null;
+        }
+        FunctionExpr.Rest same = named ? namedRest : rest;
+        if (same != null) {
+            diagnostics.error(name.span(), "остаточный параметр '" + stars + same.name()
+                    + "' уже объявлен");
+            return null;
+        }
+        if (!named && namedRest != null) {
+            diagnostics.error(name.span(), "остаточный параметр '*" + name.text()
+                    + "' не может идти после '**" + namedRest.name() + "': именованный остаток"
+                    + " заканчивает заголовок");
+            return null;
+        }
+        for (FunctionExpr.Param existing : params) {
+            if (existing.name().equals(name.text())) {
+                diagnostics.error(name.span(), "параметр '" + name.text() + "' уже объявлен");
+                return null;
+            }
+        }
+        if (rest != null && rest.name().equals(name.text())) {
+            diagnostics.error(name.span(), "параметр '" + name.text() + "' уже объявлен");
+            return null;
+        }
+        return new FunctionExpr.Rest(name.text(), name.span());
+    }
+
+    /**
+     * Добавляет параметр, поймав одноимённый, обязательный после необязательного
+     * и обычный после остаточного.
      * <p>
      * Два параметра с одним именем — не спор о вкусе: второй молча перекрыл бы первый,
      * и один из аргументов стал бы недоступен.
@@ -507,15 +606,24 @@ final class TypeParser {
      * и у {@code def f(a = 1, b)} вызов {@code f(1)} оказался бы либо ошибкой, либо
      * тихой догадкой о том, куда пошла единица. Именованные аргументы это правило
      * не отменяют: они дают пропуск записать, но не делают позиционный вызов понятнее.
-     * Число аргументов при этом остаётся одним отрезком ({@link ru.wds.wdl.value.Arity}).
+     * Число аргументов при этом остаётся одним отрезком ({@link ru.wds.wdl.value.Arity})
+     * — до тех пор, пока не объявлен {@code *args}.
      */
     private void addParameter(List<FunctionExpr.Param> params, Token name, Expr defaultValue,
-                              boolean callSignature) {
+                              boolean callSignature, FunctionExpr.Rest rest,
+                              FunctionExpr.Rest namedRest) {
         for (FunctionExpr.Param existing : params) {
             if (existing.name().equals(name.text())) {
                 diagnostics.error(name.span(), "параметр '" + name.text() + "' уже объявлен");
                 return;
             }
+        }
+        if (rest != null || namedRest != null) {
+            FunctionExpr.Rest after = rest != null ? rest : namedRest;
+            String stars = rest != null ? "*" : "**";
+            diagnostics.error(name.span(), "параметр '" + name.text() + "' не может идти"
+                    + " после остаточного параметра '" + stars + after.name() + "'");
+            return;
         }
         // В заголовке трейта порядок не значит ничего: 'trait Counted(count = 0, limit)' —
         // это поле со значением и требование к классу, а не два аргумента создания.

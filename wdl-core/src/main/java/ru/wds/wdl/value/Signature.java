@@ -119,11 +119,18 @@ public final class Signature {
     private final List<Param> params;
     private final Arity arity;
     private final boolean namesKnown;
+    /** Имя переменной для лишних позиционных аргументов или {@code null}. */
+    private final String restName;
+    /** Имя переменной для аргументов с неизвестными именами или {@code null}. */
+    private final String namedRestName;
 
-    private Signature(List<Param> params, Arity arity, boolean namesKnown) {
+    private Signature(List<Param> params, Arity arity, boolean namesKnown,
+                      String restName, String namedRestName) {
         this.params = params;
         this.arity = arity;
         this.namesKnown = namesKnown;
+        this.restName = restName;
+        this.namedRestName = namedRestName;
     }
 
     /**
@@ -139,6 +146,22 @@ public final class Signature {
     }
 
     public static Signature of(List<Param> params) {
+        return of(params, null, null);
+    }
+
+    /**
+     * Контракт с остатками: лишние позиционные аргументы собираются в {@code restName},
+     * аргументы с неизвестными именами — в {@code namedRestName}.
+     * <p>
+     * Имена остатков лежат <b>отдельно от параметров</b> и в {@link #indexOf(String)}
+     * не участвуют. Причина не в удобстве: остаток не занимает позиции, а
+     * {@code f(args: 1)} не должен задавать {@code *args} целиком — иначе один
+     * идентификатор значил бы и «положи в остаток», и «положи остаток».
+     *
+     * @param restName      имя для лишних позиционных или {@code null}
+     * @param namedRestName имя для неизвестных имён или {@code null}
+     */
+    public static Signature of(List<Param> params, String restName, String namedRestName) {
         List<Param> copy = List.copyOf(Objects.requireNonNull(params, "params"));
         List<String> seen = new ArrayList<>(copy.size());
         boolean optionalSeen = false;
@@ -157,7 +180,12 @@ public final class Signature {
         while (required < copy.size() && copy.get(required).isRequired()) {
             required++;
         }
-        return new Signature(copy, Arity.between(required, copy.size()), true);
+        // С остатком верхней границы у числа аргументов нет вовсе — и это единственное,
+        // что остаток меняет в контракте: имена параметров он не трогает.
+        Arity arity = restName == null
+                ? Arity.between(required, copy.size())
+                : Arity.atLeast(required);
+        return new Signature(copy, arity, true, restName, namedRestName);
     }
 
     /**
@@ -168,12 +196,32 @@ public final class Signature {
      * просто не принимают имён.
      */
     public static Signature positional(Arity arity) {
-        return new Signature(List.of(), Objects.requireNonNull(arity, "arity"), false);
+        return new Signature(List.of(), Objects.requireNonNull(arity, "arity"), false, null, null);
     }
 
     /** Известны ли имена параметров — то есть можно ли звать эту функцию по имени. */
     public boolean namesKnown() {
         return namesKnown;
+    }
+
+    /** Собирает ли вызываемый лишние позиционные аргументы. */
+    public boolean hasRest() {
+        return restName != null;
+    }
+
+    /** Собирает ли вызываемый аргументы с неизвестными ему именами. */
+    public boolean hasNamedRest() {
+        return namedRestName != null;
+    }
+
+    /** Имя переменной для лишних позиционных аргументов или {@code null}. */
+    public String restName() {
+        return restName;
+    }
+
+    /** Имя переменной для аргументов с неизвестными именами или {@code null}. */
+    public String namedRestName() {
+        return namedRestName;
     }
 
     public List<Param> params() {
@@ -208,6 +256,12 @@ public final class Signature {
         StringBuilder sb = new StringBuilder("(");
         for (int i = 0; i < params.size(); i++) {
             sb.append(i == 0 ? "" : ", ").append(params.get(i));
+        }
+        if (restName != null) {
+            sb.append(sb.length() > 1 ? ", " : "").append('*').append(restName);
+        }
+        if (namedRestName != null) {
+            sb.append(sb.length() > 1 ? ", " : "").append("**").append(namedRestName);
         }
         return sb.append(')').toString();
     }

@@ -93,6 +93,8 @@ public enum TokenType {
     PLUS("+"),
     MINUS("-"),
     STAR("*"),
+    /** Остаток по именам в заголовке и раскрытие объекта в вызове: {@code **named}. */
+    STARSTAR("**"),
     SLASH("/"),
     PERCENT("%"),
     PLUSPLUS("++"),

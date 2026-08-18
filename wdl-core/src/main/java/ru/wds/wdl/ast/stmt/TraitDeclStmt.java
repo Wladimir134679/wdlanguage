@@ -58,7 +58,13 @@ public record TraitDeclStmt(
      * <p>
      * Параметры нужны целиком, а не одним числом: у требования проверяется
      * не только имя, но и то, сколько аргументов метод обязан принимать.
+     *
+     * @param variadic объявлен ли у требования остаток {@code *args}. Само имя остатка
+     *                 требованию не нужно — оно живёт в теле метода, которого здесь нет;
+     *                 а вот число аргументов от него зависит: с остатком верхней границы
+     *                 у него нет
      */
-    public record Requirement(String name, List<FunctionExpr.Param> params, Span span) {
+    public record Requirement(String name, List<FunctionExpr.Param> params, boolean variadic,
+                              Span span) {
     }
 }

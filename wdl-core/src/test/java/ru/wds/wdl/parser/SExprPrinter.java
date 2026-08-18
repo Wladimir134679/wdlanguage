@@ -79,11 +79,13 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
     private void arguments(StringBuilder sb, List<Argument> arguments, Void context) {
         for (Argument argument : arguments) {
             sb.append(' ');
-            if (argument.isNamed()) {
-                sb.append('(').append(argument.name()).append(": ")
+            switch (argument.kind()) {
+                case POSITIONAL -> sb.append(visit(argument.value(), context));
+                case NAMED -> sb.append('(').append(argument.name()).append(": ")
                         .append(visit(argument.value(), context)).append(')');
-            } else {
-                sb.append(visit(argument.value(), context));
+                case SPREAD -> sb.append("(* ").append(visit(argument.value(), context)).append(')');
+                case NAMED_SPREAD -> sb.append("(** ")
+                        .append(visit(argument.value(), context)).append(')');
             }
         }
     }
@@ -125,6 +127,14 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
         expr.params().forEach(param -> sb.append(' ').append(param.hasDefault()
                 ? "(" + param.name() + " " + visit(param.defaultValue(), context) + ")"
                 : param.name()));
+        // Остаток печатается своей формой: без неё '(def f a)' у 'def f(a)' и 'def f(*a)'
+        // совпали бы, а это разные заголовки.
+        if (expr.rest() != null) {
+            sb.append(" (* ").append(expr.rest().name()).append(')');
+        }
+        if (expr.namedRest() != null) {
+            sb.append(" (** ").append(expr.namedRest().name()).append(')');
+        }
         return sb.append(')').toString();
     }
 

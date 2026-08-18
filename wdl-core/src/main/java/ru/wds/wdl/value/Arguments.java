@@ -1,7 +1,11 @@
 package ru.wds.wdl.value;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -28,10 +32,17 @@ public final class Arguments {
     private final Value[] values;
     /** {@code null}, если пропусков нет, — самый частый случай не платит за массив. */
     private final boolean[] present;
+    /** Лишние позиционные: непусты только у вызываемого с {@code *args}. */
+    private final List<Value> rest;
+    /** Аргументы с неизвестными именами: непусты только у вызываемого с {@code **named}. */
+    private final Map<String, Value> namedRest;
 
-    private Arguments(Value[] values, boolean[] present) {
+    private Arguments(Value[] values, boolean[] present,
+                      List<Value> rest, Map<String, Value> namedRest) {
         this.values = values;
         this.present = present;
+        this.rest = rest;
+        this.namedRest = namedRest;
     }
 
     /**
@@ -39,12 +50,12 @@ public final class Arguments {
      */
     public static Arguments positional(List<Value> values) {
         Objects.requireNonNull(values, "values");
-        return new Arguments(values.toArray(new Value[0]), null);
+        return new Arguments(values.toArray(new Value[0]), null, List.of(), Map.of());
     }
 
     /** Пустой набор — вызов без аргументов. */
     public static Arguments none() {
-        return new Arguments(new Value[0], null);
+        return new Arguments(new Value[0], null, List.of(), Map.of());
     }
 
     /**
@@ -55,9 +66,26 @@ public final class Arguments {
         return new Builder(size);
     }
 
-    /** Сколько позиций в наборе, считая пропущенные. */
+    /** Сколько позиций в наборе, считая пропущенные. Остаток сюда не входит. */
     public int size() {
         return values.length;
+    }
+
+    /**
+     * Лишние позиционные аргументы — в порядке передачи.
+     * <p>
+     * Непустым бывает только у вызываемого, который объявил {@code *args}: всем
+     * остальным лишний аргумент даёт ошибку вызова, а не остаток. Контейнер из этого
+     * списка собирает сам вызываемый — и собирает заново на каждом вызове, иначе
+     * получилась бы ловушка общего изменяемого значения по умолчанию.
+     */
+    public List<Value> rest() {
+        return rest;
+    }
+
+    /** Аргументы, имён которых нет в контракте, — в порядке передачи. */
+    public Map<String, Value> namedRest() {
+        return namedRest;
     }
 
     /**
@@ -103,6 +131,10 @@ public final class Arguments {
                 }
             }
         }
+        if (!rest.isEmpty() || !namedRest.isEmpty()) {
+            throw new IllegalStateException("набор с остатком нельзя отдать плотным списком: "
+                    + "остаток потерялся бы молча");
+        }
         return List.of(values);
     }
 
@@ -112,6 +144,9 @@ public final class Arguments {
         for (int i = 0; i < values.length; i++) {
             sb.append(i == 0 ? "" : ", ").append(has(i) ? values[i].display() : "...");
         }
+        rest.forEach(value -> sb.append(sb.length() > 1 ? ", " : "").append('*').append(value.display()));
+        namedRest.forEach((name, value) ->
+                sb.append(sb.length() > 1 ? ", " : "").append(name).append(": ").append(value.display()));
         return sb.append(')').toString();
     }
 
@@ -120,6 +155,8 @@ public final class Arguments {
 
         private final Value[] values;
         private final boolean[] present;
+        private List<Value> rest;
+        private Map<String, Value> namedRest;
 
         private Builder(int size) {
             this.values = new Value[size];
@@ -133,6 +170,32 @@ public final class Arguments {
         public Builder set(int index, Value value) {
             values[index] = Objects.requireNonNull(value, "value");
             present[index] = true;
+            return this;
+        }
+
+        /** Лишний позиционный аргумент — тому, кто объявил {@code *args}. */
+        public Builder addRest(Value value) {
+            if (rest == null) {
+                rest = new ArrayList<>();
+            }
+            rest.add(Objects.requireNonNull(value, "value"));
+            return this;
+        }
+
+        /** Задано ли уже такое имя в остатке — вопрос о коллизии двух раскрытий. */
+        public boolean hasNamedRest(String name) {
+            return namedRest != null && namedRest.containsKey(name);
+        }
+
+        /** Аргумент с именем, которого нет в контракте, — тому, кто объявил {@code **named}. */
+        public Builder putNamedRest(String name, Value value) {
+            if (namedRest == null) {
+                // Порядок вставки сохраняется: содержимое остатка читают как объект,
+                // а у объекта в языке порядок ключей — тот, в котором их положили.
+                namedRest = new LinkedHashMap<>();
+            }
+            namedRest.put(Objects.requireNonNull(name, "name"),
+                    Objects.requireNonNull(value, "value"));
             return this;
         }
 
@@ -150,12 +213,16 @@ public final class Arguments {
                 size--;
             }
             Value[] kept = Arrays.copyOf(values, size);
+            List<Value> keptRest = rest == null ? List.of() : List.copyOf(rest);
+            Map<String, Value> keptNamed = namedRest == null
+                    ? Map.of()
+                    : Collections.unmodifiableMap(new LinkedHashMap<>(namedRest));
             for (int i = 0; i < size; i++) {
                 if (!present[i]) {
-                    return new Arguments(kept, Arrays.copyOf(present, size));
+                    return new Arguments(kept, Arrays.copyOf(present, size), keptRest, keptNamed);
                 }
             }
-            return new Arguments(kept, null);
+            return new Arguments(kept, null, keptRest, keptNamed);
         }
     }
 }

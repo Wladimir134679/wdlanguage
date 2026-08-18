@@ -285,7 +285,7 @@ final class WdlClass implements ClassValue {
     private Arguments parentArguments(WdlClass klass, ClassDeclStmt.Superclass reference,
                                       ExecutionContext inner, Span span) {
         List<Value> values = evaluate(reference.arguments(), inner);
-        if (!Binder.anyNamed(reference.arguments())) {
+        if (!Binder.needed(klass.parent.signature(), reference.arguments())) {
             return Arguments.positional(values);
         }
         return Binder.bind(klass.parent.signature(), reference.arguments(), values,

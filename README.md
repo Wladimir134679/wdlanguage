@@ -51,8 +51,8 @@
 * [Ветвления и циклы](docs/control-flow.md) — `if`, `while`, `for`, перебор `for ... in`,
   `break`/`continue`, области видимости.
 * [Функции](docs/functions.md) — объявление, `=>`, `return`, анонимные функции,
-  значения параметров по умолчанию, именованные аргументы, замыкания, области
-  видимости вызова.
+  значения параметров по умолчанию, именованные аргументы, вариативные параметры
+  `*args`/`**named` и раскрытие `f(*array)`, замыкания, области видимости вызова.
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
 * [Классы](docs/classes.md) — `class` и `trait`, `new`, `this` и `super`, наследование,
   требования трейтов, проверка `is`.
@@ -73,6 +73,7 @@
 ./gradlew :wdl-cli:run --args="examples/functions.wdl"            # функции и замыкания
 .\gradlew :wdl-cli:run --args="examples/defaults.wdl"             # значения по умолчанию
 ./gradlew :wdl-cli:run --args="examples/named-args.wdl"           # именованные аргументы
+./gradlew :wdl-cli:run --args="examples/variadic-args.wdl"        # *args, **named, раскрытие
 ./gradlew :wdl-cli:run --args="examples/const.wdl"                # константы
 ./gradlew :wdl-cli:run --args="examples/threads.wdl"              # потоки и synchronized
 ./gradlew :wdl-cli:run --args="examples/threads_pool.wdl"         # пул, канал, защёлка
@@ -113,7 +114,8 @@ $ wdl examples/hello.wdl
 блоки, ветвления и циклы (`if`, `while`,
 `for`, `for ... in`, `break`, `continue`), свои функции (`def`, `return`,
 тело-выражение `=>`, анонимные функции, значения параметров по умолчанию,
-именованные аргументы `f(count: 2)`, замыкания),
+именованные аргументы `f(count: 2)`, вариативные параметры `*args`/`**named`
+и раскрытие `f(*array)`, замыкания),
 классы (`class`, `trait`, `new`, `this`, `super`, `with`, `is`, фабрики
 `def Имя.член(...)`), ошибки и ресурсы (иерархия `Exception`, `throw`,
 `try`/`catch`/`finally`, короткие формы `try?` и `try!`, `defer`, `use` с трейтом

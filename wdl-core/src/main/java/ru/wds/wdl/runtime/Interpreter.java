@@ -1308,7 +1308,7 @@ public final class Interpreter
 
         List<Value> values = evaluate(expr.arguments(), context);
         Arguments arguments;
-        if (Binder.anyNamed(expr.arguments())) {
+        if (Binder.needed(function.signature(), expr.arguments())) {
             arguments = Binder.bind(function.signature(), expr.arguments(), values,
                     Binder.Callee.function(function.name()), expr.span());
         } else {
@@ -1380,7 +1380,7 @@ public final class Interpreter
 
         List<Value> values = evaluate(expr.arguments(), context);
         Arguments arguments;
-        if (Binder.anyNamed(expr.arguments())) {
+        if (Binder.needed(declared.signature(), expr.arguments())) {
             arguments = Binder.bind(declared.signature(), expr.arguments(), values,
                     Binder.Callee.klass(declared.name()), expr.span());
         } else {

@@ -70,11 +70,19 @@ public final class ClassShape implements Shape {
      * Правило то же, что у функции, — заголовок класса это тот же список параметров.
      */
     static Arity arityOf(List<FunctionExpr.Param> params) {
+        return arityOf(params, false);
+    }
+
+    /**
+     * То же для метода, у которого может быть остаток {@code *args}: верхней границы
+     * тогда нет вовсе. Заголовку класса эта форма не нужна — остаток там не разбирается.
+     */
+    static Arity arityOf(List<FunctionExpr.Param> params, boolean variadic) {
         int required = 0;
         while (required < params.size() && !params.get(required).hasDefault()) {
             required++;
         }
-        return Arity.between(required, params.size());
+        return variadic ? Arity.atLeast(required) : Arity.between(required, params.size());
     }
 
     public ClassDeclStmt declaration() {

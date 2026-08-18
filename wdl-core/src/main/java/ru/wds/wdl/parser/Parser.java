@@ -232,7 +232,8 @@ public final class Parser {
         if (!(value instanceof FunctionExpr function) || function.name() != null) {
             return value;
         }
-        return new FunctionExpr(name, function.modifiers(), function.params(), function.body(),
+        return new FunctionExpr(name, function.modifiers(), function.params(),
+                function.rest(), function.namedRest(), function.body(),
                 function.style(), function.span());
     }
 
@@ -428,18 +429,20 @@ public final class Parser {
      *              место функции обязано начинаться там, где человек начал её писать
      */
     private FunctionExpr functionRest(Token start, String name, Set<Modifier> modifiers) {
-        List<FunctionExpr.Param> params = types.parameters("'def'", true);
+        TypeParser.Params header = types.parameters("'def'", true, true);
         return state.inFunctionBody(() -> {
             if (cursor.match(TokenType.FATARROW)) {
                 // Стрелка — это return, только записанный короче. В дереве так и лежит:
                 // ReturnStmt, а сама форма записи остаётся в BodyStyle для форматтера.
                 Expr value = expression(0);
                 Stmt body = new ReturnStmt(value, value.span());
-                return new FunctionExpr(name, modifiers, params, body, BodyStyle.ARROW,
+                return new FunctionExpr(name, modifiers, header.params(), header.rest(),
+                        header.namedRest(), body, BodyStyle.ARROW,
                         start.span().to(value.span()));
             }
             Stmt body = body(name != null ? "функции '" + name + "'" : "анонимной функции");
-            return new FunctionExpr(name, modifiers, params, body, BodyStyle.STATEMENT,
+            return new FunctionExpr(name, modifiers, header.params(), header.rest(),
+                    header.namedRest(), body, BodyStyle.STATEMENT,
                     start.span().to(body.span()));
         });
     }
@@ -1055,7 +1058,7 @@ public final class Parser {
         while (!cursor.check(TokenType.RPAREN) && !cursor.check(TokenType.EOF)) {
             int before = cursor.position();
             Argument argument = argument(arguments, firstNamed);
-            if (argument.isNamed() && firstNamed == null) {
+            if (argument.inNamedGroup() && firstNamed == null) {
                 firstNamed = argument;
             }
             arguments.add(argument);
@@ -1081,12 +1084,31 @@ public final class Parser {
      * здесь запрещены по простой причине: параметр ключевым словом называться не может,
      * поэтому такое имя всё равно некуда было бы отнести.
      * <p>
-     * Обе ошибки — дубликат имени и позиционный аргумент после именованного — ловятся
-     * здесь, при разборе: и то и другое видно в самом тексте вызова, ждать выполнения
-     * незачем. Разбор при этом не прерывается, аргумент возвращается как есть —
-     * дерево должно остаться целым для форматтера и подсказок редактора.
+     * Раскрытие узнаётся ещё проще — по звёздочке: выражение с неё не начинается,
+     * префиксного {@code *} в языке нет. {@code *} раскрывает массив в позиционные
+     * аргументы, {@code **} — объект в именованные, и вторая форма поэтому относится
+     * к именованной группе, хотя имён в тексте не видно.
+     * <p>
+     * Все ошибки порядка — дубликат имени, позиционный аргумент после именованного,
+     * раскрытие массива после именованного — ловятся здесь, при разборе: всё это видно
+     * в самом тексте вызова, ждать выполнения незачем. Разбор при этом не прерывается,
+     * аргумент возвращается как есть — дерево должно остаться целым для форматтера
+     * и подсказок редактора.
      */
     private Argument argument(List<Argument> collected, Argument firstNamed) {
+        Token star = cursor.peek();
+        if (star.type() == TokenType.STAR || star.type() == TokenType.STARSTAR) {
+            cursor.advance(); // * или **
+            boolean named = star.type() == TokenType.STARSTAR;
+            Expr value = expression(0);
+            if (!named && firstNamed != null) {
+                diagnostics.error(star.span().to(value.span()), "после " + describeNamed(firstNamed)
+                        + " раскрытие массива не имеет позиции");
+            }
+            return named ? Argument.namedSpread(star.span(), value)
+                    : Argument.spread(star.span(), value);
+        }
+
         Token name = cursor.peek();
         if (name.type() == TokenType.WORD && cursor.peek(1).type() == TokenType.COLON) {
             cursor.advance(); // имя
@@ -1103,10 +1125,17 @@ public final class Parser {
 
         Expr value = expression(0);
         if (firstNamed != null) {
-            diagnostics.error(value.span(), "после именованного аргумента '" + firstNamed.name()
-                    + "' позиционный аргумент не имеет позиции. Укажите имя");
+            diagnostics.error(value.span(), "после " + describeNamed(firstNamed)
+                    + " позиционный аргумент не имеет позиции. Укажите имя");
         }
         return Argument.positional(value);
+    }
+
+    /** Как назвать в сообщении то, чем началась именованная группа. */
+    private static String describeNamed(Argument firstNamed) {
+        return firstNamed.isNamed()
+                ? "именованного аргумента '" + firstNamed.name() + "'"
+                : "раскрытия объекта '**'";
     }
 
     /**

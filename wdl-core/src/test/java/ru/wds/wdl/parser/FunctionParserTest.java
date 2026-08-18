@@ -355,4 +355,82 @@ class FunctionParserTest {
         assertTrue(diagnostics.hasErrors());
         assertEquals(1, diagnostics.errorCount(), diagnostics.renderAll());
     }
+
+    // --- остаточные параметры ------------------------------------------------
+
+    @Test
+    @DisplayName("остатки лежат отдельно от параметров и видны в форме дерева")
+    void restParameters() {
+        FunctionExpr function = declaration("def inspect(a, b = 10, *args, **named) {}");
+        assertEquals(2, function.params().size(), "остаток позиции не занимает");
+        assertEquals("args", function.rest().name());
+        assertEquals("named", function.namedRest().name());
+        assertTrue(function.isVariadic());
+        assertEquals("(def inspect a (b 10) (* args) (** named))",
+                new SExprPrinter().visit(function, null));
+    }
+
+    @Test
+    @DisplayName("каждый остаток бывает по отдельности")
+    void restsAreIndependent() {
+        assertNull(declaration("def f(**named) {}").rest());
+        assertNull(declaration("def f(*args) {}").namedRest());
+        assertEquals("(def f (** named))",
+                new SExprPrinter().visit(declaration("def f(**named) {}"), null));
+    }
+
+    @Test
+    @DisplayName("обычный параметр после остатка — ошибка разбора")
+    void plainParameterAfterRest() {
+        assertTrue(errorOf("def bad(*args, value) {}")
+                .contains("параметр 'value' не может идти после остаточного параметра '*args'"));
+        assertTrue(errorOf("def bad(**named, value) {}")
+                .contains("параметр 'value' не может идти после остаточного параметра '**named'"));
+    }
+
+    @Test
+    @DisplayName("позиционный остаток после именованного — ошибка разбора")
+    void restAfterNamedRest() {
+        assertTrue(errorOf("def bad(**named, *args) {}")
+                .contains("остаточный параметр '*args' не может идти после '**named'"));
+    }
+
+    @Test
+    @DisplayName("двух одинаковых остатков не бывает")
+    void restDeclaredTwice() {
+        assertTrue(errorOf("def bad(*a, *b) {}").contains("остаточный параметр '*a' уже объявлен"));
+        assertTrue(errorOf("def bad(**a, **b) {}").contains("остаточный параметр '**a' уже объявлен"));
+    }
+
+    @Test
+    @DisplayName("у остатка нет значения по умолчанию")
+    void restHasNoDefault() {
+        assertTrue(errorOf("def bad(*args = []) {}")
+                .contains("у остаточного параметра 'args' не может быть значения по умолчанию"));
+    }
+
+    @Test
+    @DisplayName("имя остатка не может повторять имя параметра")
+    void restRepeatsParameterName() {
+        assertTrue(errorOf("def bad(args, *args) {}").contains("параметр 'args' уже объявлен"));
+    }
+
+    @Test
+    @DisplayName("в заголовке класса и трейта остатка нет: там список полей")
+    void restForbiddenInTypeHeader() {
+        assertTrue(errorOf("class Point(x, *rest) {}")
+                .contains("остаточный параметр 'rest' здесь не разрешён"));
+        assertTrue(errorOf("trait Counted(*rest) {}")
+                .contains("остаточный параметр 'rest' здесь не разрешён"));
+    }
+
+    @Test
+    @DisplayName("у метода остаток есть, у конструктора — нет")
+    void restInMembers() {
+        FunctionExpr method = assertInstanceOf(ClassDeclStmt.class,
+                single("class Box { def all(*args) => args }")).methods().get(0);
+        assertEquals("args", method.rest().name());
+        assertTrue(errorOf("class Box { def Box(*args) {} }")
+                .contains("конструктор не принимает параметров"));
+    }
 }

@@ -6,6 +6,7 @@ import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.ast.visitor.*;
 import ru.wds.wdl.source.Span;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -192,9 +193,21 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     private static String header(List<FunctionExpr.Param> params) {
-        return params.stream()
-                .map(param -> param.hasDefault() ? param.name() + " = ..." : param.name())
-                .collect(Collectors.joining(", "));
+        return header(params, null, null);
+    }
+
+    /** То же с остатками: {@code (a, b = ..., *args, **named)}. */
+    private static String header(List<FunctionExpr.Param> params, FunctionExpr.Rest rest,
+                                 FunctionExpr.Rest namedRest) {
+        List<String> parts = new ArrayList<>(params.size() + 2);
+        params.forEach(param -> parts.add(param.hasDefault() ? param.name() + " = ..." : param.name()));
+        if (rest != null) {
+            parts.add("*" + rest.name());
+        }
+        if (namedRest != null) {
+            parts.add("**" + namedRest.name());
+        }
+        return String.join(", ", parts);
     }
 
     /** Значения по умолчанию идут отдельными поддеревьями: это выражения, и их форма важна. */
@@ -326,11 +339,20 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
      */
     private void arguments(List<Argument> arguments, int depth) {
         for (Argument argument : arguments) {
-            if (argument.isNamed()) {
-                line(depth, "аргумент '" + argument.name() + "'", argument.span());
-                visit(argument.value(), depth + 1);
-            } else {
-                visit(argument.value(), depth);
+            switch (argument.kind()) {
+                case POSITIONAL -> visit(argument.value(), depth);
+                case NAMED -> {
+                    line(depth, "аргумент '" + argument.name() + "'", argument.span());
+                    visit(argument.value(), depth + 1);
+                }
+                case SPREAD -> {
+                    line(depth, "раскрытие массива '*'", argument.span());
+                    visit(argument.value(), depth + 1);
+                }
+                case NAMED_SPREAD -> {
+                    line(depth, "раскрытие объекта '**'", argument.span());
+                    visit(argument.value(), depth + 1);
+                }
             }
         }
     }
@@ -385,7 +407,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
                 .map(Modifier::text)
                 .collect(Collectors.joining(" ", "", " "));
         line(depth, "функция " + modifiers.stripLeading() + expr.title()
-                + "(" + header(expr.params()) + ")" + arrow, expr);
+                + "(" + header(expr.params(), expr.rest(), expr.namedRest()) + ")" + arrow, expr);
         defaults(expr.params(), depth + 1);
         return visit(expr.body(), depth + 1);
     }

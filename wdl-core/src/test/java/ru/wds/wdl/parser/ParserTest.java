@@ -332,4 +332,34 @@ class ParserTest {
         assertTrue(diagnostics.renderAll().contains("не помещается в 64 бита"));
         assertEquals("1.0E20", SExprPrinter.print(expr));
     }
+
+    // --- раскрытие контейнеров в аргументах ----------------------------------
+
+    @Test
+    @DisplayName("раскрытие видно в форме дерева и не путается с умножением")
+    void spreadInArguments() {
+        assertEquals("(call f (* values))", tree("f(*values)"));
+        assertEquals("(call f (** options))", tree("f(**options)"));
+        assertEquals("(call f 1 (* a) (mode: \"fast\") (** b))",
+                tree("f(1, *a, mode: \"fast\", **b)"));
+        // Инфиксная звёздочка от префиксной отличается местом, а не видом.
+        assertEquals("(call f (* a b))", tree("f(a * b)"));
+    }
+
+    @Test
+    @DisplayName("раскрытие работает и в 'new'")
+    void spreadInNew() {
+        assertEquals("(new Point (* coords))", tree("new Point(*coords)"));
+    }
+
+    @Test
+    @DisplayName("позиционная группа идёт перед именованной, и раскрытие не исключение")
+    void spreadKeepsGroupOrder() {
+        assertTrue(diagnose("f(mode: 1, *values)").renderAll()
+                .contains("после именованного аргумента 'mode' раскрытие массива не имеет позиции"));
+        assertTrue(diagnose("f(**options, 1)").renderAll()
+                .contains("после раскрытия объекта '**' позиционный аргумент не имеет позиции"));
+        assertTrue(diagnose("f(**options, *values)").renderAll()
+                .contains("после раскрытия объекта '**' раскрытие массива не имеет позиции"));
+    }
 }

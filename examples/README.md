@@ -23,6 +23,7 @@ wdl-cli/build/install/wdl/bin/wdl examples/hello.wdl
 | [functions.wdl](functions.wdl) | объявления, `return`, `=>`, анонимные функции, замыкания |
 | [defaults.wdl](defaults.wdl) | значения параметров по умолчанию и когда они вычисляются |
 | [named-args.wdl](named-args.wdl) | `f(name: value)`: пропуск в середине, свободный порядок, имена в `new` |
+| [variadic-args.wdl](variadic-args.wdl) | `*args` и `**named` в заголовке, раскрытие `f(*array)` и `f(**object)`, проброс вызова |
 
 ## Классы и трейты
 

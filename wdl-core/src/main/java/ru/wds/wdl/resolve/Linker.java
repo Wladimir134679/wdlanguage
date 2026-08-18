@@ -122,6 +122,12 @@ public final class Linker {
             return;
         }
         List<Argument> arguments = reference.arguments();
+        if (arguments.stream().anyMatch(Argument::isSpread)) {
+            // Сколько аргументов в '*args', известно только при выполнении, поэтому
+            // здесь не проверяется ничего: сказать «передано 3» нечестно, а угадывать
+            // нечем. Раскладку сделает связыватель на создании экземпляра.
+            return;
+        }
         boolean named = arguments.stream().anyMatch(Argument::isNamed);
         if (!named) {
             int given = arguments.size();
@@ -211,7 +217,8 @@ public final class Linker {
                     throw new LinkError(shape.declaration().nameSpan(), unmet(shape, trait)
                             + "нет метода '" + required.name() + "'");
                 }
-                Arity actual = ClassShape.arityOf(provided.declaration().params());
+                Arity actual = ClassShape.arityOf(provided.declaration().params(),
+                        provided.declaration().isVariadic());
                 if (!required.satisfiedBy(actual)) {
                     throw new LinkError(shape.declaration().nameSpan(), unmet(shape, trait)
                             + "метод '" + required.name() + "' должен принимать "

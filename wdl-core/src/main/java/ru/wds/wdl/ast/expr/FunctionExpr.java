@@ -3,6 +3,7 @@ package ru.wds.wdl.ast.expr;
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.source.Span;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
@@ -32,12 +33,17 @@ import java.util.stream.Collectors;
  * @param modifiers слова перед {@code def}: сейчас там бывает только
  *                  {@link Modifier#SYNCHRONIZED}. Набором, а не признаком, — почему
  *                  именно так, разобрано в {@link Modifier}
- * @param params    параметры в порядке записи
+ * @param params    параметры в порядке записи. <b>Только те, у которых есть позиция</b>:
+ *                  остатки лежат отдельно, потому что этот список читают как «параметр
+ *                  номер такой-то» — поле класса, значение по умолчанию, аргумент родителю
+ * @param rest      остаточный параметр {@code *args} или {@code null}
+ * @param namedRest именованный остаток {@code **named} или {@code null}
  * @param body      тело: блок, одиночная инструкция или {@code return} из стрелки
  * @param style     как тело было записано — {@link BodyStyle}
  * @param span      место в исходнике: от первого слова заголовка до конца тела
  */
-public record FunctionExpr(String name, Set<Modifier> modifiers, List<Param> params, Stmt body,
+public record FunctionExpr(String name, Set<Modifier> modifiers, List<Param> params,
+                           Rest rest, Rest namedRest, Stmt body,
                            BodyStyle style, Span span) implements Expr {
 
     public FunctionExpr {
@@ -53,6 +59,42 @@ public record FunctionExpr(String name, Set<Modifier> modifiers, List<Param> par
     /** Помечена ли функция {@code synchronized} — вопрос, который задают чаще всего. */
     public boolean isSynchronized() {
         return modifiers.contains(Modifier.SYNCHRONIZED);
+    }
+
+    /** Собирает ли функция лишние аргументы — то есть безгранично ли число аргументов. */
+    public boolean isVariadic() {
+        return rest != null;
+    }
+
+    /**
+     * Остаточный параметр: {@code *args} и {@code **named}.
+     * <p>
+     * Отдельный тип, а не {@link Param} с пометкой, по двум причинам сразу.
+     * Первая — у остатка не бывает значения по умолчанию: пустой массив и пустой объект
+     * и есть его дефолт, а поле {@code defaultValue} пришлось бы всё время проверять
+     * на {@code null} с оговоркой «здесь его быть не может». Вторая важнее: остаток
+     * не занимает позиции, а {@link #params()} читается как список позиций — номер
+     * параметра там значит номер поля, номер аргумента и порядок связывания.
+     * <p>
+     * Имя остатка — обычная локальная переменная, а не имя параметра: {@code f(args: 1)}
+     * не задаёт {@code *args} целиком. Поэтому в контракт вызова
+     * ({@code value.Signature}) оно попадает отдельно от имён параметров и в поиске
+     * по имени не участвует.
+     *
+     * @param name имя переменной, в которую соберётся остаток
+     * @param span место имени в исходнике
+     */
+    public record Rest(String name, Span span) {
+
+        public Rest {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(span, "span");
+        }
+
+        @Override
+        public String toString() {
+            return name;
+        }
     }
 
     /**
@@ -101,9 +143,17 @@ public record FunctionExpr(String name, Set<Modifier> modifiers, List<Param> par
 
     @Override
     public String toString() {
+        List<String> header = new ArrayList<>(params.size() + 2);
+        params.forEach(param -> header.add(param.toString()));
+        if (rest != null) {
+            header.add("*" + rest.name());
+        }
+        if (namedRest != null) {
+            header.add("**" + namedRest.name());
+        }
         return modifiers.stream().map(Modifier::text).collect(Collectors.joining(" ", "", " "))
                 .stripLeading()
                 + "def " + (name != null ? name : "")
-                + params.stream().map(Param::toString).collect(Collectors.joining(", ", "(", ")"));
+                + header.stream().collect(Collectors.joining(", ", "(", ")"));
     }
 }

@@ -51,7 +51,7 @@ public final class ScriptTraitShape implements TraitShape {
         List<Requirement> requirements = new ArrayList<>(declaration.requirements().size());
         for (TraitDeclStmt.Requirement requirement : declaration.requirements()) {
             requirements.add(new Requirement(requirement.name(),
-                    ClassShape.arityOf(requirement.params())));
+                    ClassShape.arityOf(requirement.params(), requirement.variadic())));
         }
         this.requiredMethods = List.copyOf(requirements);
 

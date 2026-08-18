@@ -9,6 +9,8 @@ import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
+import ru.wds.wdl.value.types.ArrayValue;
+import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.types.NullValue;
 
 import java.util.ArrayList;
@@ -88,7 +90,8 @@ public final class UserFunction implements FunctionValue {
     /**
      * Обязательных параметров столько, сколько их до первого со значением по умолчанию:
      * парсер не пропускает обязательный после необязательного, поэтому дальше идут
-     * только необязательные и арность остаётся отрезком.
+     * только необязательные и арность остаётся отрезком. Остаток {@code *args} верхнюю
+     * границу снимает совсем — принять функция готова сколько угодно.
      */
     private static Arity arityOf(FunctionExpr declaration) {
         List<FunctionExpr.Param> params = declaration.params();
@@ -96,7 +99,9 @@ public final class UserFunction implements FunctionValue {
         while (required < params.size() && !params.get(required).hasDefault()) {
             required++;
         }
-        return Arity.between(required, params.size());
+        return declaration.isVariadic()
+                ? Arity.atLeast(required)
+                : Arity.between(required, params.size());
     }
 
     /**
@@ -114,7 +119,9 @@ public final class UserFunction implements FunctionValue {
                     ? Signature.Param.lazy(param.name())
                     : Signature.Param.required(param.name()));
         }
-        return Signature.of(params);
+        return Signature.of(params,
+                declaration.rest() == null ? null : declaration.rest().name(),
+                declaration.namedRest() == null ? null : declaration.namedRest().name());
     }
 
     @Override
@@ -142,7 +149,13 @@ public final class UserFunction implements FunctionValue {
      */
     @Override
     public Value call(CallContext context, List<Value> arguments, Span span) {
-        return call(context, Arguments.positional(arguments), span);
+        // У функции с остатком плотный список сам собой не разложится: тело идёт
+        // по своим параметрам, и хвост, которому места не хватило, потерялся бы молча.
+        // Поэтому вызов снаружи проходит ту же раскладку, что и вызов из скрипта.
+        Arguments prepared = signature.hasRest() || signature.hasNamedRest()
+                ? Binder.bindPositional(signature, arguments, Binder.Callee.function(name()), span)
+                : Arguments.positional(arguments);
+        return call(context, prepared, span);
     }
 
     /**
@@ -223,6 +236,17 @@ public final class UserFunction implements FunctionValue {
                     // сделанный при объявлении, сделал бы один массив или объект общим
                     // для всех вызовов — известная ловушка Python.
                     : interpreter.visit(params.get(i).defaultValue(), inner));
+        }
+        // Остатки — после параметров, и это не мелочь: значение по умолчанию видит
+        // только то, что связано левее, а остаток левее не бывает. Контейнеры свежие
+        // на каждом вызове — по той же причине, по которой дефолт считается заново.
+        if (declaration.rest() != null) {
+            local.define(declaration.rest().name(), ArrayValue.of(arguments.rest()));
+        }
+        if (declaration.namedRest() != null) {
+            MapValue named = new MapValue();
+            arguments.namedRest().forEach(named::put);
+            local.define(declaration.namedRest().name(), named);
         }
 
         try {
