@@ -5,6 +5,8 @@ import ru.wds.wdl.ast.expr.*;
 import ru.wds.wdl.ast.op.*;
 import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.ast.visitor.*;
+import ru.wds.wdl.metrics.Measure;
+import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.embed.NativeTrait;
 import ru.wds.wdl.resolve.ClassShape;
@@ -145,6 +147,30 @@ public final class Interpreter
      * запустил файл: {@code Modules} его игнорирует, ему нужен модуль, а не число.
      */
     private Value execute(Program program, ExecutionContext running) {
+        // Здесь и меряется стадия EXECUTE — на верхнем уровне файла, а не на каждом
+        // входе в скрипт: вызов функции скрипта из приложения — тоже вход, и считать
+        // его стадией конвейера значило бы складывать несравнимое. Место одно на всех:
+        // и главный скрипт, и модуль, и строка REPL приходят сюда.
+        Unit unit = running.unit();
+        Measure measure = running.metrics().begin(Stage.EXECUTE, subjectOf(unit),
+                unit.key() != null);
+        try {
+            return statements(program, running);
+        } finally {
+            // Из finally: время скрипта, упавшего на середине, — тоже ответ.
+            measure.close();
+        }
+    }
+
+    /** Над чем работала стадия: ключ модуля, имя файла или «безымянно» у REPL. */
+    private static String subjectOf(Unit unit) {
+        if (unit.key() != null) {
+            return unit.key();
+        }
+        return unit.source() != null ? unit.source().name() : "<script>";
+    }
+
+    private Value statements(Program program, ExecutionContext running) {
         // Верхний уровень файла — тоже область: 'defer' на нём выполняется, когда файл
         // дочитан, чем бы он ни кончился.
         Deferred pending = new Deferred();

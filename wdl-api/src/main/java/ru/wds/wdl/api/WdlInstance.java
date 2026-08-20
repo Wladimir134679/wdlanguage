@@ -4,6 +4,11 @@ import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.embed.Library;
 import ru.wds.wdl.lexer.Lexer;
+import ru.wds.wdl.metrics.Measure;
+import ru.wds.wdl.metrics.Metrics;
+import ru.wds.wdl.metrics.MetricsCollector;
+import ru.wds.wdl.metrics.MetricsReport;
+import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;
@@ -76,6 +81,8 @@ public final class WdlInstance implements AutoCloseable {
 
     private final Unit unit;
     private final ExecutionContext context;
+    /** Замеры этого запуска — вместе с втянутым сюда разбором скрипта. */
+    private final MetricsCollector metrics;
     /** Библиотеки, положенные в корень: {@code Modules} про них не знает, закрывать нам. */
     private final List<Library> rootLibraries = new ArrayList<>();
     private final Interpreter interpreter = new Interpreter();
@@ -83,8 +90,13 @@ public final class WdlInstance implements AutoCloseable {
     private Execution done;
     private boolean closed;
 
-    WdlInstance(WdlEngine engine, Unit unit, ModuleSource sources) {
+    WdlInstance(WdlEngine engine, Unit unit, ModuleSource sources, MetricsReport compiled) {
         this.unit = Objects.requireNonNull(unit, "unit");
+        // Замеры разбора втягиваются сразу: приложению нужен один отчёт на
+        // «скомпилировали и выполнили», хотя стадии разнесены по двум объектам.
+        this.metrics = engine.newCollector();
+        this.metrics.adopt(compiled);
+        Metrics sink = engine.sinkOf(this.metrics);
         // Своя корневая область — то, что делает изоляцию запусков настоящей.
         // Здесь же выполняется прелюдия и появляются println, len и классы ошибок.
         ExecutionContext fresh = ExecutionContext.fresh(engine.output());
@@ -98,7 +110,10 @@ public final class WdlInstance implements AutoCloseable {
         });
         engine.globals().forEach(root::define);
         this.context = fresh
-                .withModules(new ModuleUnits(sources))
+                .withMetrics(sink)
+                // Приёмник достаётся и реестру модулей: их разбор случается внутри
+                // движка, снаружи туда не дотянуться.
+                .withModules(new ModuleUnits(sources, sink))
                 .withNativeModules(NativeModules.of(engine.modules()));
     }
 
@@ -260,13 +275,40 @@ public final class WdlInstance implements AutoCloseable {
             return;
         }
         closed = true;
-        stopThreads();
-        context.shutdownModules();
-        closeRootLibraries();
-        // Второй раз — ради того, что завелось, пока закрывались модули: см. javadoc.
-        stopThreads();
-        // И только теперь вход: всё, что имело право позвать скрипт, уже отработало.
-        context.closeRun();
+        // Закрытие — тоже время запуска, и иногда основное: sys.gui в close() ждёт,
+        // пока пользователь закроет окна.
+        Measure closing = context.metrics().begin(Stage.SHUTDOWN, subject());
+        try {
+            stopThreads();
+            context.shutdownModules();
+            closeRootLibraries();
+            // Второй раз — ради того, что завелось, пока закрывались модули: см. javadoc.
+            stopThreads();
+            // И только теперь вход: всё, что имело право позвать скрипт, уже отработало.
+            context.closeRun();
+        } finally {
+            closing.close();
+            metrics.finish();
+        }
+    }
+
+    /**
+     * Отчёт о времени стадий этого запуска: разбор скрипта, разбор и выполнение его
+     * модулей, само выполнение и закрытие.
+     * <p>
+     * Один отчёт на всё, что с этим скриптом произошло: замеры разбора втянуты сюда
+     * при создании экземпляра. Пуст, если движок собран без {@code metrics(true)}.
+     * <p>
+     * Спрашивать можно и до {@link #close()} — тогда закрытия в нём ещё нет,
+     * а «время по часам» отвечает «сколько прошло к этой минуте».
+     */
+    public MetricsReport metrics() {
+        return metrics;
+    }
+
+    /** Над чем работали стадии этого запуска — имя файла скрипта. */
+    private String subject() {
+        return unit.source() != null ? unit.source().name() : "<script>";
     }
 
     /** Библиотеки корня — в порядке, обратном созданию. */

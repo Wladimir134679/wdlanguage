@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.metrics.Metrics;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;
@@ -88,6 +89,16 @@ final class Run {
     private volatile Modules modules;
 
     /**
+     * Куда сообщается время стадий этого запуска.
+     * <p>
+     * Свойство запуска, а не области видимости, по той же причине, что и модули:
+     * «сколько заняло выполнение» — вопрос про сеанс целиком. По умолчанию метрик нет
+     * и стоят они ноль ({@link Metrics#off()}); приёмник задаёт хозяин запуска
+     * до первой инструкции скрипта — отсюда и {@code volatile}, как у {@link #modules}.
+     */
+    private volatile Metrics metrics = Metrics.off();
+
+    /**
      * Собранные формы классов и трейтов. Один на запуск, иначе объявление класса
      * внутри функции давало бы новую форму на каждый вызов, а {@code is} перестал бы
      * узнавать свои же экземпляры.
@@ -145,6 +156,15 @@ final class Run {
     /** Задаёт модули запуска. Зовётся при сборке, до первой инструкции скрипта. */
     void useModules(Modules replacement) {
         this.modules = Objects.requireNonNull(replacement, "modules");
+    }
+
+    Metrics metrics() {
+        return metrics;
+    }
+
+    /** Задаёт приёмник метрик. Зовётся при сборке, до первой инструкции скрипта. */
+    void useMetrics(Metrics replacement) {
+        this.metrics = Objects.requireNonNull(replacement, "metrics");
     }
 
     /**

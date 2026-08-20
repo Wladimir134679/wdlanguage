@@ -20,6 +20,7 @@
 | [Декораторы](decorators.md) | `@[...]`, метаданные, порядок применения, `like`, обёртка для класса |
 | [Модули](modules.md) | `import` и `import ... as`, пути, область действия импорта, наследование через файлы |
 | [Потоки](threads.md) | модель памяти, `synchronized`, `sys.thread`: потоки, пул, замок, счётчик, канал, защёлка |
+| [Метрики](metrics.md) | время стадий: `--metrics`, отчёт из приложения, что меряется и что нет |
 | [Встраивание](embedding.md) | как приложение добавляет в язык свои функции, классы и библиотеки |
 
 Черновые заметки автора о том, каким язык хочется видеть, лежат отдельно —
@@ -56,6 +57,8 @@ wdl examples/modules/late.wdl               # плагин загружаетс�
 wdl examples/threads.wdl                    # потоки: spawn, join, interrupt, synchronized
 wdl examples/threads_pool.wdl               # пул, обещания, канал, защёлка
 wdl examples/stdlib.wdl                     # стандартная библиотека: pow, File, Random
+wdl --metrics examples/modules/plain.wdl    # время стадий после выполнения
+wdl --metrics-each examples/threads.wdl     # строка на каждую законченную стадию
 wdl --ast examples/hello.wdl                # дерево программы
 wdl --tokens examples/lexer-check.wdl       # поток токенов
 ./gradlew :wdl-cli:repl --console=plain     # построчно, интерактивно

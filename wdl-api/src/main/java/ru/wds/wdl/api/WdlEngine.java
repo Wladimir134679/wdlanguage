@@ -4,6 +4,12 @@ import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.embed.Library;
 import ru.wds.wdl.lexer.Lexer;
+import ru.wds.wdl.lexer.Token;
+import ru.wds.wdl.metrics.Measure;
+import ru.wds.wdl.metrics.Measurement;
+import ru.wds.wdl.metrics.Metrics;
+import ru.wds.wdl.metrics.MetricsCollector;
+import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
@@ -16,8 +22,10 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -66,6 +74,10 @@ public final class WdlEngine {
     private final Map<String, Supplier<Library>> modules;
     private final Map<String, Supplier<Library>> rootLibraries;
     private final Map<String, Value> globals;
+    /** Считать ли время стадий. По умолчанию — нет: движок не считает того, о чём не просили. */
+    private final boolean metricsEnabled;
+    /** Куда сообщать о каждой законченной стадии, или {@code null}. */
+    private final Consumer<Measurement> metricsListener;
 
     private WdlEngine(Builder builder) {
         this.output = builder.output;
@@ -73,6 +85,8 @@ public final class WdlEngine {
         this.modules = Map.copyOf(builder.modules);
         this.rootLibraries = Map.copyOf(builder.rootLibraries);
         this.globals = Map.copyOf(builder.globals);
+        this.metricsEnabled = builder.metricsEnabled;
+        this.metricsListener = builder.metricsListener;
     }
 
     public static Builder builder() {
@@ -135,12 +149,29 @@ public final class WdlEngine {
     }
 
     private WdlScript compile(Source source, ModuleSource moduleSource) {
+        // Замеры разбора принадлежат скрипту, а не движку: движок — рецепт, и одного
+        // накопителя на все компиляции быть не может.
+        MetricsCollector metrics = newCollector();
+        Metrics sink = sinkOf(metrics);
         Diagnostics diagnostics = new Diagnostics(source);
-        Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
+        List<Token> tokens;
+        Measure lexing = sink.begin(Stage.LEX, source.name());
+        try {
+            tokens = Lexer.tokenize(source, diagnostics);
+        } finally {
+            lexing.close();
+        }
+        Program program;
+        Measure parsing = sink.begin(Stage.PARSE, source.name());
+        try {
+            program = Parser.parseProgram(tokens, diagnostics);
+        } finally {
+            parsing.close();
+        }
         if (diagnostics.hasErrors()) {
             throw WdlException.syntax(diagnostics);
         }
-        return new WdlScript(this, Unit.of(source, program), moduleSource);
+        return new WdlScript(this, Unit.of(source, program), moduleSource, metrics);
     }
 
     /**
@@ -183,6 +214,22 @@ public final class WdlEngine {
         return output;
     }
 
+    /**
+     * Новый накопитель замеров — по одному на скрипт и на экземпляр.
+     * <p>
+     * Создаётся всегда, даже с выключенными метриками: тогда в него просто ничего
+     * не пишут ({@link #sinkOf} отдаёт конвейеру {@link Metrics#off()}), а приложение
+     * получает пустой отчёт вместо {@code null}.
+     */
+    MetricsCollector newCollector() {
+        return metricsListener == null ? Metrics.collecting() : Metrics.collecting(metricsListener);
+    }
+
+    /** Приёмник для конвейера: накопитель, если метрики включены, иначе выключенные. */
+    Metrics sinkOf(MetricsCollector collector) {
+        return metricsEnabled ? collector : Metrics.off();
+    }
+
     Map<String, Supplier<Library>> modules() {
         return modules;
     }
@@ -206,8 +253,35 @@ public final class WdlEngine {
         private final Map<String, Supplier<Library>> modules = new LinkedHashMap<>();
         private final Map<String, Supplier<Library>> rootLibraries = new LinkedHashMap<>();
         private final Map<String, Value> globals = new LinkedHashMap<>();
+        private boolean metricsEnabled;
+        private Consumer<Measurement> metricsListener;
 
         private Builder() {
+        }
+
+        /**
+         * Считать ли время стадий: лексер, парсер, выполнение, закрытие.
+         * <p>
+         * По умолчанию — нет, и стоит это ровно ноль: выключенный приёмник не создаёт
+         * объектов и не смотрит на часы. Отчёт потом спрашивают у {@link WdlScript#metrics()}
+         * и {@link WdlInstance#metrics()}.
+         */
+        public Builder metrics(boolean enabled) {
+            this.metricsEnabled = enabled;
+            return this;
+        }
+
+        /**
+         * То же самое плюс сообщение о каждой стадии сразу по её завершении.
+         * <p>
+         * Это и есть «включить логирование этапов»: приложению не нужно ждать конца
+         * запуска — {@code .metrics(m -> log.info("{} {} — {} мс", ...))} пишет стадию
+         * тогда, когда она закончилась. Зовётся слушатель в том потоке, где стадия шла.
+         */
+        public Builder metrics(Consumer<Measurement> listener) {
+            this.metricsListener = Objects.requireNonNull(listener, "listener");
+            this.metricsEnabled = true;
+            return this;
         }
 
         /**

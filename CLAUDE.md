@@ -25,6 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew :wdl-cli:run --args="examples/hello.wdl"   # выполнить скрипт (workingDir = корень репо)
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"
 ./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl"
+./gradlew :wdl-cli:run --args="--metrics examples/modules/plain.wdl"  # время стадий
 ./gradlew :wdl-cli:repl --console=plain              # REPL (отдельная задача: нужен живой stdin)
 ./gradlew :wdl-cli:installDist                       # → wdl-cli/build/install/wdl/bin/wdl
 ```
@@ -64,7 +65,7 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 
 | Модуль | Содержимое | Зависит от |
 |---|---|---|
-| `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source` | ничего |
+| `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source`, `metrics` | ничего |
 | `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, реестр `Sys` | core |
 | `wdl-api` | фасад для встраивания `WdlEngine` (пока заготовка) | core, stdlib |
 | `wdl-tools` | `AstDumper`, `TokenDumper`, позже линтер/форматтер/LSP | core |
@@ -138,6 +139,13 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 * **Встроенный модуль** (`import sys.что-то`): класс с `implements Library` в `wdl-stdlib`,
   фабрика `library()`, строка в `Sys.registry()`. Имена кладутся теми же `define`,
   что и в корень; живое, если оно есть, отпускается в `close()`. Ключ — имя, а не путь.
+* **Новая стадия для метрик**: элемент в `metrics/Stage` с русским `title()` → охват
+  `Measure` **в том месте, которое стадию запускает** (внутрь самой стадии приёмник
+  не протаскивается — исключение только `ModuleUnits`, куда снаружи не дотянуться) →
+  строка в `MetricsCollector.render()` → тесты в `MetricsTest` и `MetricsIntegrationTest`.
+  Приёмник берётся из `context.metrics()` либо приходит аргументом; закрывается замер
+  из `finally`, а не `try`-с-ресурсами (`-Xlint:all` считает такой `try` забытым
+  ресурсом). См. `docs/metrics.md`.
 * **Класс от приложения**: построитель `embed/NativeClass` — поля заголовка, методы,
   фабрики, константы; состояние, не выразимое значением, — в `NativeInstance.state()`.
   Для интерпретатора это тот же `ClassValue`, что и класс на wdl. См. `docs/embedding.md`

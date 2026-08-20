@@ -1,5 +1,7 @@
 package ru.wds.wdl.api;
 
+import ru.wds.wdl.metrics.MetricsCollector;
+import ru.wds.wdl.metrics.MetricsReport;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.source.Source;
@@ -38,11 +40,28 @@ public final class WdlScript {
     private final WdlEngine engine;
     private final Unit unit;
     private final ModuleSource sources;
+    /** Время разбора этого скрипта; пусто, если метрики движка выключены. */
+    private final MetricsCollector metrics;
 
-    WdlScript(WdlEngine engine, Unit unit, ModuleSource sources) {
+    WdlScript(WdlEngine engine, Unit unit, ModuleSource sources, MetricsCollector metrics) {
         this.engine = Objects.requireNonNull(engine, "engine");
         this.unit = Objects.requireNonNull(unit, "unit");
         this.sources = Objects.requireNonNull(sources, "sources");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
+    }
+
+    /**
+     * Сколько занял разбор: лексер и парсер этого файла.
+     * <p>
+     * Разбор делается один раз, а запусков может быть много, поэтому его время живёт
+     * здесь, а не в экземпляре. Экземпляр эти замеры <b>втягивает</b> в свой отчёт
+     * ({@link WdlInstance#metrics()}), чтобы приложению не приходилось складывать два
+     * числа руками.
+     * <p>
+     * Отчёт пуст, если движок собран без {@code metrics(true)}.
+     */
+    public MetricsReport metrics() {
+        return metrics;
     }
 
     /** Исходник — тот же, что разбирали: нужен для показа ошибок. */
@@ -59,7 +78,7 @@ public final class WdlScript {
      * его модули.
      */
     public WdlInstance instance() {
-        return new WdlInstance(engine, unit, sources);
+        return new WdlInstance(engine, unit, sources, metrics);
     }
 
     /**

@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.metrics.Metrics;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;
@@ -167,6 +168,28 @@ public final class ExecutionContext implements CallContext {
     public ExecutionContext withNativeModules(NativeModules natives) {
         run.useModules(new Modules(run.modules().units(), natives, scope));
         return this;
+    }
+
+    /**
+     * Тот же контекст, но со включёнными метриками: время стадий пойдёт в этот приёмник.
+     * <p>
+     * По умолчанию их нет и стоят они ноль — движок не считает того, о чём его
+     * не просили, ровно как не печатает никуда по умолчанию. Ставится при сборке,
+     * до первой инструкции скрипта: метрики — свойство запуска, и менять приёмник
+     * посреди работы значило бы получить отчёт о половине.
+     * <p>
+     * Разбор модулей сюда не попадает: он случается раньше выполнения и в другом
+     * объекте — приёмник тому же запуску передаётся через
+     * {@code new ModuleUnits(source, metrics)}.
+     */
+    public ExecutionContext withMetrics(Metrics metrics) {
+        run.useMetrics(metrics);
+        return this;
+    }
+
+    /** Приёмник метрик этого запуска; по умолчанию — выключенный. */
+    public Metrics metrics() {
+        return run.metrics();
     }
 
     /**

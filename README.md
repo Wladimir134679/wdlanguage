@@ -60,6 +60,9 @@
   аргументом, порядок применения, `like`, обёртка для класса через наследника.
 * [Потоки](docs/threads.md) — модель памяти, `synchronized`, модуль `sys.thread`:
   потоки, пул, замок, счётчик, канал, защёлка.
+* [Метрики](docs/metrics.md) — время стадий конвейера: флаг `--metrics` в консоли,
+  отчёт и логирование стадий из приложения, почему сумма замеров не равна времени
+  по часам.
 * [Встраивание](docs/embedding.md) — как приложение добавляет в язык свои функции,
   классы и библиотеки, и почему скрипт не видит разницы.
 
@@ -81,6 +84,7 @@
 ./gradlew :wdl-cli:run --args="examples/decorators.wdl"           # декораторы: @[...], like
 ./gradlew :wdl-cli:run --args="examples/threads.wdl"              # потоки и synchronized
 ./gradlew :wdl-cli:run --args="examples/threads_pool.wdl"         # пул, канал, защёлка
+./gradlew :wdl-cli:run --args="--metrics examples/modules/plain.wdl" # время стадий
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"          # показать дерево
 ./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl" # показать токены
 ./gradlew :wdl-cli:repl --console=plain     # REPL (нужен живой stdin)
@@ -96,6 +100,14 @@
 - Program: $ProjectFileDir$\run-wdl.bat
 - Arguments: "$FileName$" "$FileDir$" UTF-8
 - Working directory: $FileDir$
+```
+
+Ключи интерпретатора (`--metrics`, `--metrics-each`, `--ast`, `--tokens`, `--debug`)
+дописываются в эту строку где угодно — всё, что начинается с дефиса, уходит `wdl`,
+а позиционными остаются файл, каталог и кодировка:
+
+```
+- Arguments: --metrics "$FileName$" "$FileDir$" UTF-8
 ```
 
 ## Состояние
@@ -149,6 +161,10 @@ $ wdl examples/hello.wdl
 требования проверяются на строке `class`, как у трейтов языка), а свои классы
 выстраивать в иерархию. Имена, которые библиотека кладёт в область, собираются
 на запуск, поэтому между запусками в одном процессе не переносится ничего.
+Время стадий движок считает по просьбе: `wdl --metrics script.wdl` печатает,
+во что ушёл запуск, а встраивающее приложение включает то же одной строкой сборки
+(`.metrics(true)`) и получает отчёт геттерами — см. [docs/metrics.md](docs/metrics.md).
+Выключенные метрики не стоят ничего.
 Выборочного импорта отдельных имён ещё нет, наследоваться от класса встроенного
 модуля пока нельзя. У декораторов нет короткой формы `@reg` без скобок и нельзя
 повесить их на анонимную функцию в позиции выражения — и то и другое аддитивно
@@ -157,8 +173,8 @@ $ wdl examples/hello.wdl
 [docs/control-flow.md](docs/control-flow.md), [docs/functions.md](docs/functions.md),
 [docs/classes.md](docs/classes.md), [docs/decorators.md](docs/decorators.md),
 [docs/errors.md](docs/errors.md),
-[docs/modules.md](docs/modules.md), [docs/threads.md](docs/threads.md)
-и [docs/expressions.md](docs/expressions.md).
+[docs/modules.md](docs/modules.md), [docs/threads.md](docs/threads.md),
+[docs/metrics.md](docs/metrics.md) и [docs/expressions.md](docs/expressions.md).
 
 Решения парсера и интерпретатора, определяющие остальное:
 

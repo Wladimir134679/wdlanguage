@@ -3,6 +3,8 @@ package ru.wds.wdl.api;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.metrics.MetricsReport;
+import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.runtime.Environment;
@@ -505,5 +507,96 @@ class WdlEngineTest {
         engine.run("print(\"а\")");
 
         assertEquals("а", log.toString());
+    }
+
+    // --- метрики -------------------------------------------------------------
+
+    @Test
+    @DisplayName("по умолчанию метрики выключены и отчёт пуст")
+    void metricsOffByDefault() {
+        WdlScript script = engine().compile("x = 40 + 2");
+
+        try (WdlInstance instance = script.instance()) {
+            instance.execute();
+            assertTrue(script.metrics().isEmpty());
+            assertTrue(instance.metrics().isEmpty());
+            assertEquals("", instance.metrics().render());
+        }
+    }
+
+    @Test
+    @DisplayName("включённые метрики считают разбор, выполнение и закрытие")
+    void metricsCollected() {
+        WdlEngine engine = WdlEngine.builder().stdlib(Stdlib.SAFE).metrics(true).build();
+        WdlScript script = engine.compile("x = 40 + 2");
+
+        assertEquals(1, script.metrics().count(Stage.LEX));
+        assertEquals(1, script.metrics().count(Stage.PARSE));
+        assertEquals(0, script.metrics().count(Stage.EXECUTE), "разбор не выполняет");
+
+        MetricsReport report;
+        try (WdlInstance instance = script.instance()) {
+            instance.execute();
+            report = instance.metrics();
+            // Замеры разбора втянуты в отчёт запуска: приложению нужен один ответ.
+            assertEquals(1, report.count(Stage.LEX));
+            assertEquals(1, report.count(Stage.EXECUTE));
+            assertEquals(0, report.count(Stage.SHUTDOWN), "закрытие ещё не случилось");
+        }
+        assertEquals(1, report.count(Stage.SHUTDOWN));
+        assertTrue(report.render().contains("выполнение"), report.render());
+    }
+
+    @Test
+    @DisplayName("у каждого экземпляра свой отчёт")
+    void metricsPerInstance() {
+        WdlEngine engine = WdlEngine.builder().stdlib(Stdlib.SAFE).metrics(true).build();
+        WdlScript script = engine.compile("x = 1");
+
+        try (WdlInstance first = script.instance(); WdlInstance second = script.instance()) {
+            first.execute();
+
+            assertEquals(1, first.metrics().count(Stage.EXECUTE));
+            assertEquals(0, second.metrics().count(Stage.EXECUTE), "второй ещё не выполнялся");
+            assertNotSame(first.metrics(), second.metrics());
+        }
+    }
+
+    @Test
+    @DisplayName("слушатель получает стадии по мере их завершения")
+    void metricsListener() {
+        List<Stage> stages = new ArrayList<>();
+        WdlEngine engine = WdlEngine.builder()
+                .stdlib(Stdlib.SAFE)
+                .metrics(measurement -> stages.add(measurement.stage()))
+                .build();
+
+        try (WdlInstance instance = engine.compile("x = 1").instance()) {
+            instance.execute();
+        }
+
+        assertEquals(List.of(Stage.LEX, Stage.PARSE, Stage.EXECUTE, Stage.SHUTDOWN), stages);
+    }
+
+    @Test
+    @DisplayName("разбор и выполнение модуля видны отдельными замерами")
+    void metricsForModules() {
+        WdlEngine engine = WdlEngine.builder()
+                .stdlib(Stdlib.SAFE)
+                .metrics(true)
+                .sources(ModuleSource.ofMap(Map.of("util", "def twice(x) => x + x")))
+                .build();
+
+        try (WdlInstance instance = engine.compile("""
+                import "./util" as util
+                util.twice("аб")
+                """).instance()) {
+            instance.execute();
+
+            assertEquals(1, instance.metrics().count(Stage.PARSE, true));
+            assertEquals(1, instance.metrics().count(Stage.EXECUTE, true));
+            assertTrue(instance.metrics().render().contains("модули: разбор"),
+                    instance.metrics().render());
+        }
     }
 }
