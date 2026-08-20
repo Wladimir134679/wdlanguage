@@ -201,12 +201,12 @@ class LexerTest {
     @Test
     @DisplayName("неизвестный символ не останавливает разбор")
     void recoversFromUnknownCharacter() {
-        String code = "a = @ + b";
+        String code = "a = # + b";
         Diagnostics diagnostics = diagnose(code);
         List<Token> tokens = Lexer.tokenize(Source.ofString(code), diagnostics);
 
         assertEquals(1, diagnostics.errorCount());
-        assertTrue(diagnostics.renderAll().contains("неизвестный символ '@'"));
+        assertTrue(diagnostics.renderAll().contains("неизвестный символ '#'"));
         assertEquals(List.of(TokenType.WORD, TokenType.ASSIGN, TokenType.PLUS, TokenType.WORD, TokenType.EOF),
                 tokens.stream().map(Token::type).toList());
     }
@@ -237,13 +237,13 @@ class LexerTest {
     @Test
     @DisplayName("диагностика показывает строку исходника и место ошибки")
     void diagnosticPointsAtSource() {
-        String code = "a = 1\nb = @2\n";
+        String code = "a = 1\nb = #2\n";
         Diagnostics diagnostics = diagnose(code);
         Lexer.tokenize(Source.ofString(code), diagnostics);
 
         String rendered = diagnostics.renderAll();
         assertTrue(rendered.contains("<script>:2:5: ошибка:"), rendered);
-        assertTrue(rendered.contains("b = @2"), rendered);
+        assertTrue(rendered.contains("b = #2"), rendered);
         assertTrue(rendered.contains("^"), rendered);
     }
 

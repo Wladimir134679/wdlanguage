@@ -23,6 +23,9 @@ import java.util.stream.Collectors;
  * узел анонимный, но сообщение «функция 'f' принимает ровно 1 аргумент» полезнее, чем
  * «функция 'def' ...», поэтому имя цели простого присваивания подставляется при разборе.
  * Это только для диагностики: на поиск имени во время выполнения оно не влияет.
+ * Отсюда и отдельный признак {@link #anonymous()}: по одному лишь {@code name != null}
+ * «написали ли {@code def имя}» уже не узнать, а метаданным декоратора
+ * ({@code sys.meta}) нужен именно этот факт, а не то, что подставили для сообщений.
  * <p>
  * Тело — {@link Stmt}, и да, это делает зависимость пакетов взаимной: инструкции
  * ссылаются на выражения, а функция-выражение — на инструкции. Иначе в языке
@@ -30,6 +33,8 @@ import java.util.stream.Collectors;
  * а сама функция — значение.
  *
  * @param name      имя для диагностики или {@code null}, если узнать его неоткуда
+ * @param anonymous записана ли функция без имени. Не то же, что {@code name == null}:
+ *                  у {@code f = def(a) => a} имя подставлено, а функция анонимна
  * @param modifiers слова перед {@code def}: сейчас там бывает только
  *                  {@link Modifier#SYNCHRONIZED}. Набором, а не признаком, — почему
  *                  именно так, разобрано в {@link Modifier}
@@ -42,8 +47,8 @@ import java.util.stream.Collectors;
  * @param style     как тело было записано — {@link BodyStyle}
  * @param span      место в исходнике: от первого слова заголовка до конца тела
  */
-public record FunctionExpr(String name, Set<Modifier> modifiers, List<Param> params,
-                           Rest rest, Rest namedRest, Stmt body,
+public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifiers,
+                           List<Param> params, Rest rest, Rest namedRest, Stmt body,
                            BodyStyle style, Span span) implements Expr {
 
     public FunctionExpr {
@@ -54,6 +59,12 @@ public record FunctionExpr(String name, Set<Modifier> modifiers, List<Param> par
         Objects.requireNonNull(body, "body");
         Objects.requireNonNull(style, "style");
         Objects.requireNonNull(span, "span");
+    }
+
+    /** Объявление под именем: {@code def f()}, метод, фабрика. */
+    public FunctionExpr(String name, Set<Modifier> modifiers, List<Param> params,
+                        Rest rest, Rest namedRest, Stmt body, BodyStyle style, Span span) {
+        this(name, name == null, modifiers, params, rest, namedRest, body, style, span);
     }
 
     /** Помечена ли функция {@code synchronized} — вопрос, который задают чаще всего. */

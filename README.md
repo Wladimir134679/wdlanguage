@@ -55,7 +55,9 @@
   `*args`/`**named` и раскрытие `f(*array)`, замыкания, области видимости вызова.
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
 * [Классы](docs/classes.md) — `class` и `trait`, `new`, `this` и `super`, наследование,
-  требования трейтов, проверка `is`.
+  требования трейтов, проверка `is`, остаток в заголовке `*args`/`**named`.
+* [Декораторы](docs/decorators.md) — `@[выражение](аргументы)`, метаданные первым
+  аргументом, порядок применения, `like`, обёртка для класса через наследника.
 * [Потоки](docs/threads.md) — модель памяти, `synchronized`, модуль `sys.thread`:
   потоки, пул, замок, счётчик, канал, защёлка.
 * [Встраивание](docs/embedding.md) — как приложение добавляет в язык свои функции,
@@ -75,6 +77,8 @@
 ./gradlew :wdl-cli:run --args="examples/named-args.wdl"           # именованные аргументы
 ./gradlew :wdl-cli:run --args="examples/variadic-args.wdl"        # *args, **named, раскрытие
 ./gradlew :wdl-cli:run --args="examples/const.wdl"                # константы
+./gradlew :wdl-cli:run --args="examples/class-varargs.wdl"        # остаток в заголовке класса
+./gradlew :wdl-cli:run --args="examples/decorators.wdl"           # декораторы: @[...], like
 ./gradlew :wdl-cli:run --args="examples/threads.wdl"              # потоки и synchronized
 ./gradlew :wdl-cli:run --args="examples/threads_pool.wdl"         # пул, канал, защёлка
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"          # показать дерево
@@ -117,7 +121,9 @@ $ wdl examples/hello.wdl
 именованные аргументы `f(count: 2)`, вариативные параметры `*args`/`**named`
 и раскрытие `f(*array)`, замыкания),
 классы (`class`, `trait`, `new`, `this`, `super`, `with`, `is`, фабрики
-`def Имя.член(...)`), ошибки и ресурсы (иерархия `Exception`, `throw`,
+`def Имя.член(...)`, остаток в заголовке `class Proxy(*args, **named)`),
+декораторы (`@[выражение](аргументы)` на функции, классе и трейте; метаданные
+первым аргументом, модуль `sys.meta`, встроенная `like`), ошибки и ресурсы (иерархия `Exception`, `throw`,
 `try`/`catch`/`finally`, короткие формы `try?` и `try!`, `defer`, `use` с трейтом
 `Closeable`, путь по скрипту в сообщении) и модули (`import lib.math`, `import lib.math as m`,
 наследование и трейты через файлы, в том числе от того, что дало выражение —
@@ -126,7 +132,7 @@ $ wdl examples/hello.wdl
 Состояние модуля общее и на чтение, и на запись: снаружи с ним можно ровно то же,
 что можно его собственному коду, а `const` в нём остаётся `const`.
 Модулем бывает и библиотека на Java: консольный запуск даёт `sys.io` (файлы),
-`sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui` и `sys.thread`,
+`sys.json`, `sys.meta`, `sys.net.http`, `sys.net.socket`, `sys.gui` и `sys.thread`,
 а приложение — свой набор, потому что состав встроенных модулей задаёт запуск,
 а не язык.
 Работают настоящие потоки: `sys.thread` даёт `spawn`/`join`/`interrupt`, пул
@@ -143,11 +149,14 @@ $ wdl examples/hello.wdl
 требования проверяются на строке `class`, как у трейтов языка), а свои классы
 выстраивать в иерархию. Имена, которые библиотека кладёт в область, собираются
 на запуск, поэтому между запусками в одном процессе не переносится ничего.
-Именованных аргументов и выборочного импорта отдельных имён ещё нет,
-наследоваться от класса встроенного модуля пока нельзя.
+Выборочного импорта отдельных имён ещё нет, наследоваться от класса встроенного
+модуля пока нельзя. У декораторов нет короткой формы `@reg` без скобок и нельзя
+повесить их на анонимную функцию в позиции выражения — и то и другое аддитивно
+и отложено до второй версии.
 Подробности — в [docs/statements.md](docs/statements.md),
 [docs/control-flow.md](docs/control-flow.md), [docs/functions.md](docs/functions.md),
-[docs/classes.md](docs/classes.md), [docs/errors.md](docs/errors.md),
+[docs/classes.md](docs/classes.md), [docs/decorators.md](docs/decorators.md),
+[docs/errors.md](docs/errors.md),
 [docs/modules.md](docs/modules.md), [docs/threads.md](docs/threads.md)
 и [docs/expressions.md](docs/expressions.md).
 

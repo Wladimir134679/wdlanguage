@@ -784,4 +784,68 @@ class ClassTest {
                 class A : registry["Base"]()
                 """).getMessage().contains("'registry[\"Base\"]'"));
     }
+
+    // --- остаток в заголовке -------------------------------------------------
+
+    @Test
+    @DisplayName("остаток собирает лишние аргументы создания")
+    void headerRestCollectsExtras() {
+        assertEquals("1 2 [3, 4] {\"tag\": \"ok\"}", printed("""
+                class Point(x, y, *rest, **named) {
+                    def Point() {
+                        println(x, " ", y, " ", rest, " ", named)
+                    }
+                }
+                new Point(1, 2, 3, 4, tag: "ok")
+                """));
+    }
+
+    @Test
+    @DisplayName("остаток полем не становится: у экземпляра только позиционные параметры")
+    void headerRestIsNotAField() {
+        assertEquals("2 x,y", printed("""
+                class Point(x, y, *rest, **named) { }
+                p = new Point(1, 2, 3, tag: "ok")
+                keys = ""
+                for (k in p) keys = keys == "" ? k : keys + "," + k
+                println(len(p), " ", keys)
+                """));
+    }
+
+    @Test
+    @DisplayName("класс-обёртка перебрасывает аргументы родителю")
+    void proxyForwardsToParent() {
+        assertEquals("В родителе было так: точка(3, 4)", printed("""
+                class Point(x, y) {
+                    def text() => "точка(" + x + ", " + y + ")"
+                }
+                class Proxy(*args, **named) : Point(*args, **named) {
+                    def text() => "В родителе было так: " + super.text()
+                }
+                println(new Proxy(3, y: 4).text())
+                """));
+    }
+
+    @Test
+    @DisplayName("с остатком у создания нет верхней границы, обязательные всё равно нужны")
+    void headerRestKeepsRequired() {
+        assertTrue(errorOf("""
+                class Point(x, y, *rest) { }
+                new Point(1)
+                """).getMessage().contains("обязательный параметр 'y' класса 'Point' не передан"));
+    }
+
+    @Test
+    @DisplayName("остаток виден в аргументах родителю, а не только в конструкторе")
+    void headerRestVisibleInParentArguments() {
+        assertEquals("[1, 2] 3", printed("""
+                class Base(all, size) {
+                    def Base() {
+                        println(all, " ", size)
+                    }
+                }
+                class Head(size, *rest) : Base(rest, size) { }
+                new Head(3, 1, 2)
+                """));
+    }
 }

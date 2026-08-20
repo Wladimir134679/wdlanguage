@@ -150,7 +150,11 @@ Source → Lexer → List<Token> → Parser → Program (AST) → Interpreter �
   см. [функции](functions.md);
 * классы и трейты: `class`, `trait`, `new`, `this`, `super`, наследование, подмешивание
   `with`, требования трейтов, проверка `is`, фабрики `def Имя.член(...)`, ссылка
-  на родителя и трейт выражением (`: registry["Shape"](...)`) — см. [классы](classes.md);
+  на родителя и трейт выражением (`: registry["Shape"](...)`), остаток в заголовке
+  `class Proxy(*args, **named)` — см. [классы](classes.md);
+* декораторы: `@[выражение](аргументы)` на функции, классе и трейте, метаданные первым
+  аргументом, модуль `sys.meta`, `like` для сохранения контракта цели —
+  см. [декораторы](decorators.md);
 * модули: `import lib.math` и `import lib.math as m`, импорт в любой области,
   включая тело функции, общее состояние на чтение и на запись, наследование и трейты
   через файлы — см. [модули](modules.md);
@@ -161,7 +165,7 @@ Source → Lexer → List<Token> → Parser → Program (AST) → Interpreter �
 * потоки: модификатор `synchronized def`, модуль `sys.thread` — `spawn`/`join`/
   `interrupt`/`sleep`, пул с обещаниями (`pool.map`, `pool.submit`), замок, счётчик,
   канал и защёлка — см. [потоки](threads.md);
-* встроенные функции `println`, `print`, `typeof`, `len`;
+* встроенные функции `println`, `print`, `typeof`, `len`, `like`;
 * стандартная библиотека `std`: `pow`, `sqrt`, `abs`, классы `File` и `Random` —
   и вместе с ней [способ добавить в язык своё](embedding.md);
 * диагностика разбора, объявления и выполнения с местом в исходнике, REPL,

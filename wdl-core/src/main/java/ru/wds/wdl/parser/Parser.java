@@ -127,6 +127,7 @@ public final class Parser {
             case SYNCHRONIZED -> synchronizedStatement();
             case CLASS -> types.classDeclaration();
             case TRAIT -> types.traitDeclaration();
+            case AT -> decorated();
             case IMPORT -> importStatement();
             default -> simpleStatement();
         };
@@ -232,7 +233,8 @@ public final class Parser {
         if (!(value instanceof FunctionExpr function) || function.name() != null) {
             return value;
         }
-        return new FunctionExpr(name, function.modifiers(), function.params(),
+        // Анонимной она и остаётся: имя тут подставлено для сообщений, а не написано.
+        return new FunctionExpr(name, true, function.modifiers(), function.params(),
                 function.rest(), function.namedRest(), function.body(),
                 function.style(), function.span());
     }
@@ -373,6 +375,99 @@ public final class Parser {
             return new ErrorStmt(keyword.span());
         }
         return cursor.peek(2).type() == TokenType.WORD ? defDeclaration() : simpleStatement();
+    }
+
+    /**
+     * Объявление под декораторами: {@code @[timer]("ms") def command() { ... }}.
+     * <p>
+     * Сначала собирается весь стек — декораторы идут подряд и разделителя между ними
+     * нет, — потом разбирается то, на что он повешен. Целью бывает только объявление:
+     * {@code def} с именем, {@code class}, {@code trait}. Декоратор на анонимной
+     * функции в позиции выражения — вторая версия: {@code f = timer(m.of(g))} пишется
+     * и сейчас, а новая ветка в префиксной позиции стоит дороже, чем экономит.
+     */
+    private Stmt decorated() {
+        Token start = cursor.peek();
+        List<Decorator> decorators = new ArrayList<>();
+        while (cursor.check(TokenType.AT)) {
+            // Продвижение гарантировано: '@' съедается первым же действием, что бы
+            // дальше ни случилось, — поэтому страховки от вечного цикла тут не нужно.
+            Decorator decorator = decorator();
+            if (decorator != null) {
+                decorators.add(decorator);
+            }
+        }
+        if (decorators.isEmpty()) {
+            // Ни одного декоратора не разобралось, и об этом уже сказано. Дальше идёт
+            // объявление, и разобрать его всё равно надо: дерево возвращается всегда.
+            return declarationUnderDecorators(start);
+        }
+        Stmt declaration = declarationUnderDecorators(start);
+        return declaration instanceof ErrorStmt
+                ? declaration
+                : new DecoratedStmt(decorators, declaration, start.span().to(cursor.lastSpan()));
+    }
+
+    /**
+     * То, на что повешен стек декораторов.
+     * <p>
+     * Отдельное сообщение здесь лучше общего «ожидалось выражение»: человек написал
+     * {@code @[...]} и явно собирался что-то объявить, поэтому назвать надо то, что
+     * тут бывает, а не то, чего не хватило разбору выражения.
+     */
+    private Stmt declarationUnderDecorators(Token start) {
+        return switch (cursor.peek().type()) {
+            case DEF -> cursor.peek(1).type() == TokenType.WORD ? defDeclaration() : notADeclaration(start);
+            case SYNCHRONIZED -> cursor.peek(1).type() == TokenType.DEF
+                    && cursor.peek(2).type() == TokenType.WORD
+                    ? defDeclaration()
+                    : notADeclaration(start);
+            case CLASS -> types.classDeclaration();
+            case TRAIT -> types.traitDeclaration();
+            default -> notADeclaration(start);
+        };
+    }
+
+    private Stmt notADeclaration(Token start) {
+        diagnostics.error(cursor.peek().span(), "декоратор вешается на объявление: после него"
+                + " ожидается 'def имя', 'class' или 'trait', найдено " + describe(cursor.peek()));
+        cursor.synchronize();
+        return new ErrorStmt(start.span().to(cursor.lastSpan()));
+    }
+
+    /**
+     * Один декоратор: {@code @[выражение]} и необязательные скобки с аргументами.
+     * <p>
+     * Квадратные скобки обязательны, и это не украшение: без них {@code @t.deco()}
+     * неразличимо — то ли декоратор {@code deco} без аргументов, то ли вызов, чей
+     * результат станет декоратором. Внутри скобок обычное выражение, любое.
+     *
+     * @return разобранный декоратор или {@code null}, если разобрать не вышло
+     */
+    private Decorator decorator() {
+        Token at = cursor.advance(); // @
+        if (!cursor.check(TokenType.LBRACKET)) {
+            diagnostics.error(cursor.peek().span(), "после '@' ожидалась '[': декоратор пишется"
+                    + " как '@[выражение]' — скобки говорят, что внутри выражение,"
+                    + " а не имя, и отделяют его от аргументов");
+            return null;
+        }
+        cursor.advance(); // [
+        if (cursor.check(TokenType.RBRACKET)) {
+            diagnostics.error(cursor.peek().span(), "в '@[]' нет выражения: внутри скобок"
+                    + " должно стоять то, что даёт функцию-декоратор");
+            cursor.advance();
+            return null;
+        }
+        Expr callee = expression(0);
+        cursor.expect(TokenType.RBRACKET, "закрывающую скобку ']' после выражения декоратора");
+        List<Argument> arguments = new ArrayList<>();
+        if (cursor.check(TokenType.LPAREN)) {
+            argumentList(arguments);
+        }
+        return callee instanceof ErrorExpr
+                ? null
+                : new Decorator(callee, arguments, at.span().to(cursor.lastSpan()));
     }
 
     /**

@@ -17,6 +17,7 @@
 | [Единое обращение](access.md) | почему `a.b` и `a["b"]` — одна операция, и что из этого следует |
 | [Классы](classes.md) | `class` и `trait`, `new`, `this` и `super`, наследование, требования трейтов, `is` |
 | [Ошибки и ресурсы](errors.md) | иерархия `Exception`, `throw`, `try`/`catch`/`finally`, `try?`/`try!`, `defer`, `use` и `Closeable`, трассировка |
+| [Декораторы](decorators.md) | `@[...]`, метаданные, порядок применения, `like`, обёртка для класса |
 | [Модули](modules.md) | `import` и `import ... as`, пути, область действия импорта, наследование через файлы |
 | [Потоки](threads.md) | модель памяти, `synchronized`, `sys.thread`: потоки, пул, замок, счётчик, канал, защёлка |
 | [Встраивание](embedding.md) | как приложение добавляет в язык свои функции, классы и библиотеки |
@@ -45,6 +46,8 @@ wdl examples/functions.wdl                  # функции, замыкания
 wdl examples/classes.wdl                    # классы: поля, методы, конструктор, фабрики
 wdl examples/inheritance.wdl                # наследование, super, полиморфизм
 wdl examples/traits.wdl                     # трейты: контракты и готовые реализации
+wdl examples/class-varargs.wdl              # остаток в заголовке класса: *args и **named
+wdl examples/decorators.wdl                 # декораторы: @[...], метаданные, обёртки
 wdl examples/errors.wdl                     # ошибки: throw, try/catch/finally, трейс
 wdl examples/resources.wdl                  # ресурсы: defer, use, трейт Closeable
 wdl examples/testing/errors.wdl             # тесты на самом языке: проверки по ошибкам

@@ -38,7 +38,7 @@ public final class ClassShape implements Shape {
         this.declaration = Objects.requireNonNull(declaration, "declaration");
         this.parent = parent;
         this.traits = List.copyOf(traits);
-        this.arity = arityOf(declaration.params());
+        this.arity = arityOf(declaration.params(), declaration.isVariadic());
 
         Map<String, FieldSlot> collectedFields = new LinkedHashMap<>();
         Map<String, MethodSlot> collectedMethods = new LinkedHashMap<>();
@@ -50,6 +50,8 @@ public final class ClassShape implements Shape {
             collectedFields.putAll(trait.fields());
             collectedMethods.putAll(trait.methods());
         }
+        // Полями становятся только позиционные параметры: у слота есть номер параметра,
+        // а остаток позиции не занимает. См. ast.stmt.ClassDeclStmt.
         List<FunctionExpr.Param> params = declaration.params();
         for (int i = 0; i < params.size(); i++) {
             String name = params.get(i).name();
@@ -74,8 +76,8 @@ public final class ClassShape implements Shape {
     }
 
     /**
-     * То же для метода, у которого может быть остаток {@code *args}: верхней границы
-     * тогда нет вовсе. Заголовку класса эта форма не нужна — остаток там не разбирается.
+     * То же там, где может быть остаток {@code *args}, — у метода и у заголовка класса:
+     * верхней границы тогда нет вовсе.
      */
     static Arity arityOf(List<FunctionExpr.Param> params, boolean variadic) {
         int required = 0;
@@ -109,6 +111,21 @@ public final class ClassShape implements Shape {
 
     public Arity arity() {
         return arity;
+    }
+
+    /**
+     * Имя остаточного параметра {@code *args} или {@code null}.
+     * <p>
+     * Полем остаток не становится, поэтому в {@link #fields()} его нет и искать
+     * его надо здесь. Почему не становится — в {@code ast.stmt.ClassDeclStmt}.
+     */
+    public String restName() {
+        return declaration.rest() == null ? null : declaration.rest().name();
+    }
+
+    /** Имя именованного остатка {@code **named} или {@code null}. */
+    public String namedRestName() {
+        return declaration.namedRest() == null ? null : declaration.namedRest().name();
     }
 
     /**

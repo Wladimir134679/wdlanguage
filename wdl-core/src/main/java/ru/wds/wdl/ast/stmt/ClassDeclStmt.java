@@ -18,6 +18,15 @@ import java.util.Objects;
  * заголовок известен движку до всякого выполнения, отсюда и проверка числа аргументов
  * до входа в конструктор, и внятная печать.
  * <p>
+ * <b>Полями становятся только позиционные параметры.</b> Остаток — {@code *args}
+ * и {@code **named} — позиции не занимает, а список полей читается как список позиций;
+ * ровно та же причина, по которой остаток лежит отдельно и у {@link FunctionExpr}.
+ * В экземпляр он не пишется: иначе прокси-класс, собранный декоратором, подмешивал бы
+ * каждому объекту два лишних поля, и обёртка перестала бы быть незаметной — их увидели
+ * бы и перебор по объекту, и {@code len}, и печать. Виден остаток там, где выполняется
+ * заголовок: в аргументах родителю ({@code class Head(n, *rest) : Base(rest, n)})
+ * и в конструкторе своего класса.
+ * <p>
  * <b>Тело — только объявления функций.</b> Класс это описание, а не код, который
  * что-то делает в момент объявления, поэтому любая другая инструкция в теле —
  * ошибка разбора. Разложены объявления по трём полям, потому что ведут себя
@@ -25,6 +34,9 @@ import java.util.Objects;
  * методов не попадает, {@link #methods()} достаются экземпляру, {@link #factories()}
  * живут на самом классе и экземпляра не имеют.
  *
+ * @param params      позиционные параметры заголовка, они же поля
+ * @param rest        остаточный параметр {@code *args} или {@code null}
+ * @param namedRest   именованный остаток {@code **named} или {@code null}
  * @param parent      родитель или {@code null}; родитель ровно один — из-за конструктора,
  *                    а не из-за конфликтов имён
  * @param constructor тело {@code def Point()} или {@code null}
@@ -33,6 +45,8 @@ public record ClassDeclStmt(
         String name,
         Span nameSpan,
         List<FunctionExpr.Param> params,
+        FunctionExpr.Rest rest,
+        FunctionExpr.Rest namedRest,
         Superclass parent,
         List<TraitRef> traits,
         FunctionExpr constructor,
@@ -50,6 +64,11 @@ public record ClassDeclStmt(
 
     public boolean hasParent() {
         return parent != null;
+    }
+
+    /** Собирает ли заголовок лишние аргументы — то есть безгранично ли их число. */
+    public boolean isVariadic() {
+        return rest != null;
     }
 
     public boolean hasConstructor() {

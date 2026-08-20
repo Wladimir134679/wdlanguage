@@ -166,6 +166,12 @@ public final class Linker {
                     }
                 }
                 if (index < 0) {
+                    if (parent.namedRestName() != null) {
+                        // Имени среди параметров нет, но у родителя есть '**named' —
+                        // туда оно и попадёт. Проверять тут нечего: состав остатка
+                        // и есть «всё, что не разобрано по именам».
+                        continue;
+                    }
                     throw new LinkError(argument.nameSpan(), "класс '" + parent.name()
                             + "' не принимает параметра '" + argument.name() + "'");
                 }
@@ -173,6 +179,11 @@ public final class Linker {
                 position++;
             }
             if (index >= params.size()) {
+                if (parent.restName() != null) {
+                    // Лишний позиционный уходит в '*args' родителя — это не ошибка,
+                    // и позиции он не занимает, поэтому в 'taken' его отмечать нечем.
+                    continue;
+                }
                 throw new LinkError(reference.span(), "класс '" + shape.name() + "' передаёт родителю '"
                         + parent.name() + "' " + arguments.size() + " аргументов, а '" + parent.name()
                         + "' принимает " + parent.arity().describeArguments());

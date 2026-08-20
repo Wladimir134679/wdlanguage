@@ -65,9 +65,12 @@ final class TypeParser {
             return new ErrorStmt(keyword.span());
         }
 
-        List<FunctionExpr.Param> params = cursor.check(TokenType.LPAREN)
-                ? parameters("имени класса '" + name.text() + "'", true)
-                : List.of();
+        // Остаток в заголовке разрешён: без него класс-обёртка не смог бы перебросить
+        // аргументы родителю, а именно так декоратор оборачивает класс.
+        Params header = cursor.check(TokenType.LPAREN)
+                ? parameters("имени класса '" + name.text() + "'", true, true)
+                : Params.empty();
+        List<FunctionExpr.Param> params = header.params();
         ClassDeclStmt.Superclass parent = cursor.check(TokenType.COLON) ? superclass() : null;
         List<ClassDeclStmt.TraitRef> traits = traitList();
         if (cursor.check(TokenType.COLON)) {
@@ -77,8 +80,8 @@ final class TypeParser {
 
         Members members = typeBody(name.text(), parent != null, true);
         Span span = keyword.span().to(cursor.lastSpan());
-        return new ClassDeclStmt(name.text(), name.span(), params, parent, traits,
-                members.constructor, members.methods, members.factories, span);
+        return new ClassDeclStmt(name.text(), name.span(), params, header.rest(), header.namedRest(),
+                parent, traits, members.constructor, members.methods, members.factories, span);
     }
 
     /**
@@ -467,17 +470,20 @@ final class TypeParser {
      */
     record Params(List<FunctionExpr.Param> params, FunctionExpr.Rest rest,
                   FunctionExpr.Rest namedRest) {
+
+        /** Заголовок, которого не написали вовсе: {@code class Marker { ... }}. */
+        static Params empty() {
+            return new Params(List.of(), null, null);
+        }
     }
 
     /**
      * Список параметров без остатков: {@code (a, b = 10)}.
      * <p>
-     * Такой список у заголовка класса и трейта. Остаток там запрещён не из осторожности:
-     * заголовок класса задаёт ещё и поля, у каждого из которых есть номер параметра
-     * ({@code resolve.FieldSlot}), и поле-остаток требует сперва решить, чем оно является
-     * для наследника, для трейта и для требования. Отдельная работа, и она ничего
-     * не ломает: раскрытие в {@code new} классам достаётся и так — список аргументов
-     * в скобках в языке один.
+     * Такой список остался только у заголовка трейта. Остаток там запрещён по существу,
+     * а не из осторожности: заголовок трейта задаёт поля и требования к классу, а
+     * конструктора, которому эти аргументы можно было бы перебросить, у трейта нет —
+     * собирать остаток некому и незачем.
      */
     List<FunctionExpr.Param> parameters(String owner, boolean callSignature) {
         return parameters(owner, callSignature, false).params();
@@ -492,8 +498,9 @@ final class TypeParser {
      *                      У заголовка трейта — нет: там параметр без значения это
      *                      не «обязательный аргумент», а требование к классу,
      *                      и порядок для него не значит ничего
-     * @param allowRest     разрешены ли остаточные параметры — то есть функция это
-     *                      или метод, а не заголовок типа
+     * @param allowRest     разрешены ли остаточные параметры. Разрешены везде, кроме
+     *                      заголовка трейта: у него нет конструктора, а значит и того,
+     *                      кому остаток можно было бы перебросить
      */
     Params parameters(String owner, boolean callSignature, boolean allowRest) {
         cursor.expect(TokenType.LPAREN, "открывающую скобку '(' после " + owner);
@@ -566,7 +573,8 @@ final class TypeParser {
         }
         if (!allowRest) {
             diagnostics.error(name.span(), "остаточный параметр '" + name.text() + "' здесь"
-                    + " не разрешён: этот список задаёт поля, а не аргументы вызова");
+                    + " не разрешён: заголовок трейта задаёт поля, а конструктора,"
+                    + " которому можно было бы перебросить остаток, у трейта нет");
             return null;
         }
         FunctionExpr.Rest same = named ? namedRest : rest;

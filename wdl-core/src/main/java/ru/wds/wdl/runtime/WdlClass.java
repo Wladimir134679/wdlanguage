@@ -19,6 +19,7 @@ import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
+import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.MapValue;
 
@@ -181,7 +182,14 @@ final class WdlClass implements ClassValue {
      */
     @Override
     public Value instantiate(List<Value> arguments, CallContext caller, Span span) {
-        return instantiate(Arguments.positional(arguments), caller, span);
+        // У класса с остатком плотный список сам собой не разложится: заголовок идёт
+        // по своим позициям, и хвост, которому места не хватило, потерялся бы молча.
+        // То же правило и по той же причине, что в UserFunction.call.
+        Signature signature = signature();
+        Arguments prepared = signature.hasRest() || signature.hasNamedRest()
+                ? Binder.bindPositional(signature, arguments, Binder.Callee.klass(name()), span)
+                : Arguments.positional(arguments);
+        return instantiate(prepared, caller, span);
     }
 
     /**
@@ -212,13 +220,27 @@ final class WdlClass implements ClassValue {
             throw FatalError.tooDeep(span, "Проверьте создание '" + name() + "'");
         }
 
-        Map<Shape, Value[]> bound = bindLineage(arguments, caller, span);
+        Map<Shape, Header> bound = bindLineage(arguments, caller, span);
         InstanceObjectValue instance = InstanceObjectValue.of(this);
         for (FieldSlot slot : shape.fields().values()) {
             instance.put(slot.name(), fieldValue(slot, bound, caller, span));
         }
-        construct(instance, caller, span);
+        construct(instance, bound, caller, span);
         return instance;
+    }
+
+    /**
+     * Связанный заголовок одного класса цепочки.
+     * <p>
+     * Значения полей лежат по позициям — по ним идёт запись в экземпляр. Область
+     * нужна отдельно из-за остатка: {@code *args} и {@code **named} полями не стали,
+     * а видны быть должны — в аргументах родителю и в конструкторе своего класса.
+     * Держать их больше негде: в экземпляре их нет по построению.
+     *
+     * @param values значения позиционных параметров заголовка
+     * @param scope  область, в которой заголовок выполнялся: параметры и остатки
+     */
+    private record Header(Value[] values, Environment scope) {
     }
 
     /**
@@ -232,7 +254,8 @@ final class WdlClass implements ClassValue {
      * та же область поверх экземпляра, тот же {@code return}, та же защита от рекурсии.
      * В таблицу методов он при этом не попадает — {@code p.Point()} вызвать нельзя.
      */
-    private void construct(InstanceObjectValue instance, CallContext caller, Span span) {
+    private void construct(InstanceObjectValue instance, Map<Shape, Header> bound,
+                           CallContext caller, Span span) {
         List<WdlClass> lineage = new ArrayList<>();
         for (WdlClass klass = this; klass != null; klass = klass.parent) {
             lineage.add(klass);
@@ -242,8 +265,12 @@ final class WdlClass implements ClassValue {
         for (WdlClass klass : lineage) {
             FunctionExpr constructor = klass.shape.constructor();
             if (constructor != null) {
-                bind(instance, new Method(constructor, klass.closure, klass.unit, klass))
-                        .call(caller, List.of(), span);
+                // Замыканием служит не область объявления класса, а область его
+                // заголовка — тот же слой плюс остаток. Позиционные параметры в ней
+                // тоже лежат, но их всегда перекрывают одноимённые поля экземпляра,
+                // поэтому единственное, что этот слой добавляет, — '*args' и '**named'.
+                bind(instance, new Method(constructor, bound.get(klass.shape).scope(),
+                        klass.unit, klass)).call(caller, List.of(), span);
             }
         }
     }
@@ -257,8 +284,8 @@ final class WdlClass implements ClassValue {
      * параметром: это список аргументов, а не источник поля, и побочный эффект
      * в нём не должен зависеть от того, какие имена завёл потомок.
      */
-    private Map<Shape, Value[]> bindLineage(Arguments arguments, CallContext caller, Span span) {
-        Map<Shape, Value[]> bound = new IdentityHashMap<>();
+    private Map<Shape, Header> bindLineage(Arguments arguments, CallContext caller, Span span) {
+        Map<Shape, Header> bound = new IdentityHashMap<>();
         Arguments level = arguments;
         for (WdlClass klass = this; klass != null; klass = klass.parent) {
             Environment local = Scope.under(klass.closure);
@@ -266,12 +293,34 @@ final class WdlClass implements ClassValue {
             // или из аргумента родителю должна показывать создание, а не пустоту.
             ExecutionContext inner = ExecutionContext.call(local, caller, run, klass.unit,
                     "new " + klass.name(), span);
-            bound.put(klass.shape, bindParams(klass.shape.params(), level, local, inner));
+            Value[] values = bindParams(klass.shape.params(), level, local, inner);
+            bindRest(klass.shape, level, local);
+            bound.put(klass.shape, new Header(values, local));
 
             ClassDeclStmt.Superclass reference = klass.shape.declaration().parent();
             level = reference == null ? Arguments.none() : parentArguments(klass, reference, inner, span);
         }
         return bound;
+    }
+
+    /**
+     * Заводит остатки заголовка в области связывания: {@code *args} и {@code **named}.
+     * <p>
+     * После позиционных параметров, а не до: остаток — это то, чего им не хватило,
+     * и посчитать его можно только когда позиции разобраны. Правее остатка параметров
+     * не бывает — он заканчивает заголовок, — поэтому значений по умолчанию, которым
+     * он мог бы понадобиться, здесь нет; нужен он аргументам родителю и конструктору.
+     * В экземпляр остатки не пишутся — почему, разобрано в {@code ast.stmt.ClassDeclStmt}.
+     */
+    private static void bindRest(ClassShape shape, Arguments arguments, Environment local) {
+        if (shape.restName() != null) {
+            local.define(shape.restName(), ArrayValue.of(arguments.rest()));
+        }
+        if (shape.namedRestName() != null) {
+            MapValue named = new MapValue();
+            arguments.namedRest().forEach(named::put);
+            local.define(shape.namedRestName(), named);
+        }
     }
 
     /**
@@ -328,9 +377,9 @@ final class WdlClass implements ClassValue {
      * не должно. Область вычисления при этом всегда область объявления трейта:
      * полей класса такое значение не видит и видеть не может.
      */
-    private Value fieldValue(FieldSlot slot, Map<Shape, Value[]> bound, CallContext caller, Span span) {
+    private Value fieldValue(FieldSlot slot, Map<Shape, Header> bound, CallContext caller, Span span) {
         if (slot.owner() instanceof ClassShape owner) {
-            return bound.get(owner)[slot.paramIndex()];
+            return bound.get(owner).values()[slot.paramIndex()];
         }
         if (slot.owner() instanceof NativeTraitShape declared) {
             // У трейта от приложения значение поля готово: вычислять нечего,
@@ -365,8 +414,9 @@ final class WdlClass implements ClassValue {
     }
 
     /**
-     * Контракт создания: имена полей заголовка. Значения по умолчанию отложенные —
-     * по той же причине, что у функции: там стоит выражение, а не готовое значение.
+     * Контракт создания: имена полей заголовка и остатки. Значения по умолчанию
+     * отложенные — по той же причине, что у функции: там стоит выражение,
+     * а не готовое значение.
      */
     @Override
     public Signature signature() {
@@ -376,7 +426,7 @@ final class WdlClass implements ClassValue {
                     ? Signature.Param.lazy(param.name())
                     : Signature.Param.required(param.name()));
         }
-        return Signature.of(params);
+        return Signature.of(params, shape.restName(), shape.namedRestName());
     }
 
     /**

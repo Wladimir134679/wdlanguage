@@ -1,6 +1,7 @@
 package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
@@ -61,6 +62,20 @@ public final class Builtins {
                 default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                         "len() работает со строкой, массивом или объектом, а здесь " + value.type().title());
             };
+        }));
+
+        // like — единственная встроенная, существующая ради сообщений об ошибках:
+        // без неё декоратор молча съедает проверку числа аргументов. См. LikeFunction.
+        scope.define("like", BuiltinFunction.of("like", Arity.exactly(2), (context, arguments, span) -> {
+            if (!(arguments.get(0) instanceof FunctionValue target)) {
+                throw new WdlRuntimeError(ErrorKind.TYPE, span, "like(): первым аргументом идёт"
+                        + " цель — функция, а здесь " + arguments.get(0).type().title());
+            }
+            if (!(arguments.get(1) instanceof FunctionValue wrapper)) {
+                throw new WdlRuntimeError(ErrorKind.TYPE, span, "like(): вторым аргументом идёт"
+                        + " обёртка — функция, а здесь " + arguments.get(1).type().title());
+            }
+            return LikeFunction.of(target, wrapper, span);
         }));
 
         return scope;

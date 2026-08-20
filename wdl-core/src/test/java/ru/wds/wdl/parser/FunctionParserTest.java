@@ -416,12 +416,21 @@ class FunctionParserTest {
     }
 
     @Test
-    @DisplayName("в заголовке класса и трейта остатка нет: там список полей")
-    void restForbiddenInTypeHeader() {
-        assertTrue(errorOf("class Point(x, *rest) {}")
-                .contains("остаточный параметр 'rest' здесь не разрешён"));
+    @DisplayName("в заголовке трейта остатка нет: собирать его некому")
+    void restForbiddenInTraitHeader() {
         assertTrue(errorOf("trait Counted(*rest) {}")
                 .contains("остаточный параметр 'rest' здесь не разрешён"));
+    }
+
+    @Test
+    @DisplayName("в заголовке класса остаток есть: без него класс-обёртка не перебросит аргументы")
+    void restInClassHeader() {
+        ClassDeclStmt declared = assertInstanceOf(ClassDeclStmt.class,
+                single("class Box(x, *rest, **named) {}"));
+        assertEquals(1, declared.params().size());
+        assertEquals("rest", declared.rest().name());
+        assertEquals("named", declared.namedRest().name());
+        assertTrue(declared.isVariadic());
     }
 
     @Test

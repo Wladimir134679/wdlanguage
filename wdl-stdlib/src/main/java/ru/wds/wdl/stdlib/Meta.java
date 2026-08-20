@@ -1,0 +1,67 @@
+package ru.wds.wdl.stdlib;
+
+import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.runtime.BuiltinFunction;
+import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.DecoratorMeta;
+
+import java.util.Objects;
+
+/**
+ * Модуль {@code sys.meta}: собрать метаданные декоратора руками.
+ *
+ * <pre>{@code
+ * import sys.meta as m
+ *
+ * def reg(meta) {
+ *     println("зарегистрирован ", meta.name)
+ * }
+ *
+ * @[reg]
+ * def app() { }
+ *
+ * reg(m.of(app))          // то же самое, что сделала бы строка '@[reg]'
+ * }</pre>
+ *
+ * <b>Зачем модуль вообще нужен.</b> Декоратор получает метаданные нулевым
+ * аргументом, и без этого модуля позвать его руками было бы нельзя, не сфабриковав
+ * карту по памяти. Тогда декоратор перестал бы быть обычной функцией: его нельзя
+ * было бы ни протестировать, ни переиспользовать, ни применить к значению,
+ * полученному в рантайме, — а «функция это обычное значение» держит в языке
+ * слишком многое, чтобы делать здесь исключение.
+ * <p>
+ * <b>Источник один.</b> Карту строит {@link DecoratorMeta} — тот же класс, которым
+ * пользуется интерпретатор, когда применяет {@code @[...]}. Разойтись двум путям
+ * тут просто негде, и это единственная причина, по которой модуль состоит
+ * из одной функции: всё содержательное живёт в ядре, здесь только имя для скрипта.
+ * <p>
+ * Годится любое значение, а не только объявляемое: {@code m.of(42)} даст карту,
+ * в которой {@code name} равно {@code null}. Запрещать — значит завести проверку,
+ * которой при настоящем декорировании не бывает.
+ */
+public final class Meta implements Library {
+
+    private Meta() {
+    }
+
+    /** Фабрика для реестра встроенных модулей. */
+    public static Library library() {
+        return new Meta();
+    }
+
+    @Override
+    public String name() {
+        return "sys/meta";
+    }
+
+    @Override
+    public Environment installTo(Environment scope) {
+        Objects.requireNonNull(scope, "scope");
+
+        scope.define("of", BuiltinFunction.of("of", Arity.exactly(1),
+                (context, arguments, span) -> DecoratorMeta.of(arguments.at(0))));
+
+        return scope;
+    }
+}

@@ -152,7 +152,8 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
      */
     @Override
     public Void visitClassDecl(ClassDeclStmt stmt, Integer depth) {
-        line(depth, "объявление класса " + stmt.name() + "(" + header(stmt.params()) + ")", stmt.span());
+        line(depth, "объявление класса " + stmt.name()
+                + "(" + header(stmt.params(), stmt.rest(), stmt.namedRest()) + ")", stmt.span());
         defaults(stmt.params(), depth + 1);
         if (stmt.hasParent()) {
             ClassDeclStmt.Superclass parent = stmt.parent();
@@ -172,6 +173,24 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
             line(depth + 1, "фабрика " + factory.function().title(), factory.span());
             visit(factory.function(), depth + 2);
         }
+        return null;
+    }
+
+    /**
+     * Декораторы печатаются <b>в порядке записи</b>, сверху вниз, а применяются снизу
+     * вверх. Дамп показывает текст, а не выполнение: перевёрнутый список сбивал бы
+     * с толку того, кто сверяет дерево с исходником.
+     */
+    @Override
+    public Void visitDecorated(DecoratedStmt stmt, Integer depth) {
+        line(depth, "декорированное объявление, декораторов: " + stmt.decorators().size(),
+                stmt.span());
+        for (Decorator decorator : stmt.decorators()) {
+            line(depth + 1, "декоратор", decorator.span());
+            visit(decorator.callee(), depth + 2);
+            arguments(decorator.arguments(), depth + 2);
+        }
+        visit(stmt.declaration(), depth + 1);
         return null;
     }
 

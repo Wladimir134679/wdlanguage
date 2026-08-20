@@ -17,6 +17,7 @@ import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arguments;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.ClassValue;
+import ru.wds.wdl.value.DecoratorMeta;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.FunctionValue;
@@ -27,6 +28,7 @@ import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
+import ru.wds.wdl.value.ValueType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -404,6 +406,108 @@ public final class Interpreter
         checkNotConstant(stmt.name(), stmt.span(), context);
         context.scope().define(stmt.name(), valueOf(stmt.function(), context));
         return null;
+    }
+
+    /**
+     * Объявление под декораторами: {@code @[timer]("ms") def command() { ... }}.
+     * <p>
+     * Порядок здесь весь смысл конструкции. Сначала строится значение — то же самое,
+     * какое построило бы объявление само по себе, — но <b>имя не заводится</b>.
+     * Потом значение проходит через декораторы снизу вверх: ближайший к {@code def}
+     * получает саму цель, следующий — то, что вернул предыдущий. И только результат
+     * последнего попадает в область видимости.
+     * <p>
+     * Отсюда правило записи, которое стоит знать заранее: не оборачивающие декораторы
+     * ставятся ближе к {@code def}, чем оборачивающие. Наблюдатель наверху стека увидит
+     * не цель, а анонимную обёртку — и будет прав, под именем в тот момент лежит она.
+     * <p>
+     * <b>Декоратор выполняется каждый раз, когда исполнение проходит через объявление.</b>
+     * Стадии между разбором и выполнением в языке нет, поэтому {@code def} внутри
+     * функции декорируется на каждом её вызове. Это не оговорка, а то же правило
+     * «имя существует с той строки, где его завели», просто применённое к декоратору.
+     * <p>
+     * <b>Декорированный класс не переиспользуется.</b> {@link #classOf} возвращает
+     * прежнее значение, если под именем уже лежит класс той же формы; под декорированным
+     * именем лежит результат декоратора, и совпасть ему не с чем. То есть повторное
+     * прохождение объявления даёт новый класс, а объект из прошлого прохода перестаёт
+     * быть {@code is} этому классу. Чинить нечего: декоратор волен вернуть что угодно
+     * и выполняется заново — переиспользовать здесь просто нечего.
+     */
+    @Override
+    public Void visitDecorated(DecoratedStmt stmt, ExecutionContext context) {
+        String name = stmt.name();
+        checkNotConstant(name, stmt.declaration().span(), context);
+
+        Value value = undecorated(stmt.declaration(), context);
+        List<Decorator> decorators = stmt.decorators();
+        for (int i = decorators.size() - 1; i >= 0; i--) {
+            value = apply(decorators.get(i), value, context);
+        }
+        context.scope().define(name, value);
+        return null;
+    }
+
+    /**
+     * Значение, которое объявление построило бы само по себе, — но без записи имени.
+     * <p>
+     * Ради этого и разведены «построить» и «завести»: у декорированного объявления
+     * имя заводится один раз и уже обвешанным значением. Промежуточной записи быть
+     * не должно — иначе между ней и итоговой существовало бы окно, в котором под
+     * именем лежит цель, а не то, что просил автор.
+     */
+    private Value undecorated(Stmt declaration, ExecutionContext context) {
+        return switch (declaration) {
+            case DefDeclStmt declared -> valueOf(declared.function(), context);
+            case ClassDeclStmt declared -> classOf(declared, context);
+            case TraitDeclStmt declared -> traitOf(declared, context);
+            // Разбор сюда ничего другого не пропускает: парсер принимает после '@[...]'
+            // только объявление, а неразобранное объявление до выполнения не доживает.
+            default -> throw new IllegalStateException("не объявление под декоратором: " + declaration);
+        };
+    }
+
+    /**
+     * Один шаг: зовёт декоратор, подставив метаданные нулевым аргументом.
+     * <p>
+     * <b>Цель приходит позицией, а не особым каналом.</b> Поэтому попытка задать её
+     * своим именем — {@code @[deco](meta: 5)} при {@code def deco(meta, **opts)} —
+     * даёт обычную ошибку «параметр передан дважды»: связыватель видит позицию,
+     * занятую дважды, и писать для этого случая отдельное сообщение не нужно.
+     * <p>
+     * {@code null} в ответе оставляет цель прежней. Значит, декоратору не обязательно
+     * заканчиваться возвратом — регистрирующему возвращать нечего, — и заменить цель
+     * на {@code null} нельзя. Второе не потеря: имя со значением {@code null}
+     * ни вызвать, ни создать.
+     */
+    private Value apply(Decorator decorator, Value target, ExecutionContext context) {
+        Value callee = valueOf(decorator.callee(), context);
+        if (!(callee instanceof FunctionValue function)) {
+            throw new WdlRuntimeError(ErrorKind.CALL, decorator.callee().span(),
+                    "декоратором может быть только функция, а здесь "
+                            + callee.type().title() + " (" + callee + ")");
+        }
+
+        List<Argument> written = decorator.arguments();
+        List<Argument> all = new ArrayList<>(written.size() + 1);
+        all.add(Argument.positional(new LiteralExpr(DecoratorMeta.of(target), decorator.span())));
+        all.addAll(written);
+
+        List<Value> values = evaluate(all, context);
+        Arguments arguments;
+        if (Binder.needed(function.signature(), all)) {
+            arguments = Binder.bind(function.signature(), all, values,
+                    Binder.Callee.function(function.name()), decorator.span());
+        } else {
+            if (!function.arity().accepts(values.size())) {
+                throw new WdlRuntimeError(ErrorKind.CALL, decorator.span(), "декоратор '"
+                        + function.name() + "' принимает " + function.arity().describeArguments()
+                        + " вместе с метаданными, а передано " + values.size());
+            }
+            arguments = Arguments.positional(values);
+        }
+
+        Value replacement = function.call(context, arguments, decorator.span());
+        return replacement == null || replacement.type() == ValueType.NULL ? target : replacement;
     }
 
     /**

@@ -130,6 +130,18 @@ public final class UserFunction implements FunctionValue {
     }
 
     @Override
+    public String knownName() {
+        // Именно name(), а не title(): title подставляет 'def' там, где имени нет,
+        // и эта подстановка предназначена сообщениям, а не данным.
+        return declaration.name();
+    }
+
+    @Override
+    public boolean anonymous() {
+        return declaration.anonymous();
+    }
+
+    @Override
     public Arity arity() {
         return arity;
     }

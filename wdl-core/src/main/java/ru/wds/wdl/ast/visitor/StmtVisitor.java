@@ -55,6 +55,12 @@ public interface StmtVisitor<R, C> {
     /** Работа с ресурсом: значение закрывается на любом выходе из тела. */
     R visitUse(UseStmt stmt, C context);
 
+    /**
+     * Объявление под декораторами: значение строится вложенным объявлением,
+     * а имя заводит уже эта инструкция — декорированным результатом.
+     */
+    R visitDecorated(DecoratedStmt stmt, C context);
+
     R visitErrorStmt(ErrorStmt stmt, C context);
 
     /** Точка входа: направляет инструкцию нужному методу. */
@@ -79,6 +85,7 @@ public interface StmtVisitor<R, C> {
             case TryStmt s -> visitTry(s, context);
             case DeferStmt s -> visitDefer(s, context);
             case UseStmt s -> visitUse(s, context);
+            case DecoratedStmt s -> visitDecorated(s, context);
             case ErrorStmt s -> visitErrorStmt(s, context);
         };
     }
