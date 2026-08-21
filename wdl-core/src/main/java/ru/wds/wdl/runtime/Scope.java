@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Binding;
 import ru.wds.wdl.value.Value;
 
@@ -92,6 +93,25 @@ public final class Scope implements Environment {
             return alias.value();
         }
         return parent != null ? parent.lookup(name) : null;
+    }
+
+    /**
+     * Своё имя сильнее свойства снаружи — как и всякое своё имя сильнее внешнего.
+     * Локальная переменная {@code size} внутри метода затеняет свойство {@code size},
+     * ровно как затеняет глобальную переменную.
+     */
+    @Override
+    public Value lookup(String name, ExecutionContext context, Span span) {
+        Objects.requireNonNull(name, "name");
+        Value value = values.get(name);
+        if (value != null) {
+            return value;
+        }
+        Binding alias = alias(name);
+        if (alias != null) {
+            return alias.value();
+        }
+        return parent != null ? parent.lookup(name, context, span) : null;
     }
 
     @Override
@@ -200,6 +220,16 @@ public final class Scope implements Environment {
 
     @Override
     public Assignment assign(String name, Value value) {
+        return assign(name, value, null, null);
+    }
+
+    /**
+     * Контекст здесь только транзитом: своих свойств у области нет, но за именем
+     * снаружи может стоять свойство, и {@code size = 5} внутри метода обязано дойти
+     * до его setter, а не завести имя рядом.
+     */
+    @Override
+    public Assignment assign(String name, Value value, ExecutionContext context, Span span) {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(value, "value");
         if (isFrozen(name)) {
@@ -219,7 +249,7 @@ public final class Scope implements Environment {
         if (alias != null) {
             return alias.set(value) ? Assignment.DONE : Assignment.CONSTANT;
         }
-        return parent != null ? parent.assign(name, value) : Assignment.ABSENT;
+        return parent != null ? parent.assign(name, value, context, span) : Assignment.ABSENT;
     }
 
     @Override

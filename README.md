@@ -55,7 +55,8 @@
   `*args`/`**named` и раскрытие `f(*array)`, замыкания, области видимости вызова.
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
 * [Классы](docs/classes.md) — `class` и `trait`, `new`, `this` и `super`, наследование,
-  требования трейтов, проверка `is`, остаток в заголовке `*args`/`**named`.
+  свойства с `get`/`set` и скрытым полем, требования трейтов, проверка `is`,
+  остаток в заголовке `*args`/`**named`.
 * [Декораторы](docs/decorators.md) — `@[выражение](аргументы)`, метаданные первым
   аргументом, порядок применения, `like`, обёртка для класса через наследника.
 * [Потоки](docs/threads.md) — модель памяти, `synchronized`, модуль `sys.thread`:
@@ -81,6 +82,7 @@
 ./gradlew :wdl-cli:run --args="examples/variadic-args.wdl"        # *args, **named, раскрытие
 ./gradlew :wdl-cli:run --args="examples/const.wdl"                # константы
 ./gradlew :wdl-cli:run --args="examples/class-varargs.wdl"        # остаток в заголовке класса
+./gradlew :wdl-cli:run --args="examples/properties.wdl"           # свойства: get/set, скрытое поле
 ./gradlew :wdl-cli:run --args="examples/decorators.wdl"           # декораторы: @[...], like
 ./gradlew :wdl-cli:run --args="examples/threads.wdl"              # потоки и synchronized
 ./gradlew :wdl-cli:run --args="examples/threads_pool.wdl"         # пул, канал, защёлка
@@ -133,7 +135,9 @@ $ wdl examples/hello.wdl
 именованные аргументы `f(count: 2)`, вариативные параметры `*args`/`**named`
 и раскрытие `f(*array)`, замыкания),
 классы (`class`, `trait`, `new`, `this`, `super`, `with`, `is`, фабрики
-`def Имя.член(...)`, остаток в заголовке `class Proxy(*args, **named)`),
+`def Имя.член(...)`, остаток в заголовке `class Proxy(*args, **named)`,
+свойства `property имя { def get() def set(value) }` со скрытым полем `field`
+и требованиями трейтов через возможность),
 декораторы (`@[выражение](аргументы)` на функции, классе и трейте; метаданные
 первым аргументом, модуль `sys.meta`, встроенная `like`), ошибки и ресурсы (иерархия `Exception`, `throw`,
 `try`/`catch`/`finally`, короткие формы `try?` и `try!`, `defer`, `use` с трейтом

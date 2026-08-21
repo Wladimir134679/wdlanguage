@@ -5,6 +5,7 @@ import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.TraitDeclStmt;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.PropertyRequirement;
 import ru.wds.wdl.value.Requirement;
 
 import java.util.ArrayList;
@@ -102,6 +103,7 @@ public final class Linker {
         // Проверки до записи в кэш: неудачная связка запоминаться не должна, иначе
         // второе выполнение той же строки промолчало бы.
         checkParentArguments(shape);
+        checkPropertyNames(shape);
         checkRequirements(shape);
         known.add(new Linked(parent, List.copyOf(mixins), shape));
         return shape;
@@ -203,6 +205,32 @@ public final class Linker {
     }
 
     /**
+     * Свойство и метод под одним именем.
+     * <p>
+     * Ошибка, а не «побеждает последний», и это единственное место, где плоские
+     * таблицы отступают от общего правила. Причина в том, что вытеснять тут нечего:
+     * поле и свойство взаимозаменяемы — оба читаются обращением и оба дают значение,
+     * — а метод читается тем же обращением, но даёт функцию, которую потом зовут.
+     * Молчаливый выбор одного из двух означал бы, что {@code obj.size} в одном месте
+     * число, а в другом функция, и разницу видно только по объявлению предка.
+     * <p>
+     * Внутри одного тела это ловит разбор; сюда доходит только столкновение через
+     * наследование и примеси, где текста рядом нет и подсказать может лишь связывание.
+     */
+    private static void checkPropertyNames(ClassShape shape) {
+        for (PropertySlot property : shape.properties().values()) {
+            MethodSlot method = shape.methods().get(property.name());
+            if (method == null) {
+                continue;
+            }
+            throw new LinkError(shape.declaration().nameSpan(), "в классе '" + shape.name()
+                    + "' имя '" + property.name() + "' занято и свойством (из '"
+                    + property.owner().name() + "'), и методом (из '" + method.declaredIn().name()
+                    + "'): свойство даёт значение, метод — функцию, и выбрать за вас язык не станет");
+        }
+    }
+
+    /**
      * Требования трейтов — то единственное, чего не даёт утиная типизация, и то,
      * ради чего трейты заведены.
      * <p>
@@ -217,10 +245,26 @@ public final class Linker {
     private static void checkRequirements(ClassShape shape) {
         for (TraitShape trait : shape.traits()) {
             for (String required : trait.requiredFields()) {
-                if (!shape.fields().containsKey(required)) {
-                    throw new LinkError(shape.declaration().nameSpan(), unmet(shape, trait)
-                            + "нет поля '" + required + "'. Объявите его в заголовке класса");
+                if (shape.fields().containsKey(required)) {
+                    continue;
                 }
+                // Полевое требование закрывает и свойство, умеющее читать и писать:
+                // трейт просил место, которое читают и пишут, и получил именно его.
+                // Иначе замена поля вычисляемым свойством ломала бы контракт, ради
+                // сохранения которого свойства и заведены.
+                PropertySlot property = shape.properties().get(required);
+                if (property != null && property.readable() && property.writable()) {
+                    continue;
+                }
+                throw new LinkError(shape.declaration().nameSpan(), unmet(shape, trait)
+                        + (property == null
+                        ? "нет поля '" + required + "'. Объявите его в заголовке класса "
+                        + "или свойством с 'get' и 'set'"
+                        : "свойство '" + required + "' не умеет "
+                        + property.missingFor(true, true)));
+            }
+            for (PropertyRequirement required : trait.requiredProperties()) {
+                checkProperty(shape, trait, required);
             }
             for (Requirement required : trait.requiredMethods()) {
                 MethodSlot provided = shape.methods().get(required.name());
@@ -238,6 +282,38 @@ public final class Linker {
                 }
             }
         }
+    }
+
+    /**
+     * Требование к свойству: имя должно уметь то, что обещано, — а чем оно это умеет,
+     * трейта не касается.
+     * <p>
+     * <b>Поле закрывает и чтение, и запись</b>: обычное изменяемое поле читают
+     * и пишут обращением, то есть ровно то, о чём требование и говорит. Свойство
+     * закрывает те аксессоры, что у него есть. Метод не закрывает ничего — его читают
+     * именем, а зовут скобками, и это другая операция.
+     * <p>
+     * Отсюда и вся польза: поле можно заменить вычисляемым свойством и наоборот,
+     * не сломав ни одного контракта, — а этого не даёт ни одна проверка «есть ли поле».
+     */
+    private static void checkProperty(ClassShape shape, TraitShape trait,
+                                      PropertyRequirement required) {
+        PropertySlot property = shape.properties().get(required.name());
+        boolean canRead = property != null ? property.readable()
+                : shape.fields().containsKey(required.name());
+        boolean canWrite = property != null ? property.writable()
+                : shape.fields().containsKey(required.name());
+        if (required.satisfiedBy(canRead, canWrite)) {
+            return;
+        }
+        if (property == null) {
+            throw new LinkError(shape.declaration().nameSpan(), unmet(shape, trait)
+                    + "нет имени '" + required.name() + "'. Объявите его полем в заголовке "
+                    + "класса или свойством в теле");
+        }
+        throw new LinkError(shape.declaration().nameSpan(), unmet(shape, trait)
+                + "свойство '" + required.name() + "' не умеет "
+                + required.missing(canRead, canWrite));
     }
 
     private static String unmet(ClassShape shape, TraitShape trait) {

@@ -3,6 +3,7 @@ package ru.wds.wdl.embed;
 import ru.wds.wdl.resolve.NativeTraitShape;
 import ru.wds.wdl.resolve.TraitShape;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.PropertyRequirement;
 import ru.wds.wdl.value.Requirement;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
@@ -67,7 +68,7 @@ public final class NativeTrait implements TraitValue {
 
     private NativeTrait(Builder builder) {
         this.shape = new NativeTraitShape(builder.name, builder.requiredFields,
-                builder.requiredMethods, builder.fields);
+                builder.requiredMethods, builder.requiredProperties, builder.fields);
     }
 
     public static Builder named(String name) {
@@ -100,6 +101,11 @@ public final class NativeTrait implements TraitValue {
     }
 
     @Override
+    public List<PropertyRequirement> requiredProperties() {
+        return shape.requiredProperties();
+    }
+
+    @Override
     public String toString() {
         return display();
     }
@@ -110,6 +116,7 @@ public final class NativeTrait implements TraitValue {
         private final String name;
         private final List<String> requiredFields = new ArrayList<>();
         private final List<Requirement> requiredMethods = new ArrayList<>();
+        private final List<PropertyRequirement> requiredProperties = new ArrayList<>();
         private final Map<String, Value> fields = new LinkedHashMap<>();
 
         private Builder(String traitName) {
@@ -137,6 +144,33 @@ public final class NativeTrait implements TraitValue {
             requireName(fieldName, "имя требуемого поля");
             checkFree(fieldName);
             requiredFields.add(fieldName);
+            return this;
+        }
+
+        /**
+         * Требование: имя должно читаться. Закрыть его класс волен чем угодно —
+         * полем в заголовке или свойством с {@code get}.
+         */
+        public Builder requireReadable(String propertyName) {
+            return require(PropertyRequirement.readable(propertyName));
+        }
+
+        /**
+         * Требование: имя должно читаться <b>и</b> записываться. Закрывает его
+         * обычное поле или свойство с {@code get} и {@code set}.
+         */
+        public Builder requireMutable(String propertyName) {
+            return require(PropertyRequirement.mutable(propertyName));
+        }
+
+        private Builder require(PropertyRequirement requirement) {
+            requireName(requirement.name(), "имя требуемого свойства");
+            if (requiredProperties.stream()
+                    .anyMatch(known -> known.name().equals(requirement.name()))) {
+                throw new IllegalArgumentException("свойство '" + requirement.name()
+                        + "' у трейта '" + name + "' уже требуется");
+            }
+            requiredProperties.add(requirement);
             return this;
         }
 

@@ -42,6 +42,25 @@ import java.util.Set;
  */
 final class Declarations {
 
+    /** Имя скрытого поля свойства: см. {@link FieldScope}. */
+    private static final String FIELD = "field";
+
+    /**
+     * Про {@code field} сказать есть что и без дерева: имени этого нигде не объявляют,
+     * его заводит область аксессора — и только у свойства со скрытым полем.
+     * <p>
+     * Последней проверкой, а не первой: если в файле {@code field} и правда объявлен
+     * ниже, точный ответ «объявление стоит там-то» полезнее общего рассказа
+     * про свойства.
+     */
+    private static String field(String name) {
+        return FIELD.equals(name)
+                ? ": 'field' — это скрытое поле свойства, и оно есть только внутри "
+                + "'def get()' и 'def set(value)' свойства, объявленного с начальным "
+                + "значением ('property x = 0 { ... }')"
+                : "";
+    }
+
     private Declarations() {
     }
 
@@ -54,7 +73,7 @@ final class Declarations {
     static String hint(String name, ExecutionContext context) {
         Unit unit = context.unit();
         if (unit == null || unit.program() == null) {
-            return "";
+            return field(name);
         }
         Found top = findIn(unit.program().statements(), name, false);
         if (top != null) {
@@ -67,7 +86,7 @@ final class Declarations {
                     + " внутри вложенной области" + at(nested.span(), unit.source())
                     + " — снаружи такого имени нет";
         }
-        return "";
+        return field(name);
     }
 
     /**

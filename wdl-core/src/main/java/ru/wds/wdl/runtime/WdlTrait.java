@@ -3,7 +3,9 @@ package ru.wds.wdl.runtime;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.MethodSlot;
+import ru.wds.wdl.resolve.PropertySlot;
 import ru.wds.wdl.resolve.ScriptTraitShape;
+import ru.wds.wdl.value.PropertyRequirement;
 import ru.wds.wdl.value.Requirement;
 import ru.wds.wdl.value.TraitValue;
 
@@ -30,6 +32,12 @@ final class WdlTrait implements TraitValue {
     /** Файл, где трейт объявлен: в нём выполняются его методы и значения по умолчанию. */
     private final Unit unit;
     private final Map<String, Method> methods;
+    /**
+     * Свойства трейта: объявление плюс область трейта. Собираются здесь, а вызываются
+     * через класс — по той же причине, что методы: {@code super} в трейте запрещён
+     * разбором, поэтому класса, от которого его считать, у слота нет.
+     */
+    private final Map<String, PropertySlot> properties;
 
     WdlTrait(ScriptTraitShape shape, Environment closure, Unit unit) {
         this.shape = Objects.requireNonNull(shape, "shape");
@@ -42,6 +50,11 @@ final class WdlTrait implements TraitValue {
             table.put(slot.name(), new Method(slot.declaration(), closure, unit, null));
         }
         this.methods = Collections.unmodifiableMap(table);
+        this.properties = shape.properties();
+    }
+
+    Map<String, PropertySlot> properties() {
+        return properties;
     }
 
     ScriptTraitShape shape() {
@@ -78,6 +91,16 @@ final class WdlTrait implements TraitValue {
     @Override
     public List<String> requiredFields() {
         return shape.requiredFields();
+    }
+
+    /**
+     * Нужно там же, где остальные требования: трейт на wdl вправе подмешаться
+     * в класс, встроенный приложением, и проверить его требования {@code Linker}
+     * уже не может — формы у такого класса нет.
+     */
+    @Override
+    public List<PropertyRequirement> requiredProperties() {
+        return shape.requiredProperties();
     }
 
     @Override

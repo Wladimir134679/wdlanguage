@@ -23,6 +23,7 @@ import ru.wds.wdl.value.DecoratorMeta;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.Property;
 import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.ModuleValue;
@@ -813,7 +814,7 @@ public final class Interpreter
                     + "': проверьте, что выше есть 'import ... as " + alias
                     + "' и что в том модуле объявлен этот тип");
         }
-        return read(module, StringValue.of(name), AccessStyle.DOT, span);
+        return read(module, StringValue.of(name), AccessStyle.DOT, span, context);
     }
 
     /**
@@ -1086,7 +1087,7 @@ public final class Interpreter
 
     /** Зовёт {@code close()} — обычным чтением метода и обычным вызовом. */
     private void close(Value resource, Span span, ExecutionContext context) {
-        Value method = read(resource, StringValue.of("close"), AccessStyle.DOT, span);
+        Value method = read(resource, StringValue.of("close"), AccessStyle.DOT, span, context);
         if (!(method instanceof FunctionValue function)) {
             throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "у ресурса нет метода 'close', закрывать его нечем");
@@ -1356,7 +1357,7 @@ public final class Interpreter
 
     @Override
     public Value visitVariable(VariableExpr expr, ExecutionContext context) {
-        Value value = context.scope().lookup(expr.name());
+        Value value = context.scope().lookup(expr.name(), context, expr.span());
         if (value == null) {
             // Подсказка ищется по дереву файла и только здесь, на пути ошибки: чаще
             // всего имя в файле есть, просто объявлено ниже — см. Declarations.
@@ -1412,7 +1413,7 @@ public final class Interpreter
     public Value visitAccess(AccessExpr expr, ExecutionContext context) {
         Value target = valueOf(expr.target(), context);
         Value key = valueOf(expr.key(), context);
-        return read(target, key, expr.style(), expr.span());
+        return read(target, key, expr.style(), expr.span(), context);
     }
 
     /**
@@ -1624,7 +1625,7 @@ public final class Interpreter
 
         @Override
         public Value read() {
-            Value value = scope.lookup(name);
+            Value value = scope.lookup(name, context, span);
             if (value == null) {
                 throw new WdlRuntimeError(ErrorKind.NAME, span, "переменная '" + name
                         + "' не определена" + Declarations.hint(name, context));
@@ -1636,7 +1637,7 @@ public final class Interpreter
         public void write(Value value) {
             // Существующее имя обновляется там, где объявлено; новое заводится здесь;
             // замороженное 'const' не меняется нигде — на то оно и константа.
-            switch (scope.assign(name, value)) {
+            switch (scope.assign(name, value, context, span)) {
                 case DONE -> { }
                 case ABSENT -> scope.define(name, value);
                 case CONSTANT -> throw new WdlRuntimeError(ErrorKind.DECLARATION, span, "'" + name + "' нельзя присвоить: "
@@ -1650,16 +1651,17 @@ public final class Interpreter
      * связанный метод, а для этого нужен тот, кто умеет выполнять его тело.
      */
     private record ContainerPlace(Interpreter interpreter, Value container, Value key,
-                                  AccessStyle style, Span span) implements Place {
+                                  AccessStyle style, Span span,
+                                  ExecutionContext context) implements Place {
 
         @Override
         public Value read() {
-            return interpreter.read(container, key, style, span);
+            return interpreter.read(container, key, style, span, context);
         }
 
         @Override
         public void write(Value value) {
-            Interpreter.write(container, key, value, style, span);
+            Interpreter.write(container, key, value, style, span, context);
         }
     }
 
@@ -1672,7 +1674,8 @@ public final class Interpreter
                     valueOf(access.target(), context),
                     valueOf(access.key(), context),
                     access.style(),
-                    access.span());
+                    access.span(),
+                    context);
             // Парсер других целей не пропускает: сюда можно попасть только из-за ошибки в движке.
             default -> throw new IllegalStateException("недопустимая цель присваивания: " + target);
         };
@@ -1693,9 +1696,21 @@ public final class Interpreter
      * и фабрики. Методы через класс не читаются: без экземпляра они бесполезны,
      * а до реализации родителя есть {@code super}.
      */
-    private Value read(Value container, Value key, AccessStyle style, Span span) {
+    private Value read(Value container, Value key, AccessStyle style, Span span,
+                       ExecutionContext context) {
         return switch (container) {
             case ArrayValue array -> array.get(checkIndex(array.size(), key, "массива", span));
+            case InstanceObjectValue instance -> {
+                if (instance.has(key)) {
+                    yield instance.get(key);
+                }
+                Property property = property(instance, key);
+                if (property != null) {
+                    yield property.read(instance, context, span);
+                }
+                Value method = method(instance, key);
+                yield method != null ? method : NullValue.NULL;
+            }
             case MapValue object -> {
                 if (object.has(key)) {
                     yield object.get(key);
@@ -1731,6 +1746,47 @@ public final class Interpreter
     }
 
     /**
+     * Свойство класса этого экземпляра или {@code null}.
+     * <p>
+     * Ищется <b>после</b> собственных полей и <b>до</b> методов — тем же порядком,
+     * что при поиске голого имени внутри метода: одно правило на две записи, иначе
+     * {@code имя} и {@code this.имя} разошлись бы. Одноимённого поля при этом не бывает:
+     * свойство и поле делят ячейку имени, и плоская таблица оставляет одно из двух.
+     */
+    private static Property property(InstanceObjectValue instance, Value key) {
+        return key instanceof StringValue name
+                ? instance.lookupFrom().property(name.value())
+                : null;
+    }
+
+    /**
+     * Запись в экземпляр: поле, свойство или новое поле.
+     * <p>
+     * Порядок тот же, что при чтении. Свойство без setter — <b>ошибка, а не заведение
+     * поля рядом</b>, и это единственное место, где обращение к объекту не заводит
+     * новый ключ. Причина в том, что имя уже занято: завести рядом второе значение
+     * под тем же именем нельзя, а промолчать значило бы, что запись как будто прошла.
+     */
+    private static void writeMember(InstanceObjectValue instance, Value key, Value value,
+                                    Span span, ExecutionContext context) {
+        if (instance.has(key)) {
+            instance.put(key, value);
+            return;
+        }
+        Property property = property(instance, key);
+        if (property == null) {
+            instance.put(key, value);
+            return;
+        }
+        if (!property.writable()) {
+            throw new WdlRuntimeError(ErrorKind.DECLARATION, span, "свойство '" + property.name()
+                    + "' класса '" + instance.owner().name() + "' только для чтения: "
+                    + "у него нет 'def set(value)'");
+        }
+        property.write(instance, value, context, span);
+    }
+
+    /**
      * Метод класса, связанный с этим экземпляром, или {@code null}.
      * <p>
      * У обычной карты методов нет и быть не может — искать их там незачем, поэтому
@@ -1743,9 +1799,11 @@ public final class Interpreter
         return null;
     }
 
-    private static void write(Value container, Value key, Value value, AccessStyle style, Span span) {
+    private static void write(Value container, Value key, Value value, AccessStyle style,
+                              Span span, ExecutionContext context) {
         switch (container) {
             case ArrayValue array -> array.set(checkIndex(array.size(), key, "массива", span), value);
+            case InstanceObjectValue instance -> writeMember(instance, key, value, span, context);
             case MapValue object -> object.put(key, value);
             // Запись в класс — «статическое поле»: обычная запись по ключу в значении.
             case ClassValue declared -> declared.statics().put(key, value);

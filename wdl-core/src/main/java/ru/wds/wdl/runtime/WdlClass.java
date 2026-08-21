@@ -8,6 +8,7 @@ import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.FieldSlot;
 import ru.wds.wdl.resolve.MethodSlot;
+import ru.wds.wdl.resolve.PropertySlot;
 import ru.wds.wdl.resolve.NativeTraitShape;
 import ru.wds.wdl.resolve.ScriptTraitShape;
 import ru.wds.wdl.resolve.Shape;
@@ -17,6 +18,7 @@ import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.Property;
 import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.ArrayValue;
@@ -54,6 +56,12 @@ final class WdlClass implements ClassValue {
     private final WdlClass parent;
     private final List<WdlTrait> traits;
     private final Map<String, Method> methods;
+    /**
+     * Плоская таблица свойств — собрана тем же правилом и в том же порядке, что
+     * таблица методов: родитель, трейты слева направо, свои. Поиска по цепочке
+     * во время выполнения нет и здесь.
+     */
+    private final Map<String, WdlProperty> properties;
     /**
      * «Статические поля» и фабрики: {@code Point.zero}, {@code User.of}.
      * <p>
@@ -101,6 +109,31 @@ final class WdlClass implements ClassValue {
             }
         }
         this.methods = Collections.unmodifiableMap(table);
+
+        Map<String, WdlProperty> declared = new LinkedHashMap<>();
+        if (parent != null) {
+            declared.putAll(parent.properties);
+        }
+        for (WdlTrait trait : traits) {
+            for (PropertySlot slot : trait.properties().values()) {
+                // super внутри аксессора трейта запрещён разбором — класса здесь нет,
+                // ровно как у метода трейта.
+                declared.put(slot.name(), new WdlProperty(slot.declaration(), trait.closure(),
+                        trait.unit(), null, run, interpreter));
+            }
+        }
+        for (PropertySlot slot : shape.properties().values()) {
+            if (slot.owner() == shape) {
+                declared.put(slot.name(), new WdlProperty(slot.declaration(), closure, unit,
+                        this, run, interpreter));
+            }
+        }
+        this.properties = Collections.unmodifiableMap(declared);
+    }
+
+    @Override
+    public Property property(String name) {
+        return properties.get(name);
     }
 
     ClassShape shape() {
@@ -225,8 +258,54 @@ final class WdlClass implements ClassValue {
         for (FieldSlot slot : shape.fields().values()) {
             instance.put(slot.name(), fieldValue(slot, bound, caller, span));
         }
+        initHidden(instance, bound, caller, span);
         construct(instance, bound, caller, span);
         return instance;
+    }
+
+    /**
+     * Записывает начальные значения скрытых полей: {@code property x = 0}.
+     * <p>
+     * После обычных полей и <b>до</b> конструктора, потому что скрытое поле — такое же
+     * поле: к телу конструктора объект обязан быть собран целиком, и {@code this.x = 5}
+     * в конструкторе должно попасть в уже готовое свойство, а не опередить его
+     * начальное значение.
+     * <p>
+     * Область вычисления — та же, что у обычного поля из того же заголовка: у свойства
+     * класса это область его заголовка, поэтому {@code property x = w * 2} видит поле
+     * {@code w}; у свойства трейта — область объявления трейта, полей класса оно
+     * не видит и видеть не может.
+     */
+    private void initHidden(InstanceObjectValue instance, Map<Shape, Header> bound,
+                            CallContext caller, Span span) {
+        for (PropertySlot slot : shape.properties().values()) {
+            if (!slot.hasBackingField()) {
+                continue;
+            }
+            Environment scope;
+            Unit where;
+            if (slot.owner() instanceof ClassShape owner) {
+                scope = Scope.under(bound.get(owner).scope());
+                where = classOf(owner).unit;
+            } else {
+                WdlTrait trait = traitOf((ScriptTraitShape) slot.owner());
+                scope = Scope.under(trait.closure());
+                where = trait.unit();
+            }
+            ExecutionContext inner = ExecutionContext.call(scope, caller, run, where,
+                    "new " + name(), span);
+            instance.hidden(slot.name(), interpreter.visit(slot.declaration().initial(), inner));
+        }
+    }
+
+    /** Класс цепочки по его форме: у скрытого поля свой файл, как и у метода. */
+    private WdlClass classOf(ClassShape owner) {
+        for (WdlClass klass = this; klass != null; klass = klass.parent) {
+            if (klass.shape == owner) {
+                return klass;
+            }
+        }
+        throw new IllegalStateException("класс " + owner.name() + " не в цепочке " + name());
     }
 
     /**

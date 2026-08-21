@@ -9,6 +9,8 @@ import ru.wds.wdl.ast.expr.Modifier;
 import ru.wds.wdl.ast.stmt.BlockStmt;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.ErrorStmt;
+import ru.wds.wdl.ast.stmt.PropertyDecl;
+import ru.wds.wdl.ast.stmt.PropertyStyle;
 import ru.wds.wdl.ast.stmt.ReturnStmt;
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.ast.stmt.TraitDeclStmt;
@@ -37,6 +39,17 @@ import static ru.wds.wdl.parser.TokenCursor.describe;
  * видны из пакета.
  */
 final class TypeParser {
+
+    /**
+     * Контекстные слова свойства. Не {@link TokenType}, и это осознанно: ключевые слова
+     * лексера глобальны, а отнимать у чужих скриптов имена {@code property}, {@code get}
+     * и {@code set} ради трёх мест разбора — плохая сделка. Слово {@code field}
+     * не попало даже сюда: оно вообще не слово разбора, а имя, которое заводит область
+     * аксессора, как {@code this}.
+     */
+    private static final String PROPERTY = "property";
+    private static final String GET = "get";
+    private static final String SET = "set";
 
     private final Parser parser;
     private final TokenCursor cursor;
@@ -81,7 +94,8 @@ final class TypeParser {
         Members members = typeBody(name.text(), parent != null, true);
         Span span = keyword.span().to(cursor.lastSpan());
         return new ClassDeclStmt(name.text(), name.span(), params, header.rest(), header.namedRest(),
-                parent, traits, members.constructor, members.methods, members.factories, span);
+                parent, traits, members.constructor, members.methods, members.factories,
+                members.properties, span);
     }
 
     /**
@@ -112,7 +126,7 @@ final class TypeParser {
         Members members = typeBody(name.text(), false, false);
         Span span = keyword.span().to(cursor.lastSpan());
         return new TraitDeclStmt(name.text(), name.span(), params,
-                members.methods, members.requirements, span);
+                members.methods, members.requirements, members.properties, span);
     }
 
     private Token expectTypeName(String what) {
@@ -256,6 +270,7 @@ final class TypeParser {
         private final List<FunctionExpr> methods = new ArrayList<>();
         private final List<ClassDeclStmt.Factory> factories = new ArrayList<>();
         private final List<TraitDeclStmt.Requirement> requirements = new ArrayList<>();
+        private final List<PropertyDecl> properties = new ArrayList<>();
 
         private boolean taken(String name) {
             if (constructor != null && constructor.name().equals(name)) {
@@ -268,6 +283,13 @@ final class TypeParser {
             }
             for (TraitDeclStmt.Requirement requirement : requirements) {
                 if (requirement.name().equals(name)) {
+                    return true;
+                }
+            }
+            // Свойство занимает ячейку имени наравне с методом: пространство имён одно,
+            // и два значения по одному ключу не лежат.
+            for (PropertyDecl property : properties) {
+                if (property.name().equals(name)) {
                     return true;
                 }
             }
@@ -304,12 +326,22 @@ final class TypeParser {
         return members;
     }
 
-    /** Один член: метод, конструктор, фабрика или — только в трейте — требование. */
+    /**
+     * Один член: метод, конструктор, фабрика, свойство или — только в трейте —
+     * требование.
+     */
     private void member(Members members, boolean hasParent, boolean isClass) {
         Token start = cursor.peek();
         Set<Modifier> modifiers = Set.of();
         if (cursor.check(TokenType.SYNCHRONIZED)) {
             cursor.advance();
+            if (isProperty()) {
+                diagnostics.error(start.span(), "'synchronized' у свойства не бывает: "
+                        + "замок экземпляра берёт synchronized-метод, а свойство читают "
+                        + "внутри выражения, где он всё равно ничего не склеит");
+                cursor.synchronize();
+                return;
+            }
             if (!cursor.check(TokenType.DEF)) {
                 diagnostics.error(start.span(), "'synchronized' — это модификатор метода: "
                         + "он ставится перед 'def'");
@@ -318,9 +350,14 @@ final class TypeParser {
             }
             modifiers = Set.of(Modifier.SYNCHRONIZED);
         }
+        if (isProperty()) {
+            property(members, hasParent, isClass);
+            return;
+        }
         if (!cursor.check(TokenType.DEF)) {
             diagnostics.error(cursor.peek().span(), "в теле " + (isClass ? "класса" : "трейта")
-                    + " допустимы только объявления функций, а здесь " + describe(cursor.peek())
+                    + " допустимы только объявления функций и свойств, а здесь "
+                    + describe(cursor.peek())
                     + ". Начальные значения полей задаются в заголовке");
             cursor.synchronize();
             return;
@@ -384,6 +421,207 @@ final class TypeParser {
             return;
         }
         members.methods.add(function);
+    }
+
+    /**
+     * Начинается ли член со слова {@code property}.
+     * <p>
+     * <b>Контекстное слово, а не ключевое.</b> Ключевые слова лексера глобальны:
+     * заведи мы {@code property} там — и обычная переменная с таким именем перестала бы
+     * существовать во всех чужих скриптах. Здесь этого не нужно: член тела класса
+     * иначе может начаться только с {@code def} или {@code synchronized}, поэтому
+     * слово, за которым стоит имя, ни с чем не спутать. Метод назвать
+     * {@code property} по-прежнему можно — он начинается с {@code def}.
+     */
+    private boolean isProperty() {
+        return cursor.check(TokenType.WORD)
+                && PROPERTY.equals(cursor.peek().text())
+                && cursor.peek(1).type() == TokenType.WORD;
+    }
+
+    /**
+     * Свойство: {@code property area => this.w * this.h} или блок с аксессорами.
+     * <p>
+     * Разбирается здесь, а не через {@link #memberBody()}, потому что тело у свойства
+     * не одно: блок свойства — это список аксессоров, а не инструкции. Общее у них
+     * только то, что внутри есть {@code this}, и оно включается тем же
+     * {@link ParseState#allowSelf}.
+     */
+    private void property(Members members, boolean hasParent, boolean isClass) {
+        Token keyword = cursor.advance(); // property
+        Token name = cursor.advance();    // имя — проверено в isProperty
+
+        // Начальное значение скрытого поля: 'property x = 0 { ... }'. Обычное выражение,
+        // как значение по умолчанию у параметра, и вычисляется оно там же — при создании.
+        Expr initial = cursor.match(TokenType.ASSIGN) ? parser.expression(0) : null;
+        state.allowSelf(true, hasParent);
+
+        if (cursor.match(TokenType.FATARROW)) {
+            if (initial != null) {
+                diagnostics.error(name.span(), "у свойства '" + name.text()
+                        + "' есть скрытое поле, поэтому короткой формы '=>' ему мало: "
+                        + "запишите 'def get()' и 'def set(value)' блоком");
+            }
+            Expr value = state.inFunctionBody(() -> parser.expression(0));
+            Span span = keyword.span().to(value.span());
+            add(members, new PropertyDecl(name.text(), name.span(), initial,
+                    new PropertyDecl.Accessor(getterOf(value, name), value.span()), null,
+                    PropertyStyle.ARROW, span), name);
+            return;
+        }
+        if (!cursor.check(TokenType.LBRACE)) {
+            diagnostics.error(cursor.peek().span(), "у свойства '" + name.text()
+                    + "' нет тела: ожидалось '=> выражение' или блок с 'def get()', "
+                    + "найдено " + describe(cursor.peek()));
+            cursor.synchronize();
+            return;
+        }
+        accessors(members, keyword, name, initial, hasParent, isClass);
+    }
+
+    /** Блок аксессоров: {@code { def get() ... def set(value) ... }}. */
+    private void accessors(Members members, Token keyword, Token name, Expr initial,
+                           boolean hasParent, boolean isClass) {
+        cursor.advance(); // {
+        PropertyDecl.Accessor getter = null;
+        PropertyDecl.Accessor setter = null;
+        cursor.skipSeparators();
+        while (!cursor.check(TokenType.RBRACE) && !cursor.check(TokenType.EOF)) {
+            int before = cursor.position();
+            Accessor parsed = accessor(name, hasParent, isClass);
+            if (parsed != null) {
+                boolean isGetter = GET.equals(parsed.kind());
+                if (isGetter && getter != null || !isGetter && setter != null) {
+                    diagnostics.error(parsed.accessor().span(), "'" + parsed.kind()
+                            + "' у свойства '" + name.text() + "' уже объявлен");
+                } else if (isGetter) {
+                    getter = parsed.accessor();
+                } else {
+                    setter = parsed.accessor();
+                }
+            }
+            cursor.ensureProgress(before);
+            cursor.skipSeparators();
+        }
+        cursor.expect(TokenType.RBRACE, "закрывающую скобку '}'");
+        Span span = keyword.span().to(cursor.lastSpan());
+
+        if (getter == null) {
+            // Свойство, которое нельзя прочитать, — приглашение к опечатке: 'obj.x = 1'
+            // проходит, 'obj.x' молча даёт null. Записываемое без читаемого в языке
+            // не заводится.
+            diagnostics.error(name.span(), "у свойства '" + name.text() + "' нет 'def get()': "
+                    + "свойство только для записи в языке не заводится");
+            return;
+        }
+        add(members, new PropertyDecl(name.text(), name.span(), initial, getter, setter,
+                PropertyStyle.BLOCK, span), name);
+    }
+
+    /** Разобранный аксессор вместе с тем, чем он оказался: {@code get} или {@code set}. */
+    private record Accessor(String kind, PropertyDecl.Accessor accessor) {
+    }
+
+    /**
+     * Один аксессор: {@code def get()}, {@code def set(value)} — с телом или без.
+     * <p>
+     * Без тела это требование трейта, ровно как у метода, и проверяется тем же
+     * правилом: у класса тела нет — ошибка, у трейта — обязанность класса.
+     */
+    private Accessor accessor(Token property, boolean hasParent, boolean isClass) {
+        Token start = cursor.peek();
+        if (cursor.check(TokenType.SYNCHRONIZED)) {
+            diagnostics.error(start.span(), "'synchronized' у аксессора не бывает: "
+                    + "замок экземпляра берёт synchronized-метод");
+            cursor.synchronize();
+            return null;
+        }
+        if (!cursor.match(TokenType.DEF)) {
+            diagnostics.error(start.span(), "в теле свойства '" + property.text()
+                    + "' допустимы только 'def get()' и 'def set(value)', а здесь "
+                    + describe(start));
+            cursor.synchronize();
+            return null;
+        }
+        if (!cursor.check(TokenType.WORD)
+                || !GET.equals(cursor.peek().text()) && !SET.equals(cursor.peek().text())) {
+            diagnostics.error(cursor.peek().span(), "у свойства '" + property.text()
+                    + "' бывают только 'get' и 'set', найдено " + describe(cursor.peek()));
+            cursor.synchronize();
+            return null;
+        }
+        Token kind = cursor.advance();
+        boolean isGetter = GET.equals(kind.text());
+
+        state.allowSelf(true, hasParent);
+        Params header = parameters("имени '" + kind.text() + "' свойства '"
+                + property.text() + "'", true, true);
+        checkAccessorParams(kind, isGetter, header, property);
+
+        Stmt body = memberBody();
+        if (body == null) {
+            if (isClass) {
+                diagnostics.error(kind.span(), "у '" + kind.text() + "' свойства '"
+                        + property.text() + "' нет тела; требование без тела бывает только в трейте");
+                return null;
+            }
+            return new Accessor(kind.text(),
+                    new PropertyDecl.Accessor(null, start.span().to(kind.span())));
+        }
+        // Имя аксессора — 'Rect.area (get)': оно попадёт в кадр трассировки, и там
+        // должно быть видно свойство, а не голое 'get' неизвестно от чего.
+        String title = state.className() + "." + property.text() + " (" + kind.text() + ")";
+        FunctionExpr function = new FunctionExpr(title, Set.of(), header.params(),
+                null, null, body, bodyStyle(body), start.span().to(body.span()));
+        return new Accessor(kind.text(),
+                new PropertyDecl.Accessor(function, start.span().to(body.span())));
+    }
+
+    /**
+     * Форма аксессора: {@code get} без параметров, {@code set} ровно с одним.
+     * <p>
+     * Ни значений по умолчанию, ни остатков: свойство читают и пишут обращением,
+     * а у обращения аргументов нет — передавать их туда просто нечем.
+     */
+    private void checkAccessorParams(Token kind, boolean isGetter, Params header, Token property) {
+        String where = "'" + kind.text() + "' свойства '" + property.text() + "'";
+        if (header.rest() != null || header.namedRest() != null) {
+            diagnostics.error(kind.span(), "у " + where + " не бывает остатка: "
+                    + "свойство читают обращением, а у обращения аргументов нет");
+            return;
+        }
+        int count = header.params().size();
+        if (isGetter && count != 0) {
+            diagnostics.error(kind.span(), "'get' свойства '" + property.text()
+                    + "' не принимает параметров, а объявлено " + count);
+            return;
+        }
+        if (!isGetter && count != 1) {
+            diagnostics.error(kind.span(), "'set' свойства '" + property.text()
+                    + "' принимает ровно один параметр — записываемое значение, "
+                    + "а объявлено " + count);
+            return;
+        }
+        if (!header.params().isEmpty() && header.params().get(0).hasDefault()) {
+            diagnostics.error(kind.span(), "у параметра " + where
+                    + " не бывает значения по умолчанию: он всегда приходит от записи");
+        }
+    }
+
+    /** Короткая форма {@code => выражение} — тот же {@code def get()}, записанный одной строкой. */
+    private FunctionExpr getterOf(Expr value, Token name) {
+        String title = state.className() + "." + name.text() + " (get)";
+        return new FunctionExpr(title, Set.of(), List.of(), null, null,
+                new ReturnStmt(value, value.span()), BodyStyle.ARROW,
+                name.span().to(value.span()));
+    }
+
+    private void add(Members members, PropertyDecl property, Token name) {
+        if (members.taken(property.name())) {
+            diagnostics.error(name.span(), duplicate(property.name()));
+            return;
+        }
+        members.properties.add(property);
     }
 
     /**

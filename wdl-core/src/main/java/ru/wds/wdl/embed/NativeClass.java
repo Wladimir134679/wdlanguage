@@ -6,6 +6,8 @@ import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.Property;
+import ru.wds.wdl.value.PropertyRequirement;
 import ru.wds.wdl.value.Requirement;
 import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.TraitValue;
@@ -97,6 +99,8 @@ public final class NativeClass implements ClassValue {
     private final List<NativeMethod> inits;
     /** Плоская таблица: методы родителя, затем свои — побеждает последний. */
     private final Map<String, Entry> methods;
+    /** Свойства: родительские, затем свои — тем же правилом, что методы. */
+    private final Map<String, NativeProperty> properties;
     private final List<TraitValue> traits;
     /** Поля, пришедшие от трейтов готовыми значениями: пишутся до своих. */
     private final Map<String, Value> traitFields;
@@ -104,7 +108,9 @@ public final class NativeClass implements ClassValue {
     private final Arity arity;
     private final Signature signature;
 
-    private NativeClass(Builder builder, List<Field> allFields, Map<String, Entry> allMethods) {
+    private NativeClass(Builder builder, List<Field> allFields, Map<String, Entry> allMethods,
+                        Map<String, NativeProperty> allProperties) {
+        this.properties = Collections.unmodifiableMap(new LinkedHashMap<>(allProperties));
         this.name = builder.name;
         this.parent = builder.parent;
         this.fields = List.copyOf(allFields);
@@ -214,6 +220,11 @@ public final class NativeClass implements ClassValue {
     }
 
     @Override
+    public Property property(String name) {
+        return properties.get(name);
+    }
+
+    @Override
     public FunctionValue method(InstanceObjectValue instance, String name) {
         Entry entry = methods.get(name);
         if (entry == null) {
@@ -263,6 +274,46 @@ public final class NativeClass implements ClassValue {
     }
 
     private record Field(String name, Value defaultValue) {
+    }
+
+    /**
+     * Свойство нативного класса: пара Java-лямбд под одним именем.
+     * <p>
+     * Для интерпретатора это тот же {@link Property}, что свойство на wdl, — как
+     * и весь остальной нативный класс есть тот же {@link ClassValue}. Приведение
+     * к {@link NativeInstance} безопасно по той же причине, что у метода: свойство
+     * ищется в классе объекта, а этот класс создаёт только {@link #instantiate}.
+     */
+    private record NativeProperty(String name, NativeGetter getter, NativeSetter setter,
+                                  String className) implements Property {
+
+        @Override
+        public boolean readable() {
+            return true;
+        }
+
+        @Override
+        public boolean writable() {
+            return setter != null;
+        }
+
+        @Override
+        public Value read(InstanceObjectValue instance, CallContext context, Span span) {
+            return getter.get(self(instance), context, span);
+        }
+
+        @Override
+        public void write(InstanceObjectValue instance, Value value, CallContext context, Span span) {
+            setter.set(self(instance), value, context, span);
+        }
+
+        private NativeInstance self(InstanceObjectValue instance) {
+            if (instance.identity() instanceof NativeInstance native_) {
+                return native_;
+            }
+            throw new IllegalStateException("экземпляр класса '" + className
+                    + "' создан в обход instantiate");
+        }
     }
 
     private record Entry(String name, Signature signature, NativeMethod body) {
@@ -317,6 +368,7 @@ public final class NativeClass implements ClassValue {
         private final String name;
         private final List<Field> fields = new ArrayList<>();
         private final Map<String, Entry> methods = new LinkedHashMap<>();
+        private final Map<String, NativeProperty> properties = new LinkedHashMap<>();
         private final Map<String, Value> statics = new LinkedHashMap<>();
         private final Map<String, FactoryEntry> factories = new LinkedHashMap<>();
         private final List<TraitValue> traits = new ArrayList<>();
@@ -434,6 +486,37 @@ public final class NativeClass implements ClassValue {
             return this;
         }
 
+        /**
+         * Свойство только для чтения: {@code window.width}.
+         * <p>
+         * Читается тем же обращением, что поле, но за именем стоит вызов — поэтому
+         * значение всегда свежее. Перебором и {@code len} свойство не видно: среди
+         * пар экземпляра его нет. Когда стоит брать свойство, а когда поле, разобрано
+         * в {@link NativeGetter}.
+         */
+        public Builder property(String propertyName, NativeGetter getter) {
+            return property(propertyName, getter, null);
+        }
+
+        /** Свойство с чтением и записью: {@code window.title = "..."}. */
+        public Builder property(String propertyName, NativeGetter getter, NativeSetter setter) {
+            requireName(propertyName, "имя свойства");
+            Objects.requireNonNull(getter, "getter");
+            // Ячейку имени свойство делит с полем и с методом. У класса на wdl первое
+            // разрешает плоская таблица, второе ловит Linker; здесь оба случая видно
+            // сразу — заголовок и методы объявлены тем же построителем.
+            if (fields.stream().anyMatch(field -> field.name.equals(propertyName))) {
+                throw new IllegalStateException("имя '" + propertyName + "' класса '" + name
+                        + "' уже занято полем: свойство и поле — одна ячейка");
+            }
+            if (methods.containsKey(propertyName)) {
+                throw new IllegalStateException("имя '" + propertyName + "' класса '" + name
+                        + "' уже занято методом: свойство даёт значение, метод — функцию");
+            }
+            properties.put(propertyName, new NativeProperty(propertyName, getter, setter, name));
+            return this;
+        }
+
         /** Поле самого класса: {@code File.SEPARATOR}. */
         public Builder constant(String constantName, Value value) {
             requireName(constantName, "имя поля класса");
@@ -460,6 +543,16 @@ public final class NativeClass implements ClassValue {
             }
             Map<String, Entry> merged = new LinkedHashMap<>(parent.methods);
             merged.putAll(methods);
+            return merged;
+        }
+
+        /** Плоская таблица свойств: родительские, затем свои — побеждает последний. */
+        private Map<String, NativeProperty> allProperties() {
+            if (parent == null) {
+                return new LinkedHashMap<>(properties);
+            }
+            Map<String, NativeProperty> merged = new LinkedHashMap<>(parent.properties);
+            merged.putAll(properties);
             return merged;
         }
 
@@ -507,11 +600,31 @@ public final class NativeClass implements ClassValue {
          * метода обязано покрывать требуемое.
          */
         private void checkRequirements(TraitValue trait, List<Field> allFields,
-                                       Map<String, Entry> allMethods) {
+                                       Map<String, Entry> allMethods,
+                                       Map<String, NativeProperty> allProperties) {
             for (String required : trait.requiredFields()) {
-                if (allFields.stream().noneMatch(field -> field.name.equals(required))) {
-                    throw new IllegalStateException(unmet(trait) + "нет поля '" + required
-                            + "'. Объявите его в заголовке класса");
+                if (allFields.stream().anyMatch(field -> field.name.equals(required))) {
+                    continue;
+                }
+                // Полевое требование закрывает и свойство, умеющее читать и писать, —
+                // тем же правилом, что у классов на wdl: трейт просил место, которое
+                // читают и пишут, и получил именно его.
+                NativeProperty property = allProperties.get(required);
+                if (property != null && property.writable()) {
+                    continue;
+                }
+                throw new IllegalStateException(unmet(trait) + "нет поля '" + required
+                        + "'. Объявите его в заголовке класса или свойством с записью");
+            }
+            for (PropertyRequirement required : trait.requiredProperties()) {
+                NativeProperty property = allProperties.get(required.name());
+                boolean hasField = allFields.stream()
+                        .anyMatch(field -> field.name.equals(required.name()));
+                boolean canRead = property != null ? property.readable() : hasField;
+                boolean canWrite = property != null ? property.writable() : hasField;
+                if (!required.satisfiedBy(canRead, canWrite)) {
+                    throw new IllegalStateException(unmet(trait) + "имя '" + required.name()
+                            + "' не умеет " + required.missing(canRead, canWrite));
                 }
             }
             for (Requirement required : trait.requiredMethods()) {
@@ -563,13 +676,14 @@ public final class NativeClass implements ClassValue {
         public NativeClass build() {
             List<Field> allFields = allFields();
             Map<String, Entry> allMethods = allMethods();
+            Map<String, NativeProperty> allProperties = allProperties();
             checkHeader(allFields);
             // Требования проверяются по всему, что у класса есть, — вместе
             // с унаследованным: обещание трейта выполняет класс целиком.
             for (TraitValue trait : allTraits()) {
-                checkRequirements(trait, allFields, allMethods);
+                checkRequirements(trait, allFields, allMethods, allProperties);
             }
-            NativeClass built = new NativeClass(this, allFields, allMethods);
+            NativeClass built = new NativeClass(this, allFields, allMethods, allProperties);
             // Фабрики — последними: их телу нужен готовый класс, чтобы было чем
             // создавать экземпляр.
             factories.forEach((factoryName, factory) -> built.statics.put(factoryName,

@@ -2,6 +2,7 @@ package ru.wds.wdl.resolve;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
+import ru.wds.wdl.ast.stmt.PropertyDecl;
 import ru.wds.wdl.value.Arity;
 
 import java.util.ArrayList;
@@ -32,6 +33,7 @@ public final class ClassShape implements Shape {
     private final List<TraitShape> traits;
     private final Map<String, FieldSlot> fields;
     private final Map<String, MethodSlot> methods;
+    private final Map<String, PropertySlot> properties;
     private final Arity arity;
 
     ClassShape(ClassDeclStmt declaration, ClassShape parent, List<TraitShape> traits) {
@@ -42,26 +44,56 @@ public final class ClassShape implements Shape {
 
         Map<String, FieldSlot> collectedFields = new LinkedHashMap<>();
         Map<String, MethodSlot> collectedMethods = new LinkedHashMap<>();
+        Map<String, PropertySlot> collectedProperties = new LinkedHashMap<>();
         if (parent != null) {
-            collectedFields.putAll(parent.fields);
+            place(collectedFields, collectedProperties, parent.fields, parent.properties);
             collectedMethods.putAll(parent.methods);
         }
         for (TraitShape trait : traits) {
-            collectedFields.putAll(trait.fields());
+            place(collectedFields, collectedProperties, trait.fields(), trait.properties());
             collectedMethods.putAll(trait.methods());
         }
         // Полями становятся только позиционные параметры: у слота есть номер параметра,
         // а остаток позиции не занимает. См. ast.stmt.ClassDeclStmt.
+        Map<String, FieldSlot> ownFields = new LinkedHashMap<>();
         List<FunctionExpr.Param> params = declaration.params();
         for (int i = 0; i < params.size(); i++) {
             String name = params.get(i).name();
-            collectedFields.put(name, new FieldSlot(name, this, i));
+            ownFields.put(name, new FieldSlot(name, this, i));
         }
+        Map<String, PropertySlot> ownProperties = new LinkedHashMap<>();
+        for (PropertyDecl property : declaration.properties()) {
+            ownProperties.put(property.name(), new PropertySlot(property.name(), property, this));
+        }
+        place(collectedFields, collectedProperties, ownFields, ownProperties);
         for (FunctionExpr method : declaration.methods()) {
             collectedMethods.put(method.name(), new MethodSlot(method.name(), method, this));
         }
         this.fields = Collections.unmodifiableMap(collectedFields);
         this.methods = Collections.unmodifiableMap(collectedMethods);
+        this.properties = Collections.unmodifiableMap(collectedProperties);
+    }
+
+    /**
+     * Кладёт поля и свойства одного уровня — родителя, трейта или самого класса.
+     * <p>
+     * <b>Свойство и поле делят ячейку имени</b>: оба — «место, которое читают и пишут»,
+     * и отличается только то, стоит ли за именем значение или код. Поэтому пришедшее
+     * с этого уровня вытесняет одноимённое из другой таблицы: побеждает последний,
+     * ровно как везде в плоских таблицах. Потомок вправе заменить унаследованное поле
+     * вычисляемым свойством и наоборот — это то же самое право, по которому он
+     * переопределяет метод.
+     * <p>
+     * Внутри одного уровня конфликта не бывает: имя в теле объявляется один раз,
+     * это проверил разбор.
+     */
+    private static void place(Map<String, FieldSlot> fields, Map<String, PropertySlot> properties,
+                              Map<String, FieldSlot> addedFields,
+                              Map<String, PropertySlot> addedProperties) {
+        properties.keySet().removeAll(addedFields.keySet());
+        fields.keySet().removeAll(addedProperties.keySet());
+        fields.putAll(addedFields);
+        properties.putAll(addedProperties);
     }
 
     /**
@@ -176,6 +208,11 @@ public final class ClassShape implements Shape {
     @Override
     public Map<String, MethodSlot> methods() {
         return methods;
+    }
+
+    @Override
+    public Map<String, PropertySlot> properties() {
+        return properties;
     }
 
     @Override

@@ -1,6 +1,7 @@
 package ru.wds.wdl.resolve;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.value.PropertyRequirement;
 import ru.wds.wdl.value.Requirement;
 import ru.wds.wdl.value.Value;
 
@@ -31,6 +32,7 @@ public final class NativeTraitShape implements TraitShape {
     private final String name;
     private final List<String> requiredFields;
     private final List<Requirement> requiredMethods;
+    private final List<PropertyRequirement> requiredProperties;
     private final Map<String, Value> declaredFields;
     private final Map<String, FieldSlot> fields;
 
@@ -39,9 +41,20 @@ public final class NativeTraitShape implements TraitShape {
      */
     public NativeTraitShape(String name, List<String> requiredFields,
                             List<Requirement> requiredMethods, Map<String, Value> declaredFields) {
+        this(name, requiredFields, requiredMethods, List.of(), declaredFields);
+    }
+
+    /**
+     * @param requiredProperties имена, которые класс обязан уметь читать или писать
+     */
+    public NativeTraitShape(String name, List<String> requiredFields,
+                            List<Requirement> requiredMethods,
+                            List<PropertyRequirement> requiredProperties,
+                            Map<String, Value> declaredFields) {
         this.name = Objects.requireNonNull(name, "name");
         this.requiredFields = List.copyOf(requiredFields);
         this.requiredMethods = List.copyOf(requiredMethods);
+        this.requiredProperties = List.copyOf(requiredProperties);
         this.declaredFields = Collections.unmodifiableMap(new LinkedHashMap<>(declaredFields));
 
         Map<String, FieldSlot> slots = new LinkedHashMap<>();
@@ -95,6 +108,21 @@ public final class NativeTraitShape implements TraitShape {
     /** Методов с телом у нативного трейта не бывает — см. описание класса. */
     @Override
     public Map<String, MethodSlot> methods() {
+        return Map.of();
+    }
+
+    @Override
+    public List<PropertyRequirement> requiredProperties() {
+        return requiredProperties;
+    }
+
+    /**
+     * Свойств с телом у нативного трейта не бывает — по той же причине, что методов:
+     * слот держит объявление из дерева, а у Java-кода его нет. Требовать свойство
+     * такой трейт может, дать — нет.
+     */
+    @Override
+    public Map<String, PropertySlot> properties() {
         return Map.of();
     }
 

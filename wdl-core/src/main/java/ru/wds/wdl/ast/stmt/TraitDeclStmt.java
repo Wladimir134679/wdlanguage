@@ -22,6 +22,13 @@ import java.util.Objects;
  * и то же обращение. Обязательное объявляется без значения, вспомогательное —
  * со значением или с телом.
  * <p>
+ * <b>{@link PropertyDecl Свойство} подчиняется тому же правилу, но с точностью
+ * до аксессора</b>: {@code property size { def get() }} требует чтения и молчит
+ * о записи, {@code property size { def get() def set(value) }} требует обоих.
+ * Ради этого свойства в трейтах и заведены — требование выражается через
+ * возможность, а не через способ хранения, поэтому его закрывает и обычное поле,
+ * и вычисляемое свойство, и заменить одно другим можно, не сломав контракт.
+ * <p>
  * Требования проверяются <b>при объявлении класса</b>, а не при вызове и не при
  * создании экземпляра: ради этого трейты и заведены — ошибка появляется там,
  * где сделана.
@@ -40,6 +47,7 @@ public record TraitDeclStmt(
         List<FunctionExpr.Param> params,
         List<FunctionExpr> methods,
         List<Requirement> requirements,
+        List<PropertyDecl> properties,
         Span span) implements Stmt {
 
     public TraitDeclStmt {
@@ -47,6 +55,7 @@ public record TraitDeclStmt(
         Objects.requireNonNull(params, "params");
         Objects.requireNonNull(methods, "methods");
         Objects.requireNonNull(requirements, "requirements");
+        Objects.requireNonNull(properties, "properties");
     }
 
     /**

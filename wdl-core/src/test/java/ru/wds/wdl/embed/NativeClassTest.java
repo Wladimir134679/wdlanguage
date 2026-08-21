@@ -36,6 +36,113 @@ class NativeClassTest {
         return type.instantiate(List.of(arguments), CONTEXT, AT);
     }
 
+    // --- свойства ------------------------------------------------------------
+
+    @Test
+    @DisplayName("свойство читается вызовом лямбды и полем не становится")
+    void propertyIsNotAField() {
+        int[] reads = {0};
+        NativeClass window = NativeClass.named("Window")
+                .field("title", StringValue.of("окно"))
+                .property("width", (self, context, span) -> {
+                    reads[0]++;
+                    return IntValue.of(640);
+                })
+                .build();
+
+        Value w = instance(window);
+        // Среди пар экземпляра свойства нет: печать и перебор его не видят.
+        assertEquals("Window{\"title\": \"окно\"}", w.display());
+        assertEquals(IntValue.of(640), window.property("width")
+                .read((ru.wds.wdl.value.types.InstanceObjectValue) w, CONTEXT, AT));
+        assertEquals(IntValue.of(640), window.property("width")
+                .read((ru.wds.wdl.value.types.InstanceObjectValue) w, CONTEXT, AT));
+        assertEquals(2, reads[0], "getter обязан выполняться на каждом чтении");
+    }
+
+    @Test
+    @DisplayName("без сеттера свойство только для чтения")
+    void propertyWithoutSetter() {
+        NativeClass window = NativeClass.named("Window")
+                .property("width", (self, context, span) -> IntValue.of(1))
+                .build();
+
+        assertTrue(window.property("width").readable());
+        assertFalse(window.property("width").writable());
+        assertNull(window.property("height"));
+    }
+
+    @Test
+    @DisplayName("сеттер получает значение и правит Java-состояние")
+    void propertyWithSetter() {
+        StringBuilder state = new StringBuilder("старое");
+        NativeClass window = NativeClass.named("Window")
+                .property("title",
+                        (self, context, span) -> StringValue.of(state.toString()),
+                        (self, value, context, span) -> {
+                            state.setLength(0);
+                            state.append(((StringValue) value).value());
+                        })
+                .build();
+
+        Value w = instance(window);
+        window.property("title").write((ru.wds.wdl.value.types.InstanceObjectValue) w,
+                StringValue.of("новое"), CONTEXT, AT);
+        assertEquals("новое", state.toString());
+        assertTrue(window.property("title").writable());
+    }
+
+    @Test
+    @DisplayName("свойство наследуется и перекрывается — как метод")
+    void propertyIsInherited() {
+        NativeClass base = NativeClass.named("Base")
+                .property("kind", (self, context, span) -> StringValue.of("база"))
+                .build();
+        NativeClass child = NativeClass.named("Child")
+                .extending(base)
+                .property("kind", (self, context, span) -> StringValue.of("потомок"))
+                .build();
+
+        assertEquals(StringValue.of("база"), base.property("kind")
+                .read((ru.wds.wdl.value.types.InstanceObjectValue) instance(base), CONTEXT, AT));
+        assertEquals(StringValue.of("потомок"), child.property("kind")
+                .read((ru.wds.wdl.value.types.InstanceObjectValue) instance(child), CONTEXT, AT));
+    }
+
+    @Test
+    @DisplayName("ячейка имени одна: свойство не встаёт на место поля или метода")
+    void propertyNameIsExclusive() {
+        assertTrue(assertThrows(IllegalStateException.class, () -> NativeClass.named("W")
+                .field("width")
+                .property("width", (self, context, span) -> NullValue.NULL)
+                .build()).getMessage().contains("занято полем"));
+
+        assertTrue(assertThrows(IllegalStateException.class, () -> NativeClass.named("W")
+                .method("width", Arity.exactly(0), (self, context, args, span) -> NullValue.NULL)
+                .property("width", (self, context, span) -> NullValue.NULL)
+                .build()).getMessage().contains("занято методом"));
+    }
+
+    @Test
+    @DisplayName("требование трейта закрывает и поле, и свойство с нужными аксессорами")
+    void traitRequirementSatisfiedByProperty() {
+        NativeTrait sized = NativeTrait.named("Sized").requireReadable("size").build();
+
+        NativeClass byField = NativeClass.named("ByField").field("size").with(sized).build();
+        NativeClass byProperty = NativeClass.named("ByProperty")
+                .property("size", (self, context, span) -> IntValue.of(3))
+                .with(sized)
+                .build();
+        assertTrue(byField.conformsTo(sized));
+        assertTrue(byProperty.conformsTo(sized));
+
+        NativeTrait mutable = NativeTrait.named("MutableSized").requireMutable("size").build();
+        assertTrue(assertThrows(IllegalStateException.class, () -> NativeClass.named("ReadOnly")
+                .property("size", (self, context, span) -> IntValue.of(3))
+                .with(mutable)
+                .build()).getMessage().contains("не умеет записи"));
+    }
+
     // --- заголовок -----------------------------------------------------------
 
     @Test

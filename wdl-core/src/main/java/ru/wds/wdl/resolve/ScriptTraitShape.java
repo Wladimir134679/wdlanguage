@@ -1,7 +1,9 @@
 package ru.wds.wdl.resolve;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.ast.stmt.PropertyDecl;
 import ru.wds.wdl.ast.stmt.TraitDeclStmt;
+import ru.wds.wdl.value.PropertyRequirement;
 import ru.wds.wdl.value.Requirement;
 
 import java.util.ArrayList;
@@ -30,6 +32,8 @@ public final class ScriptTraitShape implements TraitShape {
     private final Map<String, MethodSlot> methods;
     private final List<String> requiredFields;
     private final List<Requirement> requiredMethods;
+    private final Map<String, PropertySlot> properties;
+    private final List<PropertyRequirement> requiredProperties;
 
     ScriptTraitShape(TraitDeclStmt declaration) {
         this.declaration = Objects.requireNonNull(declaration, "declaration");
@@ -60,6 +64,27 @@ public final class ScriptTraitShape implements TraitShape {
             table.put(method.name(), new MethodSlot(method.name(), method, this));
         }
         this.methods = Collections.unmodifiableMap(table);
+
+        // Свойство трейта — то же, что метод трейта: с телом достаётся классу,
+        // без тела остаётся требованием. Аксессоры считаются по одному, поэтому
+        // 'def get()' без тела рядом с готовым 'def set(value)' — законная запись.
+        Map<String, PropertySlot> declared = new LinkedHashMap<>();
+        List<PropertyRequirement> demanded = new ArrayList<>();
+        for (PropertyDecl property : declaration.properties()) {
+            PropertySlot slot = new PropertySlot(property.name(), property, this);
+            boolean needsRead = property.getter() != null && property.getter().isRequirement();
+            boolean needsWrite = property.setter() != null && property.setter().isRequirement();
+            if (needsRead || needsWrite) {
+                demanded.add(new PropertyRequirement(property.name(), needsRead, needsWrite));
+            }
+            // В таблицу попадает только то, у чего есть хоть один готовый аксессор:
+            // свойство из одних требований классу отдавать нечего.
+            if (slot.readable() || slot.writable()) {
+                declared.put(property.name(), slot);
+            }
+        }
+        this.properties = Collections.unmodifiableMap(declared);
+        this.requiredProperties = List.copyOf(demanded);
     }
 
     public TraitDeclStmt declaration() {
@@ -74,6 +99,16 @@ public final class ScriptTraitShape implements TraitShape {
     @Override
     public List<Requirement> requiredMethods() {
         return requiredMethods;
+    }
+
+    @Override
+    public List<PropertyRequirement> requiredProperties() {
+        return requiredProperties;
+    }
+
+    @Override
+    public Map<String, PropertySlot> properties() {
+        return properties;
     }
 
     @Override

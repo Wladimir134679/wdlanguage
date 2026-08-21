@@ -1,5 +1,7 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.Property;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 
@@ -13,17 +15,22 @@ import java.util.Objects;
  * именно меняется, а не заводится заново. Экземпляр просто ещё одно «снаружи»,
  * и самое близкое:
  * <pre>
- * локальные имена вызова → экземпляр (поля, затем методы) → область объявления класса → глобальные
+ * локальные имена вызова → экземпляр (поля, свойства, методы) → область объявления класса → глобальные
  * </pre>
- * Порядок внутри экземпляра тот же, что при обращении по ключу: сначала поля,
- * потом методы. Одно правило на две записи — иначе {@code имя} и {@code this.имя}
+ * Порядок внутри экземпляра тот же, что при обращении по ключу: поля, свойства,
+ * методы. Одно правило на две записи — иначе {@code имя} и {@code this.имя}
  * разошлись бы в каком-нибудь углу.
  * <p>
- * <b>Присваивание смотрит только поля.</b> Если имени среди полей нет, запись уходит
- * наружу, и новое имя внутри метода становится обычной локальной переменной,
+ * <b>Присваивание смотрит поля и свойства.</b> Если имени нет ни там, ни там, запись
+ * уходит наружу, и новое имя внутри метода становится обычной локальной переменной,
  * а не полем: полем его делает только явное {@code this.имя = ...}. По той же причине
  * {@code текст = "x"} при существующем методе {@code текст} метод не подменяет —
  * методы живут в классе, а не в экземпляре.
+ * <p>
+ * Свойство в присваивании участвует, а метод нет, и разница не в прихоти: за свойством
+ * стоит место, которое пишут, а за методом — значение, которое зовут. Не спроси мы
+ * здесь про свойство, {@code size = 5} внутри метода молча завёл бы локальную
+ * переменную вместо вызова setter — тихая ошибка, которую в коде не видно.
  * <p>
  * Интерпретатор об этой области ничего не знает: он видит только {@link Environment}.
  */
@@ -59,6 +66,40 @@ final class InstanceScope implements Environment {
         }
         Value bound = owner.method(instance, name);
         return bound != null ? bound : method.closure().lookup(name);
+    }
+
+    /**
+     * То же чтение, но свойство здесь можно прочитать по-настоящему: контекст пришёл
+     * от вызывающего, а значит есть чем позвать getter.
+     * <p>
+     * Порядок тот же, что при обращении по ключу: поле, свойство, метод. Одно правило
+     * на две записи — иначе {@code имя} и {@code this.имя} разошлись бы в каком-нибудь
+     * углу. Одноимённого поля рядом со свойством не бывает: ячейку имени они делят,
+     * и плоская таблица оставила одно из двух.
+     * <p>
+     * Без контекста ({@link #lookup(String)}) свойство пропускается, а не падает:
+     * туда приходят с путей, где выполнять чужой код нельзя, — {@code isDefined},
+     * проверка занятости имени. Возвращать оттуда «имени нет» честнее, чем звать
+     * getter в момент, когда его никто не ждёт.
+     */
+    @Override
+    public Value lookup(String name, ExecutionContext context, Span span) {
+        Objects.requireNonNull(name, "name");
+        if (THIS.equals(name)) {
+            return instance;
+        }
+        if (SUPER.equals(name)) {
+            return superView();
+        }
+        if (instance.has(name)) {
+            return instance.get(name);
+        }
+        Property property = owner.property(name);
+        if (property != null) {
+            return property.read(instance, context, span);
+        }
+        Value bound = owner.method(instance, name);
+        return bound != null ? bound : method.closure().lookup(name, context, span);
     }
 
     /** Своё у экземпляра — поля: методы принадлежат классу, а не объекту. */
@@ -103,12 +144,39 @@ final class InstanceScope implements Environment {
      */
     @Override
     public Assignment assign(String name, Value value) {
+        return assign(name, value, null, null);
+    }
+
+    /**
+     * Запись: поле, свойство, наружу.
+     * <p>
+     * Свойство участвует, а метод нет, и это не прихоть: за свойством стоит место,
+     * которое пишут, за методом — значение, которое зовут. Не спроси мы здесь про
+     * свойство, {@code size = 5} внутри метода молча завёл бы локальную переменную
+     * вместо вызова setter — тихая ошибка, которой в коде не видно.
+     * <p>
+     * Свойство только для чтения даёт ту же ошибку, что и запись через точку: правило
+     * одно, и звучать по-разному в зависимости от формы записи оно не должно.
+     */
+    @Override
+    public Assignment assign(String name, Value value, ExecutionContext context, Span span) {
         Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(value, "value");
         if (instance.has(name)) {
-            instance.put(name, Objects.requireNonNull(value, "value"));
+            instance.put(name, value);
             return Assignment.DONE;
         }
-        return method.closure().assign(name, value);
+        Property property = context == null ? null : owner.property(name);
+        if (property != null) {
+            if (!property.writable()) {
+                throw new WdlRuntimeError(ErrorKind.DECLARATION, span, "свойство '" + name
+                        + "' класса '" + owner.name() + "' только для чтения: "
+                        + "у него нет 'def set(value)'");
+            }
+            property.write(instance, value, context, span);
+            return Assignment.DONE;
+        }
+        return method.closure().assign(name, value, context, span);
     }
 
     @Override

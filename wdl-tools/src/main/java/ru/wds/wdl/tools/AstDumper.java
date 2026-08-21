@@ -169,6 +169,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
             visit(stmt.constructor().body(), depth + 2);
         }
         stmt.methods().forEach(method -> visit(method, depth + 1));
+        properties(stmt.properties(), depth + 1);
         for (ClassDeclStmt.Factory factory : stmt.factories()) {
             line(depth + 1, "фабрика " + factory.function().title(), factory.span());
             visit(factory.function(), depth + 2);
@@ -208,7 +209,39 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
             line(depth + 1, "требуется метод " + requirement.name()
                     + "(" + header(requirement.params()) + ")", requirement.span());
         }
+        properties(stmt.properties(), depth + 1);
         return null;
+    }
+
+    /**
+     * Свойства класса или трейта.
+     * <p>
+     * Аксессор без тела печатается как требование — тем же словом, что требуемый метод:
+     * для читателя дампа это одно и то же обещание, только про чтение или запись.
+     */
+    private void properties(List<PropertyDecl> properties, int depth) {
+        for (PropertyDecl property : properties) {
+            line(depth, "свойство " + property.name()
+                    + (property.hasBackingField() ? " со скрытым полем" : ""), property.span());
+            if (property.hasBackingField()) {
+                line(depth + 1, "начальное значение", property.initial().span());
+                visit(property.initial(), depth + 2);
+            }
+            accessor("get", property.getter(), depth + 1);
+            accessor("set", property.setter(), depth + 1);
+        }
+    }
+
+    private void accessor(String kind, PropertyDecl.Accessor accessor, int depth) {
+        if (accessor == null) {
+            return;
+        }
+        if (accessor.isRequirement()) {
+            line(depth, "требуется " + kind, accessor.span());
+            return;
+        }
+        line(depth, kind, accessor.span());
+        visit(accessor.function().body(), depth + 1);
     }
 
     private static String header(List<FunctionExpr.Param> params) {

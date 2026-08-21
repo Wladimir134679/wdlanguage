@@ -1,5 +1,6 @@
 package ru.wds.wdl.resolve;
 
+import ru.wds.wdl.value.PropertyRequirement;
 import ru.wds.wdl.value.Requirement;
 
 import java.util.List;
@@ -24,4 +25,12 @@ public sealed interface TraitShape extends Shape permits ScriptTraitShape, Nativ
 
     /** Методы, которые класс обязан объявить сам, — с числом аргументов. */
     List<Requirement> requiredMethods();
+
+    /**
+     * Имена, которые класс обязан уметь читать или писать, — требования к свойствам.
+     * <p>
+     * Закрыть их можно чем угодно, что даёт нужную возможность: полем, свойством
+     * с подходящими аксессорами. См. {@link PropertyRequirement}.
+     */
+    List<PropertyRequirement> requiredProperties();
 }

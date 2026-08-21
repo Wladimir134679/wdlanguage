@@ -75,6 +75,20 @@ public non-sealed interface ClassValue extends Value {
     FunctionValue method(InstanceObjectValue instance, String name);
 
     /**
+     * Свойство с этим именем или {@code null}, если его нет.
+     * <p>
+     * Спрашивается у класса, а не у экземпляра: за именем стоит код, а код принадлежит
+     * классу — ровно как метод. Экземпляр появляется в момент чтения и приходит
+     * аргументом в {@link Property#read}.
+     * <p>
+     * Реализация по умолчанию — «свойств нет»: класс, встроенный приложением, вправе
+     * не знать о них вовсе, и заставлять его писать {@code return null} незачем.
+     */
+    default Property property(String name) {
+        return null;
+    }
+
+    /**
      * Поля самого класса: «статика» и фабрики.
      * <p>
      * Отдельного слова {@code static} нет и не нужно — класс это значение, значение

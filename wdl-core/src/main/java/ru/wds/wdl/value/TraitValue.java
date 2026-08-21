@@ -41,6 +41,17 @@ public non-sealed interface TraitValue extends Value {
         return List.of();
     }
 
+    /**
+     * Имена, которые класс обязан уметь читать или писать.
+     * <p>
+     * Требование через <b>возможность</b>, а не через способ хранения: его закрывает
+     * и обычное поле, и вычисляемое свойство. Отсюда и вся польза — поле можно
+     * заменить свойством, не сломав контракт. См. {@link PropertyRequirement}.
+     */
+    default List<PropertyRequirement> requiredProperties() {
+        return List.of();
+    }
+
     @Override
     default ValueType type() {
         return ValueType.TRAIT;

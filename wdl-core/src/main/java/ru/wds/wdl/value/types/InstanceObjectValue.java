@@ -6,6 +6,7 @@ import ru.wds.wdl.value.Value;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -48,6 +49,21 @@ public non-sealed class InstanceObjectValue extends MapValue {
      * и остановка зациклившегося скрипта перестала бы работать.
      */
     private volatile ReentrantLock guard;
+
+    /**
+     * Скрытые поля свойств: {@code property x = 0}.
+     * <p>
+     * <b>Отдельно от карты пар, а не рядом с ней.</b> Лежи такое поле среди обычных —
+     * и правило чтения «сначала собственное поле» побеждало бы, а getter не вызывался
+     * бы никогда; вдобавок {@code x} попадал бы в перебор, в {@code len} и в печать,
+     * то есть скрытым бы не был. Здесь его не видит ничто, кроме аксессоров самого
+     * свойства, где оно доступно под именем {@code field}.
+     * <p>
+     * Заводится лениво и по той же причине, что {@link #guard}: экземпляров в скрипте
+     * много, а свойств со скрытым полем — единицы, и платить за них полем в каждом
+     * объекте было бы неправильной сделкой.
+     */
+    private volatile Map<String, Value> hidden;
 
     private InstanceObjectValue(Map<Value, Value> entries, ClassValue owner,
                                 ClassValue lookupFrom, InstanceObjectValue root) {
@@ -133,6 +149,54 @@ public non-sealed class InstanceObjectValue extends MapValue {
             }
             return guard;
         }
+    }
+
+    /**
+     * Значение скрытого поля свойства или {@code null}, если его ещё не записали.
+     * <p>
+     * Спрашивается у {@link #identity()}, как и замок: вид {@code super} — тот же
+     * объект, и скрытое поле у него то же самое. Иначе {@code super.x} и {@code x}
+     * читали бы две разные ячейки одного имени.
+     */
+    public Value hidden(String name) {
+        InstanceObjectValue self = identity();
+        return self == this ? self.ownHidden(name, null, false) : self.hidden(name);
+    }
+
+    /** Записывает скрытое поле свойства. */
+    public void hidden(String name, Value value) {
+        InstanceObjectValue self = identity();
+        if (self == this) {
+            ownHidden(name, Objects.requireNonNull(value, "value"), true);
+        } else {
+            self.hidden(name, value);
+        }
+    }
+
+    /**
+     * Одно место на чтение и запись: таблица заводится лениво, и делать это дважды
+     * двумя почти одинаковыми методами было бы приглашением развести их со временем.
+     */
+    private Value ownHidden(String name, Value value, boolean write) {
+        Map<String, Value> known = hidden;
+        if (known == null) {
+            if (!write) {
+                return null;
+            }
+            synchronized (this) {
+                if (hidden == null) {
+                    // Порядок вставки не важен — снаружи эту таблицу не перебирают,
+                    // — а конкурентная карта снимает замок с каждого чтения свойства.
+                    hidden = new ConcurrentHashMap<>();
+                }
+                known = hidden;
+            }
+        }
+        if (!write) {
+            return known.get(name);
+        }
+        known.put(name, value);
+        return value;
     }
 
     @Override

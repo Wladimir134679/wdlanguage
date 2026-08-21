@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Binding;
 import ru.wds.wdl.value.Value;
 
@@ -20,6 +21,25 @@ public interface Environment {
 
     /** Значение имени или {@code null}, если имя не определено ни здесь, ни выше. */
     Value lookup(String name);
+
+    /**
+     * То же чтение, но с правом выполнить код: за именем внутри класса может стоять
+     * {@linkplain ru.wds.wdl.value.Property свойство}, и прочитать его — значит позвать
+     * getter.
+     * <p>
+     * Отдельная перегрузка, а не поле в окружении, потому что контекст выполнения
+     * приходит от вызывающего и меняется на каждом кадре: глубина вызовов,
+     * трассировка, вывод. Область о выполнении не знает и знать не должна — она
+     * только доводит контекст до того слоя, который умеет позвать код.
+     * <p>
+     * Реализация по умолчанию игнорирует контекст: свойства бывают ровно у одного
+     * вида областей, и заставлять остальные знать о них незачем. Область, у которой
+     * есть внешняя, обязана перегрузку <b>передать дальше</b> — иначе слой с полями
+     * останется за спиной у поиска.
+     */
+    default Value lookup(String name, ExecutionContext context, Span span) {
+        return lookup(name);
+    }
 
     /**
      * Значение имени <b>в самой этой области</b>, без похода наружу, или {@code null}.
@@ -86,6 +106,15 @@ public interface Environment {
      *         если имя нашлось, но заморожено {@code const}
      */
     Assignment assign(String name, Value value);
+
+    /**
+     * То же присваивание, но с правом выполнить код: за именем может стоять свойство,
+     * и записать его — значит позвать setter. Причина отдельной перегрузки та же,
+     * что у {@link #lookup(String, ExecutionContext, Span)}.
+     */
+    default Assignment assign(String name, Value value, ExecutionContext context, Span span) {
+        return assign(name, value);
+    }
 
     /** Вложенная область: тело функции, блок, итерация цикла. */
     Environment child();

@@ -27,12 +27,13 @@ import java.util.Objects;
  * заголовок: в аргументах родителю ({@code class Head(n, *rest) : Base(rest, n)})
  * и в конструкторе своего класса.
  * <p>
- * <b>Тело — только объявления функций.</b> Класс это описание, а не код, который
- * что-то делает в момент объявления, поэтому любая другая инструкция в теле —
- * ошибка разбора. Разложены объявления по трём полям, потому что ведут себя
+ * <b>Тело — только объявления функций и свойств.</b> Класс это описание, а не код,
+ * который что-то делает в момент объявления, поэтому любая другая инструкция в теле —
+ * ошибка разбора. Разложены объявления по четырём полям, потому что ведут себя
  * по-разному: {@link #constructor()} выполняется по готовому объекту и в таблицу
  * методов не попадает, {@link #methods()} достаются экземпляру, {@link #factories()}
- * живут на самом классе и экземпляра не имеют.
+ * живут на самом классе и экземпляра не имеют, {@link #properties()} занимают ячейку
+ * имени наравне с полем, но за ней стоит код, а не значение.
  *
  * @param params      позиционные параметры заголовка, они же поля
  * @param rest        остаточный параметр {@code *args} или {@code null}
@@ -52,6 +53,7 @@ public record ClassDeclStmt(
         FunctionExpr constructor,
         List<FunctionExpr> methods,
         List<Factory> factories,
+        List<PropertyDecl> properties,
         Span span) implements Stmt {
 
     public ClassDeclStmt {
@@ -60,6 +62,7 @@ public record ClassDeclStmt(
         Objects.requireNonNull(traits, "traits");
         Objects.requireNonNull(methods, "methods");
         Objects.requireNonNull(factories, "factories");
+        Objects.requireNonNull(properties, "properties");
     }
 
     public boolean hasParent() {
