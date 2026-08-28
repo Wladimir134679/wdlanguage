@@ -7,7 +7,6 @@ import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.BoolValue;
 import ru.wds.wdl.value.types.FloatValue;
-import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.types.StringValue;
@@ -223,26 +222,30 @@ public final class Operations {
     }
 
     /**
-     * Проверка класса или трейта.
+     * Проверка класса, трейта или типа.
      * <p>
-     * Слева — что угодно: для значения, которое не экземпляр, ответ {@code false},
+     * Слева — что угодно: для значения, которое не подходит, ответ {@code false},
      * а не ошибка. Вопрос «этот ли это класс» осмыслен для чего угодно, и ошибку
      * здесь пришлось бы обходить проверкой типа перед проверкой класса.
      * <p>
-     * Справа — только класс или трейт, и {@code x is 5} это ошибка, а не {@code false}:
-     * спросить «является ли значение пятёркой» через {@code is} можно только
-     * по ошибке, и молчать о ней незачем.
+     * Справа — только класс, трейт или {@linkplain TypeValue дескриптор типа}, и
+     * {@code x is 5} это ошибка, а не {@code false}: спросить «является ли значение
+     * пятёркой» через {@code is} можно только по ошибке, и молчать о ней незачем.
      * <p>
-     * Ответ спрашивается у класса экземпляра: цепочка предков и набор трейтов
-     * заготовлены при объявлении, поэтому проверка не зависит от глубины наследования.
+     * <b>Вопрос — к правому операнду</b>, а не к левому: ответ отдаётся
+     * {@link ClassValue#matches} и {@code TraitValue.matches}, а не проверяется здесь
+     * инструкцией {@code instanceof}. Так у оператора остаётся ровно один механизм —
+     * не два (класс и тип), — и чужая реализация {@code ClassValue}, которую напишет
+     * приложение, отвечает на {@code is} по-своему, не трогая ни этот метод, ни язык.
      */
     private static boolean is(Value left, Value right, Span span) {
-        if (!(right instanceof ClassValue) && !(right instanceof TraitValue)) {
-            throw new WdlRuntimeError(ErrorKind.TYPE, span, "справа от 'is' должен стоять класс или трейт, а здесь "
-                    + right.type().title() + " (" + right + ")");
-        }
-        // Обычный объект классу не принадлежит, поэтому и ответ на вопрос — false.
-        return left instanceof InstanceObjectValue instance && instance.owner().conformsTo(right);
+        return switch (right) {
+            case ClassValue declared -> declared.matches(left);
+            case TraitValue declared -> declared.matches(left);
+            default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                    "справа от 'is' должен стоять класс, трейт или тип, а здесь "
+                            + right.type().title() + " (" + right + ")");
+        };
     }
 
     // --- биты ----------------------------------------------------------------

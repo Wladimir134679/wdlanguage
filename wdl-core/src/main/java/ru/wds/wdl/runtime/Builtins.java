@@ -1,6 +1,7 @@
 package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.IntValue;
@@ -50,8 +51,20 @@ public final class Builtins {
         }));
 
         // typeof и len — минимум, без которого динамический язык неудобно отлаживать.
+        // typeof возвращает не строку, а дескриптор типа (Types.of) — тот же самый
+        // объект, что лежит в переменной 'Number', 'String' и так далее. Это открывает
+        // 'typeof(x) == Number' и 'typeof(x) == typeof(y)' и не требует ни разбора
+        // строки, ни второй функции рядом: одно понятие — одно имя.
         scope.define("typeof", BuiltinFunction.of("typeof", Arity.exactly(1),
-                (context, arguments, span) -> StringValue.of(arguments.get(0).type().id())));
+                (context, arguments, span) -> Types.of(arguments.get(0))));
+
+        // Десять дескрипторов типов — обычными именами корневой области, как println
+        // и классы прелюдии: пространство имён одно, и скрипт вправе их перекрыть.
+        // Цикл идёт по Types.all(), а не по ValueType.values() напрямую, чтобы новый
+        // элемент ValueType сам собой оказался в области — без второй правки здесь.
+        for (ClassValue descriptor : Types.all()) {
+            scope.define(descriptor.name(), descriptor);
+        }
 
         scope.define("len", BuiltinFunction.of("len", Arity.exactly(1), (context, arguments, span) -> {
             Value value = arguments.get(0);

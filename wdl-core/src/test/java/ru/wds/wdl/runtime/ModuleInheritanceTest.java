@@ -316,6 +316,24 @@ class ModuleInheritanceTest {
     }
 
     @Test
+    @DisplayName("развёрнутый импорт молча затеняет дескриптор типа из корневой области — как и класс прелюдии")
+    void collisionWithTypeDescriptorIsSilentAtTopLevel() {
+        // Десять дескрипторов (Number, String, ...) занимают имена в корневой области
+        // тем же способом, что и классы прелюдии (Exception, ValueError) — но и защита
+        // от collisionWithLocalType распространяется на них ровно так же, как на прелюдию:
+        // 'checkNotShadowingType' смотрит только СВОЮ область (см. его javadoc), а файл
+        // выполняется в области, вложенной под корневую (Interpreter.run(Unit, ...)) —
+        // там же, где раньше сидели println и классы прелюдии, теперь сидят дескрипторы.
+        // Поэтому безымянный import на верхнем уровне файла их не видит и молча
+        // перекрывает — то же самое уже было верно для 'import m', приносящего класс
+        // с именем 'Exception'. Это не новая дыра, а точная копия старого поведения.
+        assertEquals("5", run("""
+                import lib.number
+                println(new Number(5).value)
+                """, Map.of("lib/number", "class Number(value) { }")).trim());
+    }
+
+    @Test
     @DisplayName("импорт внутри функции затеняет свой класс, а не спорит с ним")
     void importInsideFunctionShadowsOuterType() {
         // Своя область — свои имена: то же самое сделали бы 'def' или 'const' здесь же.

@@ -1155,27 +1155,42 @@ public final class Interpreter
         return null;
     }
 
+    /**
+     * Значение из {@code catch (e is ...)}: класс, трейт или дескриптор типа.
+     * <p>
+     * Дескриптор ({@code TypeValue}) пропускается тем же путём, что класс и трейт:
+     * он реализует {@link ClassValue}, а значит уже проходит проверку {@code instanceof}
+     * ниже, и отдельной ветки для него не нужно. Поэтому {@code catch (e is Object)}
+     * законен — как и {@code catch (e is Exception)}.
+     */
     private Value typeOf(TryStmt.TypeRef reference, ExecutionContext context) {
         Value value = typeValue(reference.alias(), reference.name(), reference.title(),
-                "класса или трейта", reference.span(), context);
+                "класс, трейт или тип", reference.span(), context);
         if (value instanceof ClassValue || value instanceof TraitValue) {
             return value;
         }
         throw new WdlRuntimeError(ErrorKind.TYPE, reference.span(),
-                "после 'is' в обработчике должен стоять класс или трейт, а '" + reference.title()
+                "после 'is' в обработчике должен стоять класс, трейт или тип, а '" + reference.title()
                         + "' — это " + value.type().title() + " (" + value.display() + ")");
     }
 
     /**
      * Подходит ли ошибка обработчику.
      * <p>
-     * У ошибки, брошенной скриптом, значение уже есть, и вопрос решает её класс.
-     * У ошибки движка значения ещё нет и создавать его ради проверки незачем: реестр
-     * запуска сравнивает формы классов, ничего не материализуя.
+     * У ошибки, брошенной скриптом, значение уже есть, и вопрос решает {@code matches}
+     * цели — тот же метод, которым отвечает обычный {@code is} (см.
+     * {@link ClassValue#matches}). Раньше здесь стоял {@code conformsTo} напрямую;
+     * теперь путь ровно тот же, что у оператора, — дорог осталось две, а не три:
+     * значение ошибки есть — спрашиваем цель, значения нет — спрашиваем реестр запуска,
+     * который сравнивает формы классов, ничего не материализуя.
      */
     private static boolean catches(WdlRuntimeError error, Value target, ExecutionContext context) {
         if (error.payload() instanceof InstanceObjectValue instance) {
-            return instance.owner().conformsTo(target);
+            return switch (target) {
+                case ClassValue declared -> declared.matches(instance);
+                case TraitValue declared -> declared.matches(instance);
+                default -> false;
+            };
         }
         return error.kind() != null && context.exceptions().matches(error.kind(), target);
     }
@@ -1806,7 +1821,16 @@ public final class Interpreter
             case InstanceObjectValue instance -> writeMember(instance, key, value, span, context);
             case MapValue object -> object.put(key, value);
             // Запись в класс — «статическое поле»: обычная запись по ключу в значении.
-            case ClassValue declared -> declared.statics().put(key, value);
+            // У дескриптора типа (Number, Object, ...) статика общая на весь процесс,
+            // и разрешить запись значило бы менять её всем интерпретаторам сразу —
+            // поэтому staticsWritable() проверяется здесь же, до самой записи.
+            case ClassValue declared -> {
+                if (!declared.staticsWritable()) {
+                    throw new WdlRuntimeError(ErrorKind.DECLARATION, span, "в тип '" + declared.name()
+                            + "' нельзя записать: дескриптор типа неизменяем");
+                }
+                declared.statics().put(key, value);
+            }
             case ModuleValue module -> writeMember(module, key, value, span);
             // Строка неизменяема, и это не случайность реализации: строки лежат в ключах
             // объектов, и молчаливое изменение на месте испортило бы их.

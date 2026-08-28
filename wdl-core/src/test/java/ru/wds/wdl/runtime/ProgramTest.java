@@ -87,6 +87,60 @@ class ProgramTest {
         assertEquals("6", lines("println(len(\"привет\"))")[0]);
     }
 
+    // --- дескрипторы типов -----------------------------------------------------
+
+    @Test
+    @DisplayName("typeof возвращает дескриптор, а не строку: печать при этом не меняется")
+    void typeofReturnsDescriptorNotString() {
+        // Тот же вывод, что был у строки: display() дескриптора равен id() типа.
+        assertEquals("number", lines("println(typeof(1))")[0]);
+        assertEquals("string", lines("println(typeof(\"a\"))")[0]);
+        assertEquals("function", lines("println(typeof(println))")[0]);
+    }
+
+    @Test
+    @DisplayName("typeof(x) == Тип — то же самое, что typeof(x) == typeof(y) для другого y")
+    void typeofComparesByDescriptor() {
+        assertEquals("true", lines("println(typeof(1) == Number)")[0]);
+        assertEquals("true", lines("println(typeof(1) == typeof(2))")[0]);
+        assertEquals("true", lines("println(typeof(1) != String)")[0]);
+    }
+
+    @Test
+    @DisplayName("дескриптором нельзя создать экземпляр")
+    void typeDescriptorCannotBeInstantiated() {
+        assertTrue(errorOf("new Number()").getMessage()
+                .contains("'Number' — тип, а не класс: типом нельзя создать экземпляр"));
+    }
+
+    @Test
+    @DisplayName("в дескриптор типа нельзя писать: он общий на весь процесс")
+    void typeDescriptorRejectsWrite() {
+        assertTrue(errorOf("Number.x = 1").getMessage()
+                .contains("в тип 'Number' нельзя записать: дескриптор типа неизменяем"));
+    }
+
+    @Test
+    @DisplayName("дескриптор — обычное имя корневой области: перекрыть его можно")
+    void typeDescriptorCanBeShadowed() {
+        // 'Number = 5' ломает только свой скрипт — оператор typeof и is других имён
+        // не касается, ровно как перекрытие println не портит print.
+        assertEquals("5 string", lines("""
+                Number = 5
+                println(Number, " ", typeof("a"))
+                """)[0]);
+    }
+
+    @Test
+    @DisplayName("typeof(x) == Класс и x is Класс — разные вопросы: у типов нет иерархии, у классов есть")
+    void typeofAndIsDivergeForClasses() {
+        assertEquals("false true", lines("""
+                class Point(x, y)
+                p = new Point(1, 2)
+                println(typeof(p) == Point, " ", p is Point)
+                """)[0]);
+    }
+
     // --- переменные ----------------------------------------------------------
 
     @Test

@@ -112,7 +112,7 @@ deferring.run()
 contract = new t.Suite("трейт Closeable")
 
 contract.test("обычный трейт из прелюдии", def() {
-    t.assertEquals("trait", typeof(Closeable))
+    t.assertEquals(Trait, typeof(Closeable))
     t.assertIs(Closeable, new Probe("p", new Log()))
 })
 

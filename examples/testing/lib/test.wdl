@@ -214,7 +214,7 @@ class Suite(name, checks = [], passed = 0, failed = 0, broken = 0, skipped = 0) 
 def deepEquals(left, right) {
     if (typeof(left) != typeof(right)) return false;
 
-    if (typeof(left) == "array") {
+    if (left is Array) {
         if (len(left) != len(right)) return false;
         for (i = 0; i < len(left); i = i + 1) {
             if (!deepEquals(left[i], right[i])) return false;
@@ -222,7 +222,7 @@ def deepEquals(left, right) {
         return true;
     }
 
-    if (typeof(left) == "object") {
+    if (left is Object) {
         if (len(left) != len(right)) return false;
         for (key in left) {
             if (!deepEquals(left[key], right[key])) return false;
@@ -254,7 +254,7 @@ def contains(text, part) => indexOf(text, part) >= 0
 
 /** Значение для сообщения: строки в кавычках, остальное как печатается. */
 def show(value) {
-    if (typeof(value) == "string") return "\"" + value + "\"";
+    if (value is String) return "\"" + value + "\"";
     return "" + value;
 }
 

@@ -24,9 +24,9 @@ class HttpError(code) : Exception("HTTP " + code) with Retriable {
 hierarchy = new t.Suite("иерархия Exception")
 
 hierarchy.test("прелюдия объявлена до первой строки скрипта", def() {
-    t.assertEquals("class", typeof(Exception))
-    t.assertEquals("class", typeof(IndexError))
-    t.assertEquals("trait", typeof(Closeable))
+    t.assertEquals(Class, typeof(Exception))
+    t.assertEquals(Class, typeof(IndexError))
+    t.assertEquals(Trait, typeof(Closeable))
 })
 
 hierarchy.test("ошибки движка наследуют RuntimeError, а тот — Exception", def() {
@@ -43,7 +43,7 @@ hierarchy.test("своя ошибка — обычный наследник", de
 })
 
 hierarchy.test("ошибка — это объект, а не восьмой тип", def() {
-    t.assertEquals("object", typeof(new Exception("ой")))
+    t.assertEquals(Object, typeof(new Exception("ой")))
 })
 
 hierarchy.test("JavaException не под RuntimeError", def() {

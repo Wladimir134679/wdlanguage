@@ -1,5 +1,7 @@
 package ru.wds.wdl.value;
 
+import ru.wds.wdl.value.types.InstanceObjectValue;
+
 import java.util.List;
 
 /**
@@ -50,6 +52,20 @@ public non-sealed interface TraitValue extends Value {
      */
     default List<PropertyRequirement> requiredProperties() {
         return List.of();
+    }
+
+    /**
+     * Отвечает на {@code значение is этот}: то же самое, что {@link ClassValue#matches}
+     * и по той же причине там описано — правый операнд {@code is} лучше всех знает,
+     * как ответить на вопрос о себе.
+     * <p>
+     * Строка дублирует {@code ClassValue.matches} дословно, а не наследуется от общего
+     * места: общий надтип для {@code ClassValue} и {@code TraitValue} пришлось бы
+     * вставлять в {@code sealed}-иерархию {@link Value} ради одного метода в одну
+     * строку — цена больше пользы (см. «Отвергнутое» в плане дескрипторов типов).
+     */
+    default boolean matches(Value value) {
+        return value instanceof InstanceObjectValue instance && instance.owner().conformsTo(this);
     }
 
     @Override

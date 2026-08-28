@@ -109,6 +109,25 @@ class ErrorTest {
     }
 
     @Test
+    @DisplayName("catch (e is Object) ловит любую ошибку скрипта: она тоже object")
+    void catchByTypeDescriptor() {
+        // Та же логика, что у 'p is Object' для экземпляра класса: ошибка — это object,
+        // и Object.matches отвечает совпадением ValueType, а не цепочкой предков.
+        assertEquals("поймано", printed("""
+                try { throw new IndexError("вне границ") } catch (e is Object) { print("поймано") }
+                """));
+    }
+
+    @Test
+    @DisplayName("typeof(e) == Exception и e is Exception — разные вопросы: у типов нет иерархии")
+    void typeofAndIsDivergeForExceptions() {
+        assertEquals("false true", printed("""
+                e = new IndexError("x")
+                println(typeof(e) == Exception, " ", e is Exception)
+                """));
+    }
+
+    @Test
     @DisplayName("catch без типа ловит всё, что вообще ловится")
     void catchEverything() {
         assertEquals("ArithmeticError ой", printed("""

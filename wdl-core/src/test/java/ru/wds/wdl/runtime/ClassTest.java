@@ -627,10 +627,45 @@ class ClassTest {
     }
 
     @Test
-    @DisplayName("справа от is должен стоять класс или трейт")
+    @DisplayName("справа от is должен стоять класс, трейт или тип")
     void isNeedsClassOnRight() {
         assertTrue(errorOf("class A(x)\nprintln(new A(1) is 5)")
-                .getMessage().contains("справа от 'is' должен стоять класс или трейт"));
+                .getMessage().contains("справа от 'is' должен стоять класс, трейт или тип"));
+    }
+
+    @Test
+    @DisplayName("is отвечает и на дескриптор типа, а не только на класс и трейт")
+    void isAnswersTypeDescriptorsToo() {
+        assertEquals("true true true true true", printed("""
+                println(5 is Number, " ", "a" is String, " ", [] is Array, " ",
+                        {} is Object, " ", null is Null)
+                """));
+    }
+
+    @Test
+    @DisplayName("экземпляр класса — object: is Object отвечает true, как и is своим классом")
+    void instanceIsObjectAndItsOwnClass() {
+        assertEquals("true true", printed("""
+                class Point(x, y)
+                p = new Point(1, 2)
+                println(p is Object, " ", p is Point)
+                """));
+    }
+
+    @Test
+    @DisplayName("класс, трейт и функция — тоже значения с собственным дескриптором")
+    void classTraitAndFunctionHaveDescriptors() {
+        assertEquals("true true true", printed("""
+                class Point(x, y)
+                trait Printable { def text() }
+                println(Point is Class, " ", Printable is Trait, " ", println is Function)
+                """));
+    }
+
+    @Test
+    @DisplayName("дескриптор типа не относится сам к себе: Number is Number — false")
+    void descriptorIsNotItsOwnInstance() {
+        assertEquals("false", printed("println(Number is Number)"));
     }
 
     // --- класс как значение --------------------------------------------------

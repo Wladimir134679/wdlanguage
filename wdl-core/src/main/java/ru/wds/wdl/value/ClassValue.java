@@ -106,6 +106,42 @@ public non-sealed interface ClassValue extends Value {
      */
     boolean conformsTo(Value classOrTrait);
 
+    /**
+     * Отвечает на {@code значение is этот}: то же самое, что стоит слева от {@code is}.
+     * <p>
+     * <b>Решение — здесь, а не в {@code runtime.Operations}.</b> Оператор {@code is}
+     * спрашивает не «что слева», а «что справа»: правый операнд знает, как отвечать
+     * на вопрос о принадлежности, а левый — нет. Будь ответ зашит в {@code Operations},
+     * там жила бы проверка {@code instanceof ClassValue} с решением внутри — и вторая
+     * такая же для {@link TraitValue}, и обеим сторонам понадобился бы способ
+     * различить чужую реализацию {@code ClassValue}, которую написало приложение.
+     * Здесь же вопрос закрывается методом интерфейса: своя реализация отвечает
+     * по-своему, не трогая ни оператор, ни чужой код.
+     * <p>
+     * Реализация по умолчанию — дословно то, что оператор делал до появления
+     * дескрипторов типов: значение принадлежит классу, если это экземпляр и его
+     * класс {@linkplain #conformsTo(Value) конформен} этому. {@code TypeValue}
+     * (дескриптор {@code Number}, {@code Object}, …) отвечает иначе — сравнением
+     * {@link Value#type()}, — и поэтому переопределяет этот метод целиком.
+     */
+    default boolean matches(Value value) {
+        return value instanceof InstanceObjectValue instance && instance.owner().conformsTo(this);
+    }
+
+    /**
+     * Можно ли писать в {@link #statics()} снаружи: {@code Point.zero = ...}.
+     * <p>
+     * По умолчанию {@code true} — класс, написанный на wdl или встроенный
+     * приложением, для того и заводит «статику», чтобы в неё писали. У дескриптора
+     * типа ({@code runtime.TypeValue}) ответ обратный: он один на процесс, и запись
+     * в него была бы состоянием, которое переживает свой запуск и видно чужому
+     * скрипту в соседнем интерпретаторе, — поэтому он единственный, кто
+     * переопределяет этот метод в {@code false}.
+     */
+    default boolean staticsWritable() {
+        return true;
+    }
+
     @Override
     default ValueType type() {
         return ValueType.CLASS;
