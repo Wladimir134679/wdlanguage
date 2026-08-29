@@ -35,6 +35,26 @@ public class NativeInstance extends InstanceObjectValue {
         super(owner);
     }
 
+    /**
+     * Экземпляр, на котором зовут член своего класса.
+     * <p>
+     * Проверка здесь формальная и никогда не срабатывает: метод и свойство ищутся
+     * <b>в классе объекта</b>, а экземпляры этого класса создаёт только его же
+     * {@code instantiate}. Написана она один раз и в одном месте потому, что нужна
+     * в пяти — у метода нативного класса, у его свойства, у поля и свойства моста, —
+     * и пять одинаковых проверок с пятью одинаковыми текстами уже начинали расходиться.
+     *
+     * @throws IllegalStateException если экземпляр собрали в обход {@code instantiate}
+     */
+    public static NativeInstance receiverOf(Value receiver, String className) {
+        if (receiver instanceof InstanceObjectValue instance
+                && instance.identity() instanceof NativeInstance self) {
+            return self;
+        }
+        throw new IllegalStateException("экземпляр класса '" + className
+                + "' создан в обход instantiate");
+    }
+
     /** Java-объект, который держит этот экземпляр, или {@code null}. */
     public Object state() {
         return state;

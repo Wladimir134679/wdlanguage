@@ -22,7 +22,7 @@ public final class NativeCheckBox {
     }
 
     public static NativeClass in(Environment scope) {
-        return Types.in(scope, "CheckBox", NativeCheckBox::build);
+        return Types.in(scope, "CheckBox", NativeClass.class, NativeCheckBox::build);
     }
 
     private static NativeClass build() {

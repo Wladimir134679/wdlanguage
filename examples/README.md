@@ -85,7 +85,7 @@ wdl-cli/build/install/wdl/bin/wdl examples/hello.wdl
 
 | Файл | О чём |
 |---|---|
-| [stdlib.wdl](stdlib.wdl) | `pow`, `sqrt`, классы `File` и `Random`, фабрика `File.temp()`, поле класса, состояние экземпляра |
+| [stdlib.wdl](stdlib.wdl) | `pow`, `sqrt`, классы `File` и `Random`, фабрика `File.temp()`, поле класса; два способа написать библиотеку — построитель и мост |
 | [embedding.wdl](embedding.wdl) | трейт-контракт от модуля (`json.Serializable`), иерархия нативных классов (`io.Stream`), ошибки библиотек по классам, изоляция запусков |
 
 Правило, вокруг которого построены оба файла: **скрипт не видит разницы**. Класс
@@ -109,6 +109,7 @@ wdl-cli/build/install/wdl/bin/wdl examples/hello.wdl
 | Файл | О чём |
 |---|---|
 | [sys.wdl](sys.wdl) | встроенные модули: `sys.json` и `sys.io` — библиотеки на Java, приходящие через `import` |
+| [java-time.wdl](java-time.wdl) | мост в Java: `sys.time` — семь чужих типов `java.time` без единого описанного метода |
 
 `sys.net.http` в примерах не показан намеренно: они прогоняются на сборке,
 а сеть в ней может быть недоступна. Как он выглядит — в [docs/modules.md](../docs/modules.md).

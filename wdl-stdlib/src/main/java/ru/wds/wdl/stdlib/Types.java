@@ -1,7 +1,7 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.NativeClass;
 import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.value.ClassValue;
 
 import java.util.function.Supplier;
 
@@ -25,9 +25,19 @@ public final class Types {
     private Types() {
     }
 
-    public static NativeClass in(Environment scope, String name, Supplier<NativeClass> build) {
-        return scope.lookup(name) instanceof NativeClass declared && declared.name().equals(name)
-                ? declared
+    /**
+     * Класс с этим именем: тот, что уже стоит в области, или собранный заново.
+     * <p>
+     * Вид класса — параметром, потому что видов теперь два: собранный построителем
+     * ({@code NativeClass}) и открытый мостом ({@code JavaClass}). Спрашивается он
+     * затем, чтобы чужой одноимённый класс — скажем, объявленный скриптом
+     * {@code class File} — не был принят за свой.
+     */
+    public static <T extends ClassValue> T in(Environment scope, String name,
+                                              Class<T> kind, Supplier<T> build) {
+        return scope.lookup(name) instanceof ClassValue declared && kind.isInstance(declared)
+                && declared.name().equals(name)
+                ? kind.cast(declared)
                 : build.get();
     }
 }

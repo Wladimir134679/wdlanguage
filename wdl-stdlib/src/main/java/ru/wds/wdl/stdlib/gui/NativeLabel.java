@@ -21,7 +21,7 @@ public final class NativeLabel {
     }
 
     public static NativeClass in(Environment scope) {
-        return Types.in(scope, "Label", NativeLabel::build);
+        return Types.in(scope, "Label", NativeClass.class, NativeLabel::build);
     }
 
     private static NativeClass build() {

@@ -92,7 +92,7 @@ public final class Threads implements Library {
     @Override
     public Environment installTo(Environment scope) {
         Objects.requireNonNull(scope, "scope");
-        NativeClass threadClass = Types.in(scope, THREAD, Threads::threadClass);
+        NativeClass threadClass = Types.in(scope, THREAD, NativeClass.class, Threads::threadClass);
         scope.define(THREAD, threadClass);
         installPool(scope);
         installPrimitives(scope);
@@ -143,8 +143,8 @@ public final class Threads implements Library {
      * — законный вопрос, и ответить на него можно только имеющимся именем.
      */
     private void installPool(Environment scope) {
-        NativeClass futureClass = Types.in(scope, "Future", Pool::futureClass);
-        NativeClass poolClass = Types.in(scope, "Pool", () -> Pool.poolClass(scope, futureClass));
+        NativeClass futureClass = Types.in(scope, "Future", NativeClass.class, Pool::futureClass);
+        NativeClass poolClass = Types.in(scope, "Pool", NativeClass.class, () -> Pool.poolClass(scope, futureClass));
         scope.define("Future", futureClass);
         scope.define("Pool", poolClass);
 
@@ -165,10 +165,10 @@ public final class Threads implements Library {
 
     /** Замок, счётчик, канал и защёлка — всё, что даёт значение, а не ключевое слово. */
     private static void installPrimitives(Environment scope) {
-        NativeClass lockClass = Types.in(scope, "Lock", Sync::lockClass);
-        NativeClass counterClass = Types.in(scope, "Counter", Sync::counterClass);
-        NativeClass channelClass = Types.in(scope, "Channel", Sync::channelClass);
-        NativeClass latchClass = Types.in(scope, "Latch", Sync::latchClass);
+        NativeClass lockClass = Types.in(scope, "Lock", NativeClass.class, Sync::lockClass);
+        NativeClass counterClass = Types.in(scope, "Counter", NativeClass.class, Sync::counterClass);
+        NativeClass channelClass = Types.in(scope, "Channel", NativeClass.class, Sync::channelClass);
+        NativeClass latchClass = Types.in(scope, "Latch", NativeClass.class, Sync::latchClass);
         scope.define("Lock", lockClass);
         scope.define("Counter", counterClass);
         scope.define("Channel", channelClass);

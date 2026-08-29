@@ -23,7 +23,7 @@ public final class NativePanel {
     }
 
     public static NativeClass in(Environment scope) {
-        return Types.in(scope, "Panel", NativePanel::build);
+        return Types.in(scope, "Panel", NativeClass.class, NativePanel::build);
     }
 
     private static NativeClass build() {

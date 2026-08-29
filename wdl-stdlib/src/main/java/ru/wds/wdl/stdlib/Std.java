@@ -2,6 +2,7 @@ package ru.wds.wdl.stdlib;
 
 import ru.wds.wdl.embed.Library;
 import ru.wds.wdl.embed.NativeClass;
+import ru.wds.wdl.interop.JavaClass;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.runtime.ErrorKind;
@@ -59,7 +60,9 @@ public final class Std implements Library {
         // Классы берутся у области: если они там уже есть (скажем, 'import std as s'
         // после установки в корень), это те же самые классы, и 'f is File' не врёт.
         NativeClass file = Files.in(scope);
-        NativeClass random = Randoms.in(scope);
+        // File собран построителем, Random открыт мостом — для скрипта это два
+        // одинаковых класса, и здесь видно, что разницы в установке тоже нет.
+        JavaClass random = Randoms.in(scope);
         scope.define(file.name(), file);
         scope.define(random.name(), random);
         return scope;

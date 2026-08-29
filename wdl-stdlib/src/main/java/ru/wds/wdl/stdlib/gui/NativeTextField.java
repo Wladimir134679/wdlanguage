@@ -22,7 +22,7 @@ public final class NativeTextField {
     }
 
     public static NativeClass in(Environment scope) {
-        return Types.in(scope, "TextField", NativeTextField::build);
+        return Types.in(scope, "TextField", NativeClass.class, NativeTextField::build);
     }
 
     private static NativeClass build() {

@@ -26,7 +26,7 @@ public final class NativeWindow {
     }
 
     public static NativeClass in(Environment scope, WindowTracker tracker) {
-        return Types.in(scope, "Window", () -> build(tracker));
+        return Types.in(scope, "Window", NativeClass.class, () -> build(tracker));
     }
 
     private static NativeClass build(WindowTracker tracker) {

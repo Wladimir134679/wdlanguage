@@ -166,9 +166,9 @@ class StdTest {
     // --- Random --------------------------------------------------------------
 
     @Test
-    @DisplayName("зерно — поле, генератор — состояние, которого в языке нет")
+    @DisplayName("зерно — свойство, печать — toString самого генератора")
     void randomKeepsSeedAsField() {
-        assertEquals("42 Random{\"seed\": 42} true", printed("""
+        assertEquals("42 Random(seed: 42) true", printed("""
                 r = new Random(42)
                 println(r.seed, " ", r, " ", r is Random)
                 """));
@@ -201,7 +201,7 @@ class StdTest {
         assertTrue(errorOf("println(new Random(1).pick([]))").getMessage()
                 .contains("ожидался непустой массив"));
         assertTrue(errorOf("println(new Random(1).pick(5))").getMessage()
-                .contains("Random.pick(): откуда выбирать: ожидался массив"));
+                .contains("Random.pick(): аргумент 1: ожидался массив"));
     }
 
     @Test
@@ -211,7 +211,7 @@ class StdTest {
                 .contains("граница: ожидалось положительное число"));
         // 1.5 не проходит раньше — на «целое», и это точнее прежнего общего сообщения.
         assertTrue(errorOf("println(new Random(1).int(1.5))").getMessage()
-                .contains("граница: ожидалось целое число"));
+                .contains("ожидалось целое число"));
     }
 
     // --- встроенный класс как значение ---------------------------------------

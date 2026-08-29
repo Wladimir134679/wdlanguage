@@ -32,7 +32,7 @@ public final class NativeSocket {
     }
 
     public static NativeClass in(Environment scope) {
-        return Types.in(scope, "Socket", NativeSocket::build);
+        return Types.in(scope, "Socket", NativeClass.class, NativeSocket::build);
     }
 
     public static Value wrap(NativeClass socketClass, Socket socket) throws IOException {

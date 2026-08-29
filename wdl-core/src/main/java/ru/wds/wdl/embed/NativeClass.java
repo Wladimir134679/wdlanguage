@@ -251,13 +251,9 @@ public final class NativeClass implements ClassValue {
         if (entry == null) {
             return null;
         }
-        if (!(instance.identity() instanceof NativeInstance self)) {
-            // Попасть сюда можно только собрав экземпляр в обход instantiate:
-            // метод ищется в классе объекта, а этот класс создаёт только NativeInstance.
-            throw new IllegalStateException("экземпляр класса '" + this.name
-                    + "' создан в обход instantiate");
-        }
-        return new Bound(entry, self, this.name);
+        // Попасть в отказ можно только собрав экземпляр в обход instantiate: метод
+        // ищется в классе объекта, а этот класс создаёт только NativeInstance.
+        return new Bound(entry, NativeInstance.receiverOf(instance, this.name), this.name);
     }
 
     /** Родитель или {@code null}. Родитель ровно один — из-за заголовка. */
@@ -329,12 +325,7 @@ public final class NativeClass implements ClassValue {
         }
 
         private NativeInstance self(Value receiver) {
-            if (receiver instanceof InstanceObjectValue instance
-                    && instance.identity() instanceof NativeInstance native_) {
-                return native_;
-            }
-            throw new IllegalStateException("экземпляр класса '" + className
-                    + "' создан в обход instantiate");
+            return NativeInstance.receiverOf(receiver, className);
         }
     }
 

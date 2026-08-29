@@ -23,6 +23,7 @@
             <option value="$PROJECT_DIR$/wdl-api" />
             <option value="$PROJECT_DIR$/wdl-cli" />
             <option value="$PROJECT_DIR$/wdl-core" />
+            <option value="$PROJECT_DIR$/wdl-interop" />
             <option value="$PROJECT_DIR$/wdl-stdlib" />
             <option value="$PROJECT_DIR$/wdl-tools" />
           </set>

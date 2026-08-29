@@ -66,7 +66,8 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 | Модуль | Содержимое | Зависит от |
 |---|---|---|
 | `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source`, `metrics` | ничего |
-| `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, реестр `Sys` | core |
+| `wdl-interop` | `interop`: мост в Java рефлексией — `JavaBridge`, `JavaSchema`, `JavaPolicy`, `Marshal` | core |
+| `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, `sys.time`, реестр `Sys` | core, interop |
 | `wdl-api` | фасад для встраивания `WdlEngine` (пока заготовка) | core, stdlib |
 | `wdl-tools` | `AstDumper`, `TokenDumper`, позже линтер/форматтер/LSP | core |
 | `wdl-cli` | picocli-точка входа, REPL | api, tools |
@@ -102,6 +103,13 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   `RuntimeException`), а не код возврата в каждом узле. Глубина вызовов ограничена
   `ExecutionContext.MAX_CALL_DEPTH`, чтобы рекурсия давала ошибку скрипта,
   а не `StackOverflowError` в чужом приложении.
+* **Чужой код зовётся через `runtime.Foreign`.** Тело встроенной функции, конструктор
+  нативного класса, аксессор свойства, метод за мостом — всё, что написано не движком,
+  идёт через `Foreign.call`: своё (`WdlError`, `ControlSignal`) проходит наверх,
+  чужое становится `ErrorKind.JAVA` с сохранённой причиной, `Error` кроме `LinkageError`
+  не трогается. Своего `try`/`catch` вокруг чужого вызова заводить не надо — правило
+  одно и живёт в одном месте; когда оно было записано в двух, чтение свойства
+  нативного класса не имело его вовсе.
 * **Вывод — зависимость, а не `System.out`**: `Output` внутри `ExecutionContext`,
   по умолчанию `Output.discarding()`. `ExecutionContext` неизменяем — вложенная
   область даёт новый контекст (`withScope`/`nested`), а не подменяет поле.
@@ -145,7 +153,9 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   см. `value/Member` и `docs/members.md`. Новый член **не** сопровождается новой
   встроенной функцией.
 * **Встроенный модуль** (`import sys.что-то`): класс с `implements Library` в `wdl-stdlib`,
-  фабрика `library()`, строка в `Sys.registry()`. Имена кладутся теми же `define`,
+  фабрика `library()`, строка в `Sys.registry()`. Если модуль оборачивает чужие типы —
+  он состоит из списка `expose` и ничего больше (`Times` = `sys.time`, семь строк
+  на весь `java.time`); если свои — из построителей. Имена кладутся теми же `define`,
   что и в корень; живое, если оно есть, отпускается в `close()`. Ключ — имя, а не путь.
 * **Новая стадия для метрик**: элемент в `metrics/Stage` с русским `title()` → охват
   `Measure` **в том месте, которое стадию запускает** (внутрь самой стадии приёмник
@@ -154,6 +164,14 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   Приёмник берётся из `context.metrics()` либо приходит аргументом; закрывается замер
   из `finally`, а не `try`-с-ресурсами (`-Xlint:all` считает такой `try` забытым
   ресурсом). См. `docs/metrics.md`.
+* **Пробросить чужой Java-класс**: `JavaBridge.open().expose(Type.class, "Имя").build()`
+  и `installTo(scope)`; готовый объект — `bridge.wrap(object)`. Что видно, задаёт
+  `JavaSchema` (`method`, `bean`, `readOnly`, `noConstructors`, `factory`), что
+  запрещено навсегда — `JavaPolicy.forbidden`. Ни ядро, ни `ValueType` при этом
+  не трогаются: `JavaClass` — ещё одна реализация `ClassValue`, обёртка —
+  `NativeInstance` со `state()`. Java-поле открывается **свойством**, метод без
+  аргументов остаётся методом, перегрузка выбирается по стоимости приведения
+  (`Marshal.cost`), ничья — отказ. См. `docs/java-interop.md`.
 * **Класс от приложения**: построитель `embed/NativeClass` — поля заголовка, методы,
   фабрики, константы; состояние, не выразимое значением, — в `NativeInstance.state()`.
   Для интерпретатора это тот же `ClassValue`, что и класс на wdl. См. `docs/embedding.md`

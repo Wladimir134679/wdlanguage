@@ -25,7 +25,7 @@ public final class NativeComboBox {
     }
 
     public static NativeClass in(Environment scope) {
-        return Types.in(scope, "ComboBox", NativeComboBox::build);
+        return Types.in(scope, "ComboBox", NativeClass.class, NativeComboBox::build);
     }
 
     private static NativeClass build() {

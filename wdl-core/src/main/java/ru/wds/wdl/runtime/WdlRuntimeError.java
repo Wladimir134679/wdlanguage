@@ -89,9 +89,29 @@ public final class WdlRuntimeError extends WdlError {
     static WdlRuntimeError fromJava(Span span, Throwable cause, String module) {
         Objects.requireNonNull(cause, "cause");
         String message = cause.getMessage();
-        return new WdlRuntimeError(span,
+        return fromJava(span,
                 message == null || message.isBlank() ? cause.getClass().getName() : message,
-                ErrorKind.JAVA, null, null, null, cause, module);
+                cause, module);
+    }
+
+    /**
+     * То же самое, но текст пишет тот, кто ловил.
+     * <p>
+     * Нужно тому, кто зовёт Java <b>не</b> через вызов функции: интерпретатор
+     * заворачивает чужое исключение сам, но только вокруг вызова, а свойство
+     * читается другим путём — и оттуда исключение ушло бы наружу как крах движка.
+     * Собрать такую ошибку снаружи иначе нечем: {@code initCause} у ошибок движка
+     * запрещён (причина задаётся при создании), поэтому без этой фабрики причина
+     * терялась бы совсем.
+     *
+     * @param message что писать автору скрипта: обычно место вызова плюс текст
+     *                исключения — {@code "Counter.fail(): IllegalStateException: так нельзя"}
+     * @param cause   исходное исключение; сохраняется целиком — приложению оно нужно в логе
+     * @param module  имя модуля или {@code null}, если оно неизвестно
+     */
+    public static WdlRuntimeError fromJava(Span span, String message, Throwable cause, String module) {
+        Objects.requireNonNull(cause, "cause");
+        return new WdlRuntimeError(span, message, ErrorKind.JAVA, null, null, null, cause, module);
     }
 
     /** Исходное исключение Java или {@code null}. */
@@ -114,6 +134,26 @@ public final class WdlRuntimeError extends WdlError {
     static WdlRuntimeError thrown(Span span, Value error, String message) {
         return new WdlRuntimeError(span, message, null, Objects.requireNonNull(error, "error"),
                 null, null, null, null);
+    }
+
+    /**
+     * Та же ошибка, но с проставленным местом — если места у неё ещё нет.
+     * <p>
+     * Нужно библиотеке, написанной обычным Java-классом: у её метода нет ни {@code Span},
+     * ни повода его знать — она умеет сказать «не удалось обратиться к файлу», но
+     * не умеет сказать, на какой строке скрипта это случилось. Место знает граница
+     * вызова, и она же его проставляет ({@link Foreign}).
+     * <p>
+     * Уже проставленное место не подменяется: ошибка, брошенная с местом, знает о нём
+     * больше, чем граница. Тот же приём и та же причина, что у {@link #inSource}
+     * с файлом.
+     */
+    public WdlRuntimeError at(Span known) {
+        if (!span().isNone() || known == null || known.isNone()) {
+            return this;
+        }
+        return new WdlRuntimeError(known, getMessage(), kind, payload, source(), trace,
+                javaCause, module);
     }
 
     /** Класс ошибки движка или {@code null}, если ошибку бросил скрипт своим классом. */

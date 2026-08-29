@@ -38,7 +38,7 @@ public final class NativeServerSocket {
     }
 
     public static NativeClass in(Environment scope, NativeClass socketClass) {
-        return Types.in(scope, "Server", () -> build(socketClass));
+        return Types.in(scope, "Server", NativeClass.class, () -> build(socketClass));
     }
 
     private static NativeClass build(NativeClass socketClass) {

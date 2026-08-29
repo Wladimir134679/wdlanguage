@@ -1553,13 +1553,9 @@ public final class Interpreter
             return function.call(context, arguments, expr.span());
         }
         // Тело написано на Java — значит, оттуда может прилететь что угодно.
-        try {
-            return function.call(context, arguments, expr.span());
-        } catch (WdlError | ControlSignal known) {
-            throw known;
-        } catch (RuntimeException | LinkageError foreign) {
-            throw WdlRuntimeError.fromJava(expr.span(), foreign, moduleOf(expr.callee(), context));
-        }
+        // Правило «что своё, что чужое» одно на весь движок и живёт в Foreign.
+        return Foreign.call(expr.span(), null, moduleOf(expr.callee(), context),
+                () -> function.call(context, arguments, expr.span()));
     }
 
     /**
@@ -1665,13 +1661,8 @@ public final class Interpreter
         if (declared instanceof WdlClass) {
             return declared.instantiate(arguments, context, expr.span());
         }
-        try {
-            return declared.instantiate(arguments, context, expr.span());
-        } catch (WdlError | ControlSignal known) {
-            throw known;
-        } catch (RuntimeException | LinkageError foreign) {
-            throw WdlRuntimeError.fromJava(expr.span(), foreign, moduleOf(expr.callee(), context));
-        }
+        return Foreign.call(expr.span(), null, moduleOf(expr.callee(), context),
+                () -> declared.instantiate(arguments, context, expr.span()));
     }
 
     @Override
@@ -1848,7 +1839,11 @@ public final class Interpreter
                 }
                 Property property = property(instance, key);
                 if (property != null) {
-                    yield property.read(instance, context, span);
+                    // Аксессор бывает написан на Java — у нативного класса и у моста
+                    // в Java он написан всегда. Раньше этой ветки у Foreign не было,
+                    // и исключение оттуда уходило наружу как крах движка.
+                    yield Foreign.call(span, null, null,
+                            () -> property.read(instance, context, span));
                 }
                 Value method = method(instance, key);
                 if (method != null) {
@@ -2060,7 +2055,10 @@ public final class Interpreter
                     + "' класса '" + instance.owner().name() + "' только для чтения: "
                     + "у него нет 'def set(value)'");
         }
-        property.write(instance, value, context, span);
+        Foreign.call(span, null, null, () -> {
+            property.write(instance, value, context, span);
+            return null;
+        });
     }
 
     /**

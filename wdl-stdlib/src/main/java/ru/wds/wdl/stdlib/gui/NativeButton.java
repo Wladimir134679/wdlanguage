@@ -22,7 +22,7 @@ public final class NativeButton {
     }
 
     public static NativeClass in(Environment scope) {
-        return Types.in(scope, "Button", NativeButton::build);
+        return Types.in(scope, "Button", NativeClass.class, NativeButton::build);
     }
 
     private static NativeClass build() {

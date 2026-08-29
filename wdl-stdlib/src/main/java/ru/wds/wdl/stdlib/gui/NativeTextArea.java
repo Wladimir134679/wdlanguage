@@ -24,7 +24,7 @@ public final class NativeTextArea {
     }
 
     public static NativeClass in(Environment scope) {
-        return Types.in(scope, "TextArea", NativeTextArea::build);
+        return Types.in(scope, "TextArea", NativeClass.class, NativeTextArea::build);
     }
 
     private static NativeClass build() {

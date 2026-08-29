@@ -1,29 +1,30 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
+import ru.wds.wdl.interop.JavaBridge;
+import ru.wds.wdl.interop.JavaClass;
+import ru.wds.wdl.interop.JavaSchema;
 import ru.wds.wdl.runtime.Environment;
-import ru.wds.wdl.value.Arity;
-import ru.wds.wdl.value.NumberValue;
-import ru.wds.wdl.value.types.ArrayValue;
-import ru.wds.wdl.value.types.FloatValue;
-import ru.wds.wdl.value.types.IntValue;
-import ru.wds.wdl.value.types.NullValue;
-
-import java.util.Random;
 
 /**
- * Класс {@code Random}: генератор случайных чисел.
+ * Класс {@code Random}: генератор случайных чисел, открытый скриптом через мост.
  * <p>
- * Второй показательный пример, и показывает он ровно то, чего нет у {@code File}:
- * <b>состояние, которое значениями языка не выражается</b>. Зерно — число и лежит
- * обычным полем, а сам {@link Random} значением быть не может, поэтому живёт
- * в {@link NativeInstance#state()}.
- * <p>
- * Разделение то же, что и везде: что выразимо — полем, чтобы это было видно в печати
- * и в переборе; что не выразимо — состоянием, о котором скрипт не знает.
- * <p>
- * Класс собирается на запуск — по той же причине, что и {@link Files}.
+ * Раньше здесь стоял построитель на семьдесят строк лямбд, а сам генератор жил
+ * в {@code NativeInstance.state()}. Теперь генератор — обычный Java-класс
+ * ({@link ScriptRandom}), а здесь осталось только то, что и должно быть в описании:
+ * <b>какие имена видит скрипт</b>.
+ *
+ * <h2>Почему схема, а не «всё public»</h2>
+ * Открыто ровно четыре имени. {@code JavaSchema.all} открыла бы заодно
+ * {@code equals}, {@code hashCode} и {@code toString} — имена, которые в языке
+ * ничего не значат и только засоряют {@code Random.methods}. Схема здесь дешевле
+ * фильтра: четыре строки против объяснений, почему у генератора есть {@code hashCode}.
+ *
+ * <h2>Один класс на запуск — как и раньше</h2>
+ * Собирается из {@code installTo} и берётся из области, если уже там стоит
+ * ({@link Types#in}): {@code std} и будущие модули должны отдавать <b>тот же</b>
+ * класс, иначе {@code r is Random} врал бы. Заодно исчезла старая забота: даже
+ * если классов окажется два, {@code is} у моста отвечает по живому Java-типу,
+ * а не по ссылке на класс.
  */
 final class Randoms {
 
@@ -31,48 +32,21 @@ final class Randoms {
     }
 
     /** Класс {@code Random} этого запуска: тот, что уже в области, или новый. */
-    static NativeClass in(Environment scope) {
-        return Types.in(scope, "Random", Randoms::build);
+    static JavaClass in(Environment scope) {
+        return Types.in(scope, "Random", JavaClass.class, Randoms::build);
     }
 
-    private static NativeClass build() {
-        return NativeClass.named("Random")
-            // Зерно необязательно: без него генератор непредсказуем, с ним —
-            // повторяем, и это то, ради чего зерно вообще задают.
-            .field("seed", NullValue.NULL)
+    private static JavaClass build() {
+        JavaSchema schema = JavaSchema.of(ScriptRandom.class).as("Random")
+                .method("next")
+                // В Java метод не назовёшь 'int' — а в скрипте это лучшее имя.
+                .methodAs("int", "nextInt")
+                .method("pick")
+                // Зерно не меняется после создания, поэтому свойство, а не метод:
+                // ответ зависит только от объекта, каким его создали.
+                .bean("seed")
+                .build();
 
-            .init((self, context, arguments, span) -> {
-                self.state(self.get("seed") instanceof NumberValue seed
-                        ? new Random(seed.asLong())
-                        : new Random());
-                return NullValue.NULL;
-            })
-
-            .method("next", Arity.exactly(0), (self, context, arguments, span) ->
-                    FloatValue.of(random(self).nextDouble()))
-
-            .method("int", Arity.exactly(1), (self, context, arguments, span) -> {
-                long limit = arguments.integer(0, "граница");
-                if (limit <= 0) {
-                    throw arguments.bad(0, "граница", "ожидалось положительное число");
-                }
-                return IntValue.of(limit <= Integer.MAX_VALUE
-                        ? random(self).nextInt((int) limit)
-                        : Math.floorMod(random(self).nextLong(), limit));
-            })
-
-            .method("pick", Arity.exactly(1), (self, context, arguments, span) -> {
-                ArrayValue array = arguments.array(0, "откуда выбирать");
-                if (array.isEmpty()) {
-                    throw arguments.bad(0, "откуда выбирать", "ожидался непустой массив");
-                }
-                return array.get(random(self).nextInt(array.size()));
-            })
-
-            .build();
-    }
-
-    private static Random random(NativeInstance self) {
-        return self.state(Random.class);
+        return JavaBridge.open().expose(schema).build().classOf(ScriptRandom.class);
     }
 }

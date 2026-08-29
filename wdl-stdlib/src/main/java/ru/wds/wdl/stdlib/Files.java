@@ -45,7 +45,7 @@ final class Files {
 
     /** Класс {@code File} этого запуска: тот, что уже в области, или новый. */
     static NativeClass in(Environment scope) {
-        return Types.in(scope, "File", Files::build);
+        return Types.in(scope, "File", NativeClass.class, Files::build);
     }
 
     private static NativeClass build() {
