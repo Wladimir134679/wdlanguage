@@ -17,6 +17,10 @@ import ru.wds.wdl.value.types.StringValue;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
@@ -149,9 +153,42 @@ final class Files {
         try {
             return action.run();
         } catch (IOException | UncheckedIOException e) {
-            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            throw new WdlRuntimeError(span, "не удалось обратиться к файлу: " + reason);
+            throw new WdlRuntimeError(span, "не удалось обратиться к файлу: " + reason(e));
         }
+    }
+
+    /**
+     * Что именно не получилось — словами.
+     * <p>
+     * Нужно потому, что {@code getMessage()} у файловых исключений это <b>сам путь</b>
+     * и ничего больше: {@code NoSuchFileException} про {@code build/отчёт.txt}
+     * давал сообщение «не удалось обратиться к файлу: build\отчёт.txt» — фразу,
+     * из которой не следует ничего. Особенно обидно это на записи: файла нет,
+     * потому что нет каталога, и сказать об этом можно прямо.
+     */
+    private static String reason(Exception failure) {
+        Throwable cause = failure instanceof UncheckedIOException wrapped
+                ? wrapped.getCause() : failure;
+        if (cause instanceof NoSuchFileException absent) {
+            Path missing = Path.of(absent.getFile());
+            Path parent = missing.getParent();
+            return parent != null && !java.nio.file.Files.isDirectory(parent)
+                    ? "нет каталога '" + parent + "' для файла '" + missing.getFileName() + "'"
+                    : "нет файла '" + missing + "'";
+        }
+        if (cause instanceof AccessDeniedException denied) {
+            return "доступ запрещён: '" + denied.getFile() + "'";
+        }
+        if (cause instanceof FileAlreadyExistsException taken) {
+            return "файл уже существует: '" + taken.getFile() + "'";
+        }
+        if (cause instanceof DirectoryNotEmptyException full) {
+            return "каталог не пуст: '" + full.getFile() + "'";
+        }
+        String message = cause.getMessage();
+        return message == null || message.isBlank()
+                ? cause.getClass().getSimpleName()
+                : cause.getClass().getSimpleName() + ": " + message;
     }
 
     static void io(Span span, IoRun action) {

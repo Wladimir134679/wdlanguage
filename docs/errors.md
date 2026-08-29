@@ -654,7 +654,7 @@ try {
 
 ```wdl
 catch (e is Exception) {
-    println("[warn] ", e.text())        // "IoError: не удалось обратиться к файлу: нет.txt"
+    println("[warn] ", e.text())        // "IoError: не удалось обратиться к файлу: нет файла 'нет.txt'"
     println(e.report())                 // текст + место + трейс + цепочка cause
 }
 ```
