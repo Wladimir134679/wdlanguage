@@ -28,7 +28,7 @@ import java.util.Map;
  * вместе со всем содержимым, а не наполовину. Замок здесь был бы платой за каждый
  * {@code catch} ради одной записи за весь запуск.
  */
-final class PreludeTypes {
+public final class PreludeTypes {
 
     private static final String CLOSEABLE = "Closeable";
 

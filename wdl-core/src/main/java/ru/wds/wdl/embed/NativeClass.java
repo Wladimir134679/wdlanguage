@@ -224,6 +224,27 @@ public final class NativeClass implements ClassValue {
         return properties.get(name);
     }
 
+    /**
+     * Интроспекция: родитель, трейты и имена членов — то же, что отдаёт класс на wdl.
+     * <p>
+     * Таблицы у нативного класса уже плоские (родительские члены слиты при сборке),
+     * поэтому здесь ключи, а не обход иерархии.
+     */
+    @Override
+    public ClassValue parentClass() {
+        return parent;
+    }
+
+    @Override
+    public List<String> methodNames() {
+        return List.copyOf(methods.keySet());
+    }
+
+    @Override
+    public List<String> propertyNames() {
+        return List.copyOf(properties.keySet());
+    }
+
     @Override
     public FunctionValue method(InstanceObjectValue instance, String name) {
         Entry entry = methods.get(name);
@@ -298,17 +319,18 @@ public final class NativeClass implements ClassValue {
         }
 
         @Override
-        public Value read(InstanceObjectValue instance, CallContext context, Span span) {
-            return getter.get(self(instance), context, span);
+        public Value read(Value receiver, CallContext context, Span span) {
+            return getter.get(self(receiver), context, span);
         }
 
         @Override
-        public void write(InstanceObjectValue instance, Value value, CallContext context, Span span) {
-            setter.set(self(instance), value, context, span);
+        public void write(Value receiver, Value value, CallContext context, Span span) {
+            setter.set(self(receiver), value, context, span);
         }
 
-        private NativeInstance self(InstanceObjectValue instance) {
-            if (instance.identity() instanceof NativeInstance native_) {
+        private NativeInstance self(Value receiver) {
+            if (receiver instanceof InstanceObjectValue instance
+                    && instance.identity() instanceof NativeInstance native_) {
                 return native_;
             }
             throw new IllegalStateException("экземпляр класса '" + className

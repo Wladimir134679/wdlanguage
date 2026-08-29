@@ -147,6 +147,12 @@ final class ModuleScope implements Environment {
         return root.assign(name, value);
     }
 
+    /** Реестр членов у модуля тот же, что у корня запуска: таблица одна на запуск. */
+    @Override
+    public ru.wds.wdl.embed.MemberRegistry members() {
+        return root.members();
+    }
+
     @Override
     public Environment child() {
         return Scope.under(this);

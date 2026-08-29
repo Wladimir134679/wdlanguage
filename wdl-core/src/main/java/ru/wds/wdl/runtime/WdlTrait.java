@@ -83,6 +83,17 @@ final class WdlTrait implements TraitValue {
         return shape.name();
     }
 
+    /** Интроспекция: ключи таблиц трейта — методы и свойства, объявленные с телом. */
+    @Override
+    public List<String> methodNames() {
+        return List.copyOf(methods.keySet());
+    }
+
+    @Override
+    public List<String> propertyNames() {
+        return List.copyOf(properties.keySet());
+    }
+
     @Override
     public List<Requirement> requiredMethods() {
         return shape.requiredMethods();

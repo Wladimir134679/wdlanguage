@@ -61,6 +61,13 @@ public interface StmtVisitor<R, C> {
      */
     R visitDecorated(DecoratedStmt stmt, C context);
 
+    /**
+     * Расширение типа или класса: {@code extend Array { ... }}. Отдельный узел,
+     * а не разновидность объявления класса: цель у него уже существует, и тела
+     * конструктора здесь не бывает.
+     */
+    R visitExtend(ExtendStmt stmt, C context);
+
     R visitErrorStmt(ErrorStmt stmt, C context);
 
     /** Точка входа: направляет инструкцию нужному методу. */
@@ -86,6 +93,7 @@ public interface StmtVisitor<R, C> {
             case DeferStmt s -> visitDefer(s, context);
             case UseStmt s -> visitUse(s, context);
             case DecoratedStmt s -> visitDecorated(s, context);
+            case ExtendStmt s -> visitExtend(s, context);
             case ErrorStmt s -> visitErrorStmt(s, context);
         };
     }

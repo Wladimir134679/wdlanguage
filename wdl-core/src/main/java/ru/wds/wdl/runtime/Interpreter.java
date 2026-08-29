@@ -14,11 +14,16 @@ import ru.wds.wdl.resolve.LinkError;
 import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.resolve.ScriptTraitShape;
 import ru.wds.wdl.resolve.TraitShape;
+import ru.wds.wdl.runtime.members.BuiltinMembers;
+import ru.wds.wdl.runtime.members.MemberTable;
+import ru.wds.wdl.runtime.members.ScriptMember;
+import ru.wds.wdl.runtime.members.TypeMemberFunction;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arguments;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.ClassValue;
+import ru.wds.wdl.value.Member;
 import ru.wds.wdl.value.DecoratorMeta;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.types.ArrayValue;
@@ -598,6 +603,73 @@ public final class Interpreter
     public Void visitClassDecl(ClassDeclStmt stmt, ExecutionContext context) {
         classOf(stmt, context);
         return null;
+    }
+
+    /**
+     * Расширение типа или класса: {@code extend Array { ... }}.
+     * <p>
+     * <b>Член появляется тогда, когда выполнился {@code extend}</b>, — то же правило,
+     * что у всякого имени в языке. «Верхний уровень файла», который требует разбор,
+     * ограничивает место в тексте, но не момент во времени: {@code import} законен
+     * в теле функции и в потоке, а выполнение модуля — это выполнение его верхнего
+     * уровня. Регистрировать расширения заранее значило бы вернуть стадию подготовки,
+     * убранную ради ленивой загрузки модулей; поэтому таблица конкурентна, а правило
+     * остаётся одно на весь язык.
+     * <p>
+     * <b>Расширение принадлежит запуску, а не файлу.</b> Объявили в модуле — работает
+     * везде в этом запуске, но не в соседнем интерпретаторе: таблица живёт в
+     * {@link Run}, статики у неё нет.
+     */
+    @Override
+    public Void visitExtend(ExtendStmt stmt, ExecutionContext context) {
+        Value target = valueOf(stmt.target(), context);
+        if (!(target instanceof ClassValue declared)) {
+            throw new WdlRuntimeError(ErrorKind.TYPE, stmt.target().span(), "расширять можно тип или класс, а '"
+                    + stmt.label() + "' — это " + target.type().title() + " (" + target + ")");
+        }
+        Object key = declared.memberKey();
+        List<String> reserved = reserved(declared);
+        MemberTable members = context.run().members();
+        for (FunctionExpr method : stmt.methods()) {
+            members.declare(key, declared.name(),
+                    ScriptMember.method(method, context.scope(), context.unit(), context.run(), this),
+                    reserved, method.span());
+        }
+        for (PropertyDecl property : stmt.properties()) {
+            if (property.getter() == null || property.getter().function() == null) {
+                throw new WdlRuntimeError(ErrorKind.DECLARATION, property.span(), "свойство '"
+                        + property.name() + "' объявлено без чтения: требований в расширении не бывает, "
+                        + "их проверять некому");
+            }
+            if (property.hasSetter()) {
+                throw new WdlRuntimeError(ErrorKind.DECLARATION, property.span(), "у свойства '"
+                        + property.name() + "' не бывает 'def set(value)': запись в член типа — "
+                        + "действие, замаскированное под имя, а девать её вдобавок некуда");
+            }
+            members.declare(key, declared.name(),
+                    ScriptMember.property(property, context.scope(), context.unit(), context.run(), this),
+                    reserved, property.span());
+        }
+        return null;
+    }
+
+    /**
+     * Имена, которые у цели уже заняты помимо таблицы расширений.
+     * <p>
+     * У типа это его набор ядра, у класса — вдобавок его собственные методы и свойства
+     * и члены объекта: экземпляр это {@code object}, и {@code extend Point} с именем
+     * {@code keys} перекрыл бы член, которым пользуется чужой код.
+     */
+    private static List<String> reserved(ClassValue declared) {
+        List<String> reserved = new ArrayList<>();
+        if (declared instanceof TypeValue descriptor) {
+            reserved.addAll(BuiltinMembers.of(descriptor.valueType()).names());
+            return reserved;
+        }
+        reserved.addAll(declared.methodNames());
+        reserved.addAll(declared.propertyNames());
+        reserved.addAll(BuiltinMembers.of(ValueType.OBJECT).names());
+        return reserved;
     }
 
     @Override
@@ -1446,10 +1518,21 @@ public final class Interpreter
      */
     @Override
     public Value visitCall(CallExpr expr, ExecutionContext context) {
-        Value callee = valueOf(expr.callee(), context);
+        // Обращение слева вычисляется здесь, а не общим valueOf, ради одного:
+        // получателя надо сохранить. Без него сообщение об ошибке вызова говорит
+        // про следствие («здесь число»), а не про причину («это свойство»).
+        Value callee;
+        Value receiver = null;
+        Value memberKey = null;
+        if (expr.callee() instanceof AccessExpr access) {
+            receiver = valueOf(access.target(), context);
+            memberKey = valueOf(access.key(), context);
+            callee = read(receiver, memberKey, access.style(), access.span(), context);
+        } else {
+            callee = valueOf(expr.callee(), context);
+        }
         if (!(callee instanceof FunctionValue function)) {
-            throw new WdlRuntimeError(ErrorKind.CALL, expr.callee().span(),
-                    "вызвать можно только функцию, а здесь " + callee.type().title() + " (" + callee + ")");
+            throw notCallable(expr, callee, receiver, memberKey, context);
         }
 
         List<Value> values = evaluate(expr.arguments(), context);
@@ -1477,6 +1560,45 @@ public final class Interpreter
         } catch (RuntimeException | LinkageError foreign) {
             throw WdlRuntimeError.fromJava(expr.span(), foreign, moduleOf(expr.callee(), context));
         }
+    }
+
+    /**
+     * Почему это нельзя позвать.
+     * <p>
+     * <b>Скобки — самая частая ошибка при наборе членов</b>, и общая ветка про них
+     * молчит: {@code a.size()} у члена-свойства сказало бы «вызвать можно только
+     * функцию, а здесь число (3)» — правда, из которой ничего не следует. Поэтому,
+     * когда слева стояло обращение, здесь спрашивается таблица членов: если за именем
+     * стоит свойство, сообщение называет именно это.
+     * <p>
+     * Подсказка не даётся, когда имя перекрыто собственными данными: тогда за скобками
+     * стоял ключ, а не член, и совет «скобки лишние» увёл бы не туда.
+     */
+    private WdlRuntimeError notCallable(CallExpr expr, Value callee, Value receiver, Value key,
+                                        ExecutionContext context) {
+        if (receiver != null && key instanceof StringValue name && !shadowed(receiver, key)) {
+            Member member = memberOf(receiver, name.value(), context);
+            if (member != null && member.isProperty()) {
+                return new WdlRuntimeError(ErrorKind.CALL, expr.callee().span(), "'" + name.value()
+                        + "' у значения типа " + receiver.type().title()
+                        + " — свойство, а не метод: скобки лишние");
+            }
+        }
+        return new WdlRuntimeError(ErrorKind.CALL, expr.callee().span(),
+                "вызвать можно только функцию, а здесь " + callee.type().title() + " (" + callee + ")");
+    }
+
+    /** Перекрыто ли имя собственными данными получателя. */
+    private static boolean shadowed(Value receiver, Value key) {
+        if (receiver instanceof MapValue object) {
+            return object.has(key);
+        }
+        if (receiver instanceof ClassValue declared) {
+            return declared.statics().has(key);
+        }
+        return receiver instanceof ModuleValue module
+                && key instanceof StringValue name
+                && module.has(name.value());
     }
 
     /** Значения аргументов — строго в порядке записи в исходнике. */
@@ -1714,7 +1836,12 @@ public final class Interpreter
     private Value read(Value container, Value key, AccessStyle style, Span span,
                        ExecutionContext context) {
         return switch (container) {
-            case ArrayValue array -> array.get(checkIndex(array.size(), key, "массива", span));
+            // Строковый ключ уходит в таблицу членов ДО проверки индекса: иначе
+            // на 'a.size' человек получил бы «индекс массива должен быть целым
+            // числом» — сообщение про то, чего он не писал.
+            case ArrayValue array -> key instanceof StringValue name
+                    ? memberOrFail(array, name.value(), span, context)
+                    : array.get(checkIndex(array.size(), key, "массива", span));
             case InstanceObjectValue instance -> {
                 if (instance.has(key)) {
                     yield instance.get(key);
@@ -1724,22 +1851,151 @@ public final class Interpreter
                     yield property.read(instance, context, span);
                 }
                 Value method = method(instance, key);
-                yield method != null ? method : NullValue.NULL;
+                if (method != null) {
+                    yield method;
+                }
+                Value member = memberValue(instance, key, span, context);
+                yield member != null ? member : NullValue.NULL;
             }
             case MapValue object -> {
                 if (object.has(key)) {
                     yield object.get(key);
                 }
                 Value method = method(object, key);
-                yield method != null ? method : NullValue.NULL;
+                if (method != null) {
+                    yield method;
+                }
+                Value member = memberValue(object, key, span, context);
+                yield member != null ? member : NullValue.NULL;
             }
-            case ClassValue declared -> declared.statics().get(key);
-            case ModuleValue module -> member(module, key, span);
-            case StringValue string -> StringValue.of(String.valueOf(
-                    string.value().charAt(checkIndex(string.length(), key, "строки", span))));
+            case ClassValue declared -> readClass(declared, key, span, context);
+            case ModuleValue module -> member(module, key, span, context);
+            case StringValue string -> key instanceof StringValue name
+                    ? memberOrFail(string, name.value(), span, context)
+                    : StringValue.of(String.valueOf(
+                            string.value().charAt(checkIndex(string.length(), key, "строки", span))));
+            case NumberValue number -> memberOrIndex(number, key, style, span, context);
+            case FunctionValue function -> memberOrIndex(function, key, style, span, context);
+            case TraitValue trait -> memberOrIndex(trait, key, style, span, context);
             default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "к значению типа " + container.type().title() + " нельзя обратиться " + how(style, key));
         };
+    }
+
+    /**
+     * Член значения или {@code null}, если такого нет.
+     * <p>
+     * Спрашивается <b>после</b> собственных данных — общее правило языка: ключ,
+     * положенный руками, значит больше встроенного имени. Цена решения честная:
+     * у объекта, экземпляра и модуля член работает, только пока имя не занято,
+     * и для кода, которому нужен гарантированный ответ, есть путь через дескриптор
+     * типа ({@code Object.keys(box)}).
+     */
+    private Value memberValue(Value receiver, Value key, Span span, ExecutionContext context) {
+        if (!(key instanceof StringValue name)) {
+            return null;
+        }
+        Member member = memberOf(receiver, name.value(), context);
+        return member == null ? null : valueOf(member, receiver, context, span);
+    }
+
+    /** Чтение члена: свойство зовёт getter, метод отдаётся связанным с получателем. */
+    private static Value valueOf(Member member, Value receiver, ExecutionContext context, Span span) {
+        Property property = member.property();
+        return property != null ? property.read(receiver, context, span) : member.bind(receiver);
+    }
+
+    /**
+     * Поиск члена: основание ядра, надстройка запуска, а у экземпляра ещё и то,
+     * что добавили его классу.
+     */
+    private static Member memberOf(Value receiver, String name, ExecutionContext context) {
+        Member builtin = BuiltinMembers.of(receiver.type()).get(name);
+        if (builtin != null) {
+            return builtin;
+        }
+        MemberTable table = context.run().members();
+        Member added = table.added(receiver.type(), name);
+        if (added != null) {
+            return added;
+        }
+        return receiver instanceof InstanceObjectValue instance
+                ? table.addedForClass(instance.owner(), name)
+                : null;
+    }
+
+    /**
+     * Член или ошибка — у значений, где строковый ключ данными быть не может.
+     * <p>
+     * Промолчать здесь нельзя: у строки, числа и массива своих ключей нет вовсе,
+     * поэтому промах — это опечатка, и назвать её надо сразу.
+     */
+    private Value memberOrFail(Value receiver, String name, Span span, ExecutionContext context) {
+        Member member = memberOf(receiver, name, context);
+        if (member == null) {
+            throw noMember(receiver, name, span, context);
+        }
+        return valueOf(member, receiver, context, span);
+    }
+
+    /**
+     * То же, но там, где обращение по индексу бессмысленно вовсе: у числа, функции
+     * и трейта ключом бывает только имя члена.
+     */
+    private Value memberOrIndex(Value receiver, Value key, AccessStyle style, Span span,
+                                ExecutionContext context) {
+        if (key instanceof StringValue name) {
+            return memberOrFail(receiver, name.value(), span, context);
+        }
+        throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                "к значению типа " + receiver.type().title() + " нельзя обратиться " + how(style, key));
+    }
+
+    /**
+     * Промах по имени члена — самая частая ошибка при таком наборе, поэтому текст
+     * называет тип, называет промах, предлагает похожее имя и перечисляет, что вообще
+     * есть. Считается это только на пути ошибки: на удачном такого кода нет.
+     */
+    private static WdlRuntimeError noMember(Value receiver, String name, Span span,
+                                            ExecutionContext context) {
+        List<String> known = context.run().members().allNames(receiver.type());
+        String closest = Names.closestTo(name, known);
+        String hint = closest != null
+                ? ". Похоже на '" + closest + "'"
+                : known.isEmpty() ? "" : ". Есть: " + String.join(", ", known);
+        return new WdlRuntimeError(ErrorKind.NAME, span,
+                "у значения типа " + receiver.type().title() + " нет члена '" + name + "'" + hint);
+    }
+
+    /**
+     * Обращение к классу: сначала статика, потом члены.
+     * <p>
+     * <b>Статика раньше членов</b> — то же правило, что у объекта: {@code Point.zero}
+     * и {@code Point.methods = [...]} кладут данные, и они значат больше встроенного
+     * имени. Надёжный путь к члену идёт через дескриптор: {@code Class.methods(Point)}.
+     * <p>
+     * <b>У дескриптора типа всё иначе</b>, и это следствие правила «сведения о типе
+     * и члены типа не лежат в одной карте»: интроспекции класса у него нет (справка
+     * о себе — под ключом {@code info}), а всё остальное пространство имён отдано
+     * членам описываемого типа. Поэтому {@code Array.size} — это функция
+     * {@code (массив) -> число}, то есть путь к члену в обход данных.
+     */
+    private Value readClass(ClassValue declared, Value key, Span span, ExecutionContext context) {
+        if (declared.statics().has(key)) {
+            return declared.statics().get(key);
+        }
+        if (key instanceof StringValue name) {
+            if (declared instanceof TypeValue descriptor) {
+                return TypeMemberFunction.of(descriptor, name.value(), span, context);
+            }
+            Value member = memberValue(declared, key, span, context);
+            if (member != null) {
+                return member;
+            }
+        }
+        // Промах по классу отвечает null, как и промах по объекту: 'if (C.factory)'
+        // должно просто работать.
+        return declared.statics().get(key);
     }
 
     /**
@@ -1747,17 +2003,23 @@ public final class Interpreter
      * состав модуля задан его файлом и автору известен, поэтому {@code m.add} с опечаткой
      * стоит назвать здесь, а не через два шага, когда {@code null} попробуют вызвать.
      */
-    private static Value member(ModuleValue module, Value key, Span span) {
+    private Value member(ModuleValue module, Value key, Span span, ExecutionContext context) {
         if (!(key instanceof StringValue name)) {
             throw new WdlRuntimeError(ErrorKind.TYPE, span, "имя в модуле '" + module.name()
                     + "' задаётся строкой, а здесь " + key.type().title() + " (" + key + ")");
         }
         Value value = module.get(name.value());
-        if (value == null) {
-            throw new WdlRuntimeError(ErrorKind.NAME, span, "в модуле '" + module.name() + "' нет имени '"
-                    + name.value() + "'");
+        if (value != null) {
+            return value;
         }
-        return value;
+        // Члены модуля спрашиваются после его имён — общее правило «данные раньше
+        // членов». Надёжный путь, когда имя занято, — Module.names(m).
+        Value member = memberValue(module, key, span, context);
+        if (member != null) {
+            return member;
+        }
+        throw new WdlRuntimeError(ErrorKind.NAME, span, "в модуле '" + module.name() + "' нет имени '"
+                + name.value() + "'");
     }
 
     /**
@@ -1817,7 +2079,15 @@ public final class Interpreter
     private static void write(Value container, Value key, Value value, AccessStyle style,
                               Span span, ExecutionContext context) {
         switch (container) {
-            case ArrayValue array -> array.set(checkIndex(array.size(), key, "массива", span), value);
+            // Строковый ключ у массива — это член, а не индекс, и здесь он всегда
+            // отказ: сеттеров у встроенных членов нет (присваивание в свойство —
+            // действие, замаскированное под имя), а завести ключ массиву нельзя.
+            case ArrayValue array -> {
+                if (key instanceof StringValue name) {
+                    throw readOnlyMember(array, name.value(), span);
+                }
+                array.set(checkIndex(array.size(), key, "массива", span), value);
+            }
             case InstanceObjectValue instance -> writeMember(instance, key, value, span, context);
             case MapValue object -> object.put(key, value);
             // Запись в класс — «статическое поле»: обычная запись по ключу в значении.
@@ -1834,8 +2104,13 @@ public final class Interpreter
             case ModuleValue module -> writeMember(module, key, value, span);
             // Строка неизменяема, и это не случайность реализации: строки лежат в ключах
             // объектов, и молчаливое изменение на месте испортило бы их.
-            case StringValue ignored -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
-                    "строку нельзя изменить по индексу: строки неизменяемы");
+            case StringValue string -> {
+                if (key instanceof StringValue name) {
+                    throw readOnlyMember(string, name.value(), span);
+                }
+                throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                        "строку нельзя изменить по индексу: строки неизменяемы");
+            }
             default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "в значение типа " + container.type().title() + " нельзя записать " + how(style, key));
         }
@@ -1871,6 +2146,19 @@ public final class Interpreter
                     + "это константа, её значение задаётся один раз при объявлении");
         }
         module.set(member, value);
+    }
+
+    /**
+     * Отказ записи в член: сообщение говорит, есть ли такой член вообще, — иначе
+     * опечатка в имени и попытка записать существующий член выглядели бы одинаково.
+     */
+    private static WdlRuntimeError readOnlyMember(Value receiver, String name, Span span) {
+        boolean known = BuiltinMembers.of(receiver.type()).has(name);
+        return new WdlRuntimeError(ErrorKind.DECLARATION, span, known
+                ? "член '" + name + "' у значения типа " + receiver.type().title()
+                        + " только для чтения: у встроенных членов записи нет"
+                : "в значение типа " + receiver.type().title() + " нельзя записать член '"
+                        + name + "': такого члена нет, а завести новый нечем");
     }
 
     private static int checkIndex(int size, Value key, String what, Span span) {

@@ -75,7 +75,7 @@ public final class UserFunction implements FunctionValue {
      */
     private final ReentrantLock guard;
 
-    UserFunction(FunctionExpr declaration, Environment closure, Unit unit, Run run,
+    public UserFunction(FunctionExpr declaration, Environment closure, Unit unit, Run run,
                  Interpreter interpreter, ReentrantLock guard) {
         this.declaration = Objects.requireNonNull(declaration, "declaration");
         this.closure = Objects.requireNonNull(closure, "closure");
@@ -93,7 +93,7 @@ public final class UserFunction implements FunctionValue {
      * только необязательные и арность остаётся отрезком. Остаток {@code *args} верхнюю
      * границу снимает совсем — принять функция готова сколько угодно.
      */
-    private static Arity arityOf(FunctionExpr declaration) {
+    public static Arity arityOf(FunctionExpr declaration) {
         List<FunctionExpr.Param> params = declaration.params();
         int required = 0;
         while (required < params.size() && !params.get(required).hasDefault()) {

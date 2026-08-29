@@ -58,13 +58,26 @@ record WdlProperty(PropertyDecl declaration, Environment closure, Unit unit,
     }
 
     @Override
-    public Value read(InstanceObjectValue instance, CallContext context, Span span) {
-        return bind(instance, declaration.getter()).call(context, List.of(), span);
+    public Value read(Value receiver, CallContext context, Span span) {
+        return bind(instance(receiver), declaration.getter()).call(context, List.of(), span);
     }
 
     @Override
-    public void write(InstanceObjectValue instance, Value value, CallContext context, Span span) {
-        bind(instance, declaration.setter()).call(context, List.of(value), span);
+    public void write(Value receiver, Value value, CallContext context, Span span) {
+        bind(instance(receiver), declaration.setter()).call(context, List.of(value), span);
+    }
+
+    /**
+     * Получатель свойства класса — всегда экземпляр: свойство лежит в таблице класса,
+     * а туда обращаются только через него. Приведение здесь, а не в сигнатуре, потому
+     * что {@link Property} один на класс и на встроенный тип — см. его javadoc.
+     */
+    private static InstanceObjectValue instance(Value receiver) {
+        if (receiver instanceof InstanceObjectValue instance) {
+            return instance;
+        }
+        throw new IllegalStateException("свойство класса читается только у экземпляра, а здесь "
+                + receiver.type());
     }
 
     /**

@@ -60,8 +60,28 @@ public final class Scope implements Environment {
      */
     private volatile Map<String, Binding> aliases;
 
+    /**
+     * Реестр членов запуска — только у корневой области, и заводится он не здесь,
+     * а {@link ExecutionContext#of}: запуск создаётся из области, а не наоборот,
+     * поэтому в конструкторе его ещё нет. Вложенные области спрашивают внешнюю.
+     */
+    private volatile ru.wds.wdl.embed.MemberRegistry members;
+
     private Scope(Environment parent) {
         this.parent = parent;
+    }
+
+    void useMembers(ru.wds.wdl.embed.MemberRegistry registry) {
+        this.members = registry;
+    }
+
+    @Override
+    public ru.wds.wdl.embed.MemberRegistry members() {
+        ru.wds.wdl.embed.MemberRegistry own = members;
+        if (own != null) {
+            return own;
+        }
+        return parent == null ? null : parent.members();
     }
 
     /** Новая независимая корневая область. */

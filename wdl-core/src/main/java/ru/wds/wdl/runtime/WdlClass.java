@@ -20,6 +20,7 @@ import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.Property;
 import ru.wds.wdl.value.Signature;
+import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.InstanceObjectValue;
@@ -134,6 +135,31 @@ final class WdlClass implements ClassValue {
     @Override
     public Property property(String name) {
         return properties.get(name);
+    }
+
+    /**
+     * Интроспекция: то, что уже собрано при объявлении, — родитель, трейты и ключи
+     * плоских таблиц. Своей работы здесь нет вовсе, поэтому и обещать её нечем:
+     * {@code Circle.methods} — это ключи таблицы, а не обход иерархии.
+     */
+    @Override
+    public ClassValue parentClass() {
+        return parent;
+    }
+
+    @Override
+    public List<TraitValue> traits() {
+        return List.copyOf(traits);
+    }
+
+    @Override
+    public List<String> methodNames() {
+        return List.copyOf(methods.keySet());
+    }
+
+    @Override
+    public List<String> propertyNames() {
+        return List.copyOf(properties.keySet());
     }
 
     ClassShape shape() {

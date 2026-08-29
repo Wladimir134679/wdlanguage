@@ -53,7 +53,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Общий стек выполняемых модулей превратил бы чужой параллельный импорт в «циклический
  * импорт», хотя никакого круга нет: просто два потока читают разные файлы одновременно.
  */
-final class Modules {
+public final class Modules {
 
     private final ModuleUnits units;
     private final NativeModules natives;

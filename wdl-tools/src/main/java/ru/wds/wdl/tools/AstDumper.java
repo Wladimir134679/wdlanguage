@@ -151,6 +151,14 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
      * трейты, своё, — чтобы по дампу можно было проверить, кто кого перекрывает.
      */
     @Override
+    public Void visitExtend(ExtendStmt stmt, Integer depth) {
+        line(depth, "расширение " + stmt.label(), stmt.span());
+        stmt.methods().forEach(method -> visit(method, depth + 1));
+        properties(stmt.properties(), depth + 1);
+        return null;
+    }
+
+    @Override
     public Void visitClassDecl(ClassDeclStmt stmt, Integer depth) {
         line(depth, "объявление класса " + stmt.name()
                 + "(" + header(stmt.params(), stmt.rest(), stmt.namedRest()) + ")", stmt.span());

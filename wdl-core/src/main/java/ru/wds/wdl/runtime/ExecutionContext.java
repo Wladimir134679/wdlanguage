@@ -119,6 +119,12 @@ public final class ExecutionContext implements CallContext {
      */
     public static ExecutionContext of(Environment scope, Output output) {
         Run run = new Run(scope);
+        // Область узнаёт про таблицу членов здесь, а не в своём конструкторе: запуск
+        // создаётся из области, поэтому раньше её просто нет. Отсюда же и то, что
+        // Library.installTo может добавлять члены — она получает эту самую область.
+        if (scope instanceof Scope root) {
+            root.useMembers(run.members());
+        }
         // Вывод оборачивается здесь, на границе запуска, и ровно один раз: приложение
         // передаёт обычную лямбду, ничего не зная про потоки, а запуск обещает, что
         // строка одного потока не разорвётся строкой другого. См. Output.serialized.
@@ -297,7 +303,7 @@ public final class ExecutionContext implements CallContext {
     }
 
     /** Сеанс, которому принадлежит это место выполнения. */
-    Run run() {
+    public Run run() {
         return run;
     }
 

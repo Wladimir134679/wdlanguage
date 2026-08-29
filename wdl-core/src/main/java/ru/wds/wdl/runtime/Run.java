@@ -5,6 +5,8 @@ import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;
 import ru.wds.wdl.resolve.Linker;
+import ru.wds.wdl.runtime.members.BuiltinMembers;
+import ru.wds.wdl.runtime.members.MemberTable;
 import ru.wds.wdl.source.Span;
 
 import java.util.Objects;
@@ -61,7 +63,7 @@ import java.util.Objects;
  * скрипт» у каждого потока своя, и складывать их в одно число значило бы, что восемь
  * рабочих потоков упираются в предел на четвёртом обороте каждый.
  */
-final class Run {
+public final class Run {
 
     /**
      * Сколько раз в скрипт можно войти снаружи <b>на одном потоке</b>, не выйдя обратно.
@@ -109,6 +111,16 @@ final class Run {
     private final PreludeTypes exceptions = new PreludeTypes();
 
     /**
+     * Члены, добавленные типам и классам в этом запуске: {@code extend} из скрипта
+     * и наборы от приложения.
+     * <p>
+     * Свойство запуска, а не процесса: основание ({@link BuiltinMembers}) общее
+     * и неизменяемое, а надстройка у каждого интерпретатора своя — иначе один скрипт
+     * менял бы поведение значений в другом.
+     */
+    private final MemberTable members = new MemberTable();
+
+    /**
      * Открытые внешние входы <b>этого потока</b>.
      * <p>
      * Массивом из одного элемента, а не {@code ThreadLocal<Integer>}: счётчик правится
@@ -137,19 +149,23 @@ final class Run {
                 Objects.requireNonNull(root, "root"));
     }
 
-    Modules modules() {
+    public MemberTable members() {
+        return members;
+    }
+
+    public Modules modules() {
         return modules;
     }
 
-    Linker linker() {
+    public Linker linker() {
         return linker;
     }
 
-    PreludeTypes exceptions() {
+    public PreludeTypes exceptions() {
         return exceptions;
     }
 
-    RunThreads threads() {
+    public RunThreads threads() {
         return threads;
     }
 

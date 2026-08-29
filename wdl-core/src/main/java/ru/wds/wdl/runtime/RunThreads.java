@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * а скрипт настроек — серверу. Поэтому поток скрипта не держит процесс живым,
  * а дождаться его — явное дело автора: {@code t.join()}.
  */
-final class RunThreads implements ScriptThreads {
+public final class RunThreads implements ScriptThreads {
 
     /** Живые потоки. Множество, а не список: снимаются они в произвольном порядке. */
     private final Set<Thread> live = ConcurrentHashMap.newKeySet();

@@ -78,11 +78,24 @@ public final class Parser {
 
     // --- инструкции ----------------------------------------------------------
 
+    /**
+     * Разбирается ли сейчас инструкция верхнего уровня файла.
+     * <p>
+     * Нужно ровно одному {@code extend}: он меняет таблицу членов запуска, и объявление
+     * внутри условия или функции меняло бы поведение уже отработавшего кода. Флагом,
+     * а не счётчиком вложенности, потому что вопрос ровно один — «верхний уровень
+     * или нет», — и считать глубину для него незачем.
+     */
+    private boolean atTopLevel;
+
     private Program program() {
         List<Stmt> statements = new ArrayList<>();
         cursor.skipSeparators();
         while (!cursor.check(TokenType.EOF)) {
             int before = cursor.position();
+            // Верхний уровень отмечается здесь и гасится первым же statement():
+            // вложенная инструкция разбирается тем же методом, но флага уже не видит.
+            atTopLevel = true;
             statements.add(statement());
             // Страховка: если инструкция не съела ни одного токена, двигаемся сами.
             cursor.ensureProgress(before);
@@ -102,6 +115,13 @@ public final class Parser {
      * случаев, ни отката разбора.
      */
     private Stmt statement() {
+        boolean topLevel = atTopLevel;
+        atTopLevel = false;
+        // 'extend' — контекстное слово, а не токен, поэтому спрашивается до switch
+        // по типу: для лексера это обычное имя.
+        if (types.isExtend()) {
+            return types.extendDeclaration(topLevel);
+        }
         return switch (cursor.peek().type()) {
             case LBRACE -> block();
             case IF -> ifStatement();

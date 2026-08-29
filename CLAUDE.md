@@ -136,6 +136,14 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   (`Interpreter`, `AstDumper`, тестовый `SExprPrinter`).
 * **Встроенная функция**: одна запись в `Builtins.installTo` — имя, `Arity`, лямбда.
   Всё нужное от среды приходит через `CallContext`.
+* **Член значения** (`a.size`, `a.sort()`): строка в наборе своего типа
+  (`runtime/ArrayMembers`, `StringMembers`, `NumberMembers`, `ObjectMembers`,
+  `FunctionMembers`, `ClassMembers`, `TraitMembers`, `ModuleMembers`) — `property`,
+  `snapshot` или `method` у `MemberSet.builder()`. Ни `Interpreter`, ни таблицу
+  трогать не надо: путь через дескриптор (`Array.size(a)`) и диагностика промаха
+  собираются сами. Граница свойства и метода — «устареет ли ответ», а не цена:
+  см. `value/Member` и `docs/members.md`. Новый член **не** сопровождается новой
+  встроенной функцией.
 * **Встроенный модуль** (`import sys.что-то`): класс с `implements Library` в `wdl-stdlib`,
   фабрика `library()`, строка в `Sys.registry()`. Имена кладутся теми же `define`,
   что и в корень; живое, если оно есть, отпускается в `close()`. Ключ — имя, а не путь.

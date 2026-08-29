@@ -108,6 +108,22 @@ public sealed class MapValue implements Value permits InstanceObjectValue {
         put(StringValue.of(key), value);
     }
 
+    /** Убирает ключ и отдаёт то, что под ним лежало, или {@link NullValue#NULL}. */
+    public Value remove(Value key) {
+        Value normalized = normalizeKey(key);
+        Value previous;
+        synchronized (entries) {
+            previous = entries.remove(normalized);
+        }
+        return previous != null ? previous : NullValue.NULL;
+    }
+
+    public void clear() {
+        synchronized (entries) {
+            entries.clear();
+        }
+    }
+
     public int size() {
         synchronized (entries) {
             return entries.size();

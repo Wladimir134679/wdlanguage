@@ -62,7 +62,7 @@ import java.util.List;
  * самое. {@code name()} — имя значения для сообщений об ошибках, оно с большой буквы,
  * как и стоит в корневой области ({@code "Number"}).
  */
-final class TypeValue implements ClassValue {
+public final class TypeValue implements ClassValue {
 
     /**
      * Единственный ключ {@link #statics()}: справка о самом типе, а не о его членах.
@@ -94,6 +94,21 @@ final class TypeValue implements ClassValue {
     @Override
     public String name() {
         return name;
+    }
+
+    /** Тип, о котором этот дескриптор: он же ключ таблицы членов. */
+    public ValueType valueType() {
+        return valueType;
+    }
+
+    /**
+     * Ключ в таблице членов — сам тип, а не значение-дескриптор: {@code extend Array}
+     * добавляет член всем массивам, а не одному значению, стоящему под именем
+     * {@code Array}.
+     */
+    @Override
+    public Object memberKey() {
+        return valueType;
     }
 
     /**

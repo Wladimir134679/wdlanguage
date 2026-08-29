@@ -112,6 +112,12 @@ class LexerTest {
         assertEquals(List.of(TokenType.INT, TokenType.DOT, TokenType.WORD, TokenType.LPAREN, TokenType.RPAREN),
                 types("1.round()"));
         assertEquals(List.of(TokenType.INT, TokenType.DOT, TokenType.DOT, TokenType.INT), types("1..5"));
+        // На этом держатся члены числа: '213.toString()' разбирается как обращение
+        // ровно потому, что дробная часть требует цифру ПОСЛЕ точки. Чинить лексер
+        // «правильнее» нельзя — сломается весь набор членов числа.
+        assertEquals(List.of(TokenType.INT, TokenType.DOT, TokenType.WORD, TokenType.LPAREN, TokenType.RPAREN),
+                types("213.toString()"));
+        assertEquals(List.of(TokenType.FLOAT, TokenType.DOT, TokenType.WORD), types("2.7.floor"));
     }
 
     @Test

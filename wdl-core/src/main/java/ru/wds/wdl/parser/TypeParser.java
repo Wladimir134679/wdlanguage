@@ -1,14 +1,19 @@
 package ru.wds.wdl.parser;
 
+import ru.wds.wdl.ast.expr.AccessExpr;
+import ru.wds.wdl.ast.expr.AccessStyle;
 import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.BodyStyle;
 import ru.wds.wdl.ast.expr.CallExpr;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.ast.expr.LiteralExpr;
+import ru.wds.wdl.ast.expr.VariableExpr;
 import ru.wds.wdl.ast.expr.Modifier;
 import ru.wds.wdl.ast.stmt.BlockStmt;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.ErrorStmt;
+import ru.wds.wdl.ast.stmt.ExtendStmt;
 import ru.wds.wdl.ast.stmt.PropertyDecl;
 import ru.wds.wdl.ast.stmt.PropertyStyle;
 import ru.wds.wdl.ast.stmt.ReturnStmt;
@@ -17,6 +22,7 @@ import ru.wds.wdl.ast.stmt.TraitDeclStmt;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.lexer.TokenType;
+import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.source.Span;
 
 import java.util.ArrayList;
@@ -48,6 +54,7 @@ final class TypeParser {
      * аксессора, как {@code this}.
      */
     private static final String PROPERTY = "property";
+    private static final String EXTEND = "extend";
     private static final String GET = "get";
     private static final String SET = "set";
 
@@ -61,6 +68,77 @@ final class TypeParser {
         this.cursor = cursor;
         this.state = state;
         this.diagnostics = diagnostics;
+    }
+
+    /**
+     * Начинается ли здесь расширение: {@code extend Array {}}.
+     * <p>
+     * Контекстное слово, а не {@link TokenType}, — по той же причине, что
+     * у {@link #PROPERTY}: ключевые слова лексера глобальны, и отнимать у чужих
+     * скриптов имя {@code extend} ради одной конструкции плохая сделка. Спутать
+     * не с чем: два имени подряд выражением не бывают.
+     */
+    boolean isExtend() {
+        return cursor.check(TokenType.WORD)
+                && EXTEND.equals(cursor.peek().text())
+                && cursor.peek(1).type() == TokenType.WORD;
+    }
+
+    /**
+     * Расширение типа или класса: {@code extend Array { property second => this[1] }}.
+     * <p>
+     * Тело разбирается тем же кодом, что тело класса, — слова в нём те же, и заводить
+     * им второе написание язык не станет. Отличий от класса ровно три, и все три
+     * проверяются здесь: цель уже существует (поэтому конструктора не бывает),
+     * родителя нет (поэтому нет и {@code super}), а хранить значение члену негде
+     * (поэтому нет скрытого поля).
+     *
+     * @param topLevel стоит ли инструкция на верхнем уровне файла; иначе объявление
+     *                 меняло бы поведение уже отработавшего кода в середине запуска
+     */
+    Stmt extendDeclaration(boolean topLevel) {
+        Token keyword = cursor.advance(); // extend
+        Token first = cursor.advance();   // имя — проверено в isExtend
+        Expr target = new VariableExpr(first.text(), first.span());
+        StringBuilder label = new StringBuilder(first.text());
+        // Цель бывает и из модуля: 'extend shapes.Point'. Класс — обычное значение,
+        // и требовать здесь одно голое имя значило бы заводить исключение.
+        while (cursor.check(TokenType.DOT) && cursor.peek(1).type() == TokenType.WORD) {
+            cursor.advance();
+            Token part = cursor.advance();
+            label.append('.').append(part.text());
+            target = new AccessExpr(target, new LiteralExpr(StringValue.of(part.text()), part.span()),
+                    AccessStyle.DOT, first.span().to(part.span()));
+        }
+        if (!topLevel) {
+            diagnostics.error(keyword.span(), "'extend' разрешён только на верхнем уровне файла: "
+                    + "объявление внутри условия или функции меняло бы поведение уже "
+                    + "отработавшего кода в середине запуска");
+        }
+        if (!cursor.check(TokenType.LBRACE)) {
+            diagnostics.error(cursor.peek().span(), "после 'extend " + label
+                    + "' ожидается тело в фигурных скобках, найдено " + describe(cursor.peek()));
+            cursor.synchronize();
+            return new ErrorStmt(keyword.span().to(cursor.lastSpan()));
+        }
+        Members members = typeBody(label.toString(), false, true);
+        if (members.constructor != null) {
+            diagnostics.error(members.constructor.span(), "у расширения нет конструктора: "
+                    + "'" + label + "' уже существует, а 'def " + label + "()' в теле "
+                    + "расширения читается как попытка его создать");
+        }
+        for (ClassDeclStmt.Factory factory : members.factories) {
+            diagnostics.error(factory.span(), "фабрика в расширении не бывает: "
+                    + "она принадлежит самому классу, а расширение добавляет члены его значениям");
+        }
+        for (PropertyDecl property : members.properties) {
+            if (property.hasBackingField()) {
+                diagnostics.error(property.span(), "у свойства расширения не бывает скрытого поля: "
+                        + "хранить его негде — получатель чужой");
+            }
+        }
+        return new ExtendStmt(target, label.toString(), List.copyOf(members.methods),
+                List.copyOf(members.properties), keyword.span().to(cursor.lastSpan()));
     }
 
     /**

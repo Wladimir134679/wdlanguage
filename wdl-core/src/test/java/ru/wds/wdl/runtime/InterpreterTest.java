@@ -201,7 +201,10 @@ class InterpreterTest {
     void arrayOutOfBounds() {
         assertTrue(errorOf("[1, 2][5]").getMessage().contains("вне границ массива размером 2"));
         assertTrue(errorOf("[1, 2][-1]").getMessage().contains("вне границ"));
-        assertTrue(errorOf("[1, 2][\"a\"]").getMessage().contains("целым числом"));
+        // Строковый ключ у массива уходит в члены раньше проверки индекса: иначе
+        // на 'a.size' человек получил бы «индекс должен быть целым числом».
+        assertTrue(errorOf("[1, 2][\"a\"]").getMessage().contains("нет члена 'a'"));
+        assertTrue(errorOf("[1, 2][true]").getMessage().contains("целым числом"));
     }
 
     @Test
@@ -235,9 +238,12 @@ class InterpreterTest {
     @Test
     @DisplayName("обращение к значению, у которого нет содержимого, объясняет форму записи")
     void accessOnScalar() {
-        assertTrue(errorOf("5 .x").getMessage().contains("через точку"));
+        // У числа члены есть, поэтому '5 .x' — промах по имени члена, а не запрет
+        // обращения; по индексу к числу по-прежнему обратиться нечем.
+        assertTrue(errorOf("5 .x").getMessage().contains("нет члена 'x'"));
+        assertTrue(errorOf("5 [0]").getMessage().contains("по индексу"));
         assertTrue(errorOf("true[0]").getMessage().contains("по индексу"));
-        assertTrue(errorOf("null.поле").getMessage().contains("null"));
+        assertTrue(errorOf("null.field").getMessage().contains("null"));
     }
 
     // --- коллекции как значения ----------------------------------------------

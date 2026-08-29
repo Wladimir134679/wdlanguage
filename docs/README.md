@@ -15,6 +15,7 @@
 | [Ветвления и циклы](control-flow.md) | `if`, `while`, `for`, перебор `for ... in`, `break`/`continue`, области видимости |
 | [Функции](functions.md) | объявление, `=>`, `return`, анонимные, замыкания, области видимости вызова |
 | [Единое обращение](access.md) | почему `a.b` и `a["b"]` — одна операция, и что из этого следует |
+| [Члены значений](members.md) | `text.size`, `a.sort()`, интроспекция, `extend`, наборы по типам |
 | [Классы](classes.md) | `class` и `trait`, `new`, `this` и `super`, наследование, требования трейтов, `is` |
 | [Ошибки и ресурсы](errors.md) | иерархия `Exception`, `throw`, `try`/`catch`/`finally`, `try?`/`try!`, `defer`, `use` и `Closeable`, трассировка |
 | [Декораторы](decorators.md) | `@[...]`, метаданные, порядок применения, `like`, обёртка для класса |
@@ -44,6 +45,9 @@ wdl examples/expressions.wdl                # шпаргалка по выраж
 wdl examples/control-flow.wdl               # ветвления и циклы
 wdl examples/const.wdl                      # константы: const NAME = value
 wdl examples/functions.wdl                  # функции, замыкания, области видимости
+wdl examples/members.wdl                    # члены значений: свойства и методы у массива, строки, числа
+wdl examples/introspection.wdl              # что значение рассказывает о себе: параметры, состав класса
+wdl examples/extend.wdl                     # extend: свои члены у типа и у класса
 wdl examples/classes.wdl                    # классы: поля, методы, конструктор, фабрики
 wdl examples/inheritance.wdl                # наследование, super, полиморфизм
 wdl examples/traits.wdl                     # трейты: контракты и готовые реализации

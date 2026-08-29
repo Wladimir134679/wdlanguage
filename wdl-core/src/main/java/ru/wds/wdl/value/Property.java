@@ -39,8 +39,14 @@ public interface Property {
      * <p>
      * Приёмником служит сам объект, а не вид {@code super}, через который свойство
      * могли прочитать, — по той же причине и тем же правилом, что у метода.
+     * <p>
+     * <b>Получатель — любое значение, а не только экземпляр.</b> Тем же протоколом
+     * отвечает {@linkplain Member член встроенного типа}: у строки и массива за именем
+     * тоже стоит код, а не ячейка, и правила у него ровно те же. Свойство, объявленное
+     * в классе, получает сюда {@link InstanceObjectValue} — другого получателя ему
+     * взять неоткуда, — и вправе на это опираться.
      */
-    Value read(InstanceObjectValue instance, CallContext context, Span span);
+    Value read(Value receiver, CallContext context, Span span);
 
     /**
      * Пишет: зовёт setter.
@@ -50,5 +56,5 @@ public interface Property {
      * от приложения, а само свойство начиналось с дела, а не с проверок. Правило
      * то же, что у проверки числа аргументов перед вызовом функции.
      */
-    void write(InstanceObjectValue instance, Value value, CallContext context, Span span);
+    void write(Value receiver, Value value, CallContext context, Span span);
 }

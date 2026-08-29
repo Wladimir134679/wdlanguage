@@ -202,16 +202,7 @@ public final class Operations {
      * библиотеки, где можно указать, какого именно языка.
      */
     private static Value compare(BinaryOp op, Value left, Value right, Span span) {
-        int result;
-        if (left instanceof NumberValue a && right instanceof NumberValue b) {
-            result = (a.isInteger() && b.isInteger())
-                    ? Long.compare(a.asLong(), b.asLong())
-                    : Double.compare(a.asDouble(), b.asDouble());
-        } else if (left instanceof StringValue a && right instanceof StringValue b) {
-            result = a.value().compareTo(b.value());
-        } else {
-            throw typeError(span, op, left, right);
-        }
+        int result = order(op, left, right, span);
         return BoolValue.of(switch (op) {
             case LESS -> result < 0;
             case LESS_EQUAL -> result <= 0;
@@ -219,6 +210,31 @@ public final class Operations {
             case GREATER_EQUAL -> result >= 0;
             default -> throw new IllegalArgumentException("не операция сравнения: " + op);
         });
+    }
+
+    /**
+     * Порядок двух значений: то же сравнение, что стоит за {@code <} и {@code >},
+     * но ответом числом.
+     * <p>
+     * Вынесено сюда потому, что сортировка массива обязана упорядочивать <b>ровно
+     * так же</b>, как оператор. Заведи она своё сравнение — и {@code a.sort()}
+     * разошёлся бы с {@code a[0] < a[1]} на первом же смешанном массиве, а объяснить
+     * такое расхождение нечем.
+     */
+    public static int order(Value left, Value right, Span span) {
+        return order(BinaryOp.LESS, left, right, span);
+    }
+
+    private static int order(BinaryOp op, Value left, Value right, Span span) {
+        if (left instanceof NumberValue a && right instanceof NumberValue b) {
+            return (a.isInteger() && b.isInteger())
+                    ? Long.compare(a.asLong(), b.asLong())
+                    : Double.compare(a.asDouble(), b.asDouble());
+        }
+        if (left instanceof StringValue a && right instanceof StringValue b) {
+            return a.value().compareTo(b.value());
+        }
+        throw typeError(span, op, left, right);
     }
 
     /**

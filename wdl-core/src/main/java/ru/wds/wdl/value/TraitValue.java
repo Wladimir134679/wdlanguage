@@ -20,6 +20,16 @@ public non-sealed interface TraitValue extends Value {
 
     String name();
 
+    /** Имена методов, объявленных в трейте с телом. Заведено ради интроспекции. */
+    default List<String> methodNames() {
+        return List.of();
+    }
+
+    /** Имена свойств, объявленных в трейте с телом. */
+    default List<String> propertyNames() {
+        return List.of();
+    }
+
     /**
      * Методы, которые класс обязан объявить сам, — с числом аргументов.
      * <p>

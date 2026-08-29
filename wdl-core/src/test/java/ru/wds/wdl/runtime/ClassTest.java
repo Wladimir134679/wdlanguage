@@ -305,8 +305,10 @@ class ClassTest {
                 .getMessage().contains("не применима к типам класс и число"));
         assertTrue(errorOf("class Point(x)\nprintln(len(Point))")
                 .getMessage().contains("а здесь класс"));
+        // У трейта теперь есть члены (name, methods, requirements), поэтому промах
+        // по имени — это «нет такого члена», а не «обращаться нельзя вовсе».
         assertTrue(errorOf("trait T {}\nprintln(T.x)")
-                .getMessage().contains("к значению типа трейт нельзя обратиться"));
+                .getMessage().contains("у значения типа трейт нет члена 'x'"));
     }
 
     @Test

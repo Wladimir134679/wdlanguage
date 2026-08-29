@@ -84,6 +84,45 @@ public final class ArrayValue implements Value {
         }
     }
 
+    /**
+     * Вставляет элемент, сдвигая хвост вправо. Границы проверяет вызывающий —
+     * по той же причине, что и у {@link #get}: место в скрипте знает интерпретатор.
+     */
+    public void insert(int index, Value value) {
+        Objects.requireNonNull(value, "value");
+        synchronized (items) {
+            items.add(index, value);
+        }
+    }
+
+    /** Удаляет элемент по индексу и отдаёт его. Границы проверяет вызывающий. */
+    public Value removeAt(int index) {
+        synchronized (items) {
+            return items.remove(index);
+        }
+    }
+
+    public void clear() {
+        synchronized (items) {
+            items.clear();
+        }
+    }
+
+    /**
+     * Заменяет содержимое целиком — то, чем перестановка на месте отличается
+     * от нового массива.
+     * <p>
+     * Одним замком, а не «очистить и добавить по одному»: соседний поток не должен
+     * увидеть массив пустым посреди сортировки.
+     */
+    public void replaceAll(List<Value> replacement) {
+        List<Value> copy = new ArrayList<>(replacement);
+        synchronized (items) {
+            items.clear();
+            items.addAll(copy);
+        }
+    }
+
     /** Снимок элементов — почему снимок, разобрано в javadoc класса. */
     public List<Value> items() {
         synchronized (items) {

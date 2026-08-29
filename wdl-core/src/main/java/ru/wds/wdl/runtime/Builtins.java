@@ -1,13 +1,11 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.runtime.members.BuiltinMembers;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.ClassValue;
+import ru.wds.wdl.value.Member;
 import ru.wds.wdl.value.FunctionValue;
-import ru.wds.wdl.value.types.ArrayValue;
-import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
-import ru.wds.wdl.value.types.MapValue;
-import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
 
 import java.util.List;
@@ -68,13 +66,16 @@ public final class Builtins {
 
         scope.define("len", BuiltinFunction.of("len", Arity.exactly(1), (context, arguments, span) -> {
             Value value = arguments.get(0);
-            return switch (value) {
-                case StringValue string -> IntValue.of(string.length());
-                case ArrayValue array -> IntValue.of(array.size());
-                case MapValue object -> IntValue.of(object.size());
-                default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
+            // Ответ берётся из таблицы типа напрямую, а не обращением по ключу:
+            // len({size: "L"}) обязан вернуть 1, а не "L". Встроенная функция
+            // не должна ломаться от чужого ключа — поэтому данные здесь не при чём.
+            // Отсюда же и то, что len(x) с x.size разойтись не могут: член один.
+            Member size = BuiltinMembers.of(value.type()).get("size");
+            if (size == null || size.property() == null) {
+                throw new WdlRuntimeError(ErrorKind.TYPE, span,
                         "len() работает со строкой, массивом или объектом, а здесь " + value.type().title());
-            };
+            }
+            return size.property().read(value, context, span);
         }));
 
         // like — единственная встроенная, существующая ради сообщений об ошибках:
