@@ -33,6 +33,12 @@ public interface ExprVisitor<R, C> {
 
     R visitTernary(TernaryExpr expr, C context);
 
+    /**
+     * Ветвление по одному предмету. Один и тот же узел стоит и в позиции выражения,
+     * и в позиции инструкции: разницу задаёт место, а не вид узла.
+     */
+    R visitMatch(MatchExpr expr, C context);
+
     R visitAccess(AccessExpr expr, C context);
 
     R visitCall(CallExpr expr, C context);
@@ -65,6 +71,7 @@ public interface ExprVisitor<R, C> {
             case UnaryExpr e -> visitUnary(e, context);
             case BinaryExpr e -> visitBinary(e, context);
             case TernaryExpr e -> visitTernary(e, context);
+            case MatchExpr e -> visitMatch(e, context);
             case AccessExpr e -> visitAccess(e, context);
             case CallExpr e -> visitCall(e, context);
             case NewExpr e -> visitNew(e, context);

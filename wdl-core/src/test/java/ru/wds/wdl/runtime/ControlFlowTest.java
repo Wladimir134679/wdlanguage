@@ -131,6 +131,18 @@ class ControlFlowTest {
     }
 
     @Test
+    @DisplayName("'in' бинарным оператором не отобрал у 'for' форму перебора")
+    void forEachSurvivesMembershipOperator() {
+        // Форма перебора распознаётся по двум токенам после скобки — до того,
+        // как начнётся общий разбор выражения.
+        assertEquals("a b", printed("for (item in [\"a\", \"b\"]) println(item)"));
+        // А это уже обычный for со счётчиком: оператор стоит в инициализаторе.
+        assertEquals("true", printed("""
+                for (found = 2 in [1, 2]; found; found = false) println(found)
+                """));
+    }
+
+    @Test
     @DisplayName("массив и объект можно менять прямо в переборе — выполнение это переживает")
     void forEachSurvivesModification() {
         assertEquals("1 2 [9, 2]", printed("""

@@ -1,6 +1,7 @@
 package ru.wds.wdl.runtime.members;
 
 import ru.wds.wdl.embed.Args;
+import ru.wds.wdl.runtime.Operations;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
@@ -57,8 +58,9 @@ public final class ObjectMembers {
                     }
                     return ArrayValue.of(pairs);
                 })
+                // Тот же ответ, что у 'k in obj' и 'obj has k': реализация одна.
                 .method("has", Arity.exactly(1), (receiver, context, arguments, span) ->
-                        BoolValue.of(self(receiver).has(arguments.get(0))))
+                        BoolValue.of(Operations.contains(self(receiver), arguments.get(0), span)))
                 .method("get", Arity.between(1, 2), (receiver, context, arguments, span) -> {
                     // Путь к ключу, который назван как член: 'box.get("size")' отдаёт
                     // данные, что бы ни лежало в наборе членов.

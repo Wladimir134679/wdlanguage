@@ -287,6 +287,12 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
+    public Void visitYield(YieldStmt stmt, Integer depth) {
+        line(depth, "yield", stmt.span());
+        return visit(stmt.value(), depth + 1);
+    }
+
+    @Override
     public Void visitThrow(ThrowStmt stmt, Integer depth) {
         line(depth, "throw", stmt.span());
         return visit(stmt.error(), depth + 1);
@@ -380,6 +386,45 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         visit(expr.condition(), depth + 1);
         visit(expr.ifTrue(), depth + 1);
         return visit(expr.ifFalse(), depth + 1);
+    }
+
+    /**
+     * Ветвление по предмету. Форма ветки видна по тому, какое тело у неё заполнено:
+     * «значение» — стрелка, «блок» — фигурные скобки.
+     */
+    @Override
+    public Void visitMatch(MatchExpr expr, Integer depth) {
+        line(depth, expr.asValue() ? "ветвление 'match' (значение)" : "ветвление 'match'", expr);
+        line(depth + 1, "предмет", expr.subject().span());
+        visit(expr.subject(), depth + 2);
+        for (MatchCase branch : expr.cases()) {
+            matchCase(branch, "ветка 'case'", depth + 1);
+        }
+        if (expr.hasOtherwise()) {
+            matchCase(expr.otherwise(), "ветка 'else'", depth + 1);
+        }
+        return null;
+    }
+
+    private void matchCase(MatchCase branch, String title, int depth) {
+        line(depth, title, branch.span());
+        for (CaseTail tail : branch.tails()) {
+            line(depth + 1, "образец '" + tail.op().symbol() + "'", tail.span());
+            visit(tail.right(), depth + 2);
+        }
+        if (branch.hasGuard()) {
+            line(depth + 1, "условие 'if'", branch.guard().span());
+            visit(branch.guard(), depth + 2);
+        }
+        if (branch.isValue()) {
+            line(depth + 1, "значение '=>'", branch.value().span());
+            visit(branch.value(), depth + 2);
+        } else {
+            // Отдаёт ли блок значение, видно по 'yield' внутри, а не по самой ветке:
+            // он бывает под условием.
+            line(depth + 1, "тело", branch.body().span());
+            visit(branch.body(), depth + 2);
+        }
     }
 
     @Override

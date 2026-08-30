@@ -22,7 +22,8 @@ public enum ValueType {
     FUNCTION("function", "функция"),
     CLASS("class", "класс"),
     TRAIT("trait", "трейт"),
-    MODULE("module", "модуль");
+    MODULE("module", "модуль"),
+    RANGE("range", "диапазон");
 
     private final String id;
     private final String title;

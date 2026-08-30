@@ -50,6 +50,39 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
                 + " " + visit(expr.ifFalse(), context) + ")";
     }
 
+    /**
+     * {@code match (x) { case 1, 2 => "мало" else => "много" }} →
+     * {@code (match x (case (== 1) (== 2) => "мало") (else => "много"))}.
+     * <p>
+     * Голый образец печатается со своим {@code ==} — так видно, что «система образцов»
+     * это обычные бинарные операции, а не отдельная грамматика.
+     */
+    @Override
+    public String visitMatch(MatchExpr expr, Void context) {
+        StringBuilder sb = new StringBuilder("(match ").append(visit(expr.subject(), context));
+        for (MatchCase branch : expr.cases()) {
+            sb.append(' ').append(matchCase(branch, "case", context));
+        }
+        if (expr.hasOtherwise()) {
+            sb.append(' ').append(matchCase(expr.otherwise(), "else", context));
+        }
+        return sb.append(')').toString();
+    }
+
+    /** Тело-блок печатается как {@code {}}: его форму проверяет {@code AstDumper}. */
+    private String matchCase(MatchCase branch, String head, Void context) {
+        StringBuilder sb = new StringBuilder("(").append(head);
+        for (CaseTail tail : branch.tails()) {
+            sb.append(" (").append(tail.op().symbol()).append(' ')
+                    .append(visit(tail.right(), context)).append(')');
+        }
+        if (branch.hasGuard()) {
+            sb.append(" (if ").append(visit(branch.guard(), context)).append(')');
+        }
+        sb.append(branch.isValue() ? " => " + visit(branch.value(), context) : " {}");
+        return sb.append(')').toString();
+    }
+
     /** Стиль записи намеренно не печатается: {@code a.b} и {@code a["b"]} должны совпасть. */
     @Override
     public String visitAccess(AccessExpr expr, Void context) {

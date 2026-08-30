@@ -98,14 +98,11 @@ public final class ArrayMembers {
                     }
                     return IntValue.of(-1);
                 })
-                .method("contains", Arity.exactly(1), (receiver, context, arguments, span) -> {
-                    for (Value item : self(receiver).items()) {
-                        if (Operations.equal(item, arguments.get(0))) {
-                            return BoolValue.of(true);
-                        }
-                    }
-                    return BoolValue.of(false);
-                })
+                // Ответ берётся у той же реализации, что стоит за 'x in a': член
+                // и оператор обязаны отвечать одинаково всегда, а не пока за ними
+                // следят.
+                .method("contains", Arity.exactly(1), (receiver, context, arguments, span) ->
+                        BoolValue.of(Operations.contains(self(receiver), arguments.get(0), span)))
                 .method("join", Arity.between(0, 1), (receiver, context, arguments, span) -> {
                     Args args = args("join", arguments, context, span);
                     String separator = args.has(0) ? args.string(0, "разделитель") : "";

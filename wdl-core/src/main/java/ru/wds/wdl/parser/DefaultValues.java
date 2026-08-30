@@ -5,10 +5,13 @@ import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.ArrayExpr;
 import ru.wds.wdl.ast.expr.BinaryExpr;
 import ru.wds.wdl.ast.expr.CallExpr;
+import ru.wds.wdl.ast.expr.CaseTail;
 import ru.wds.wdl.ast.expr.ErrorExpr;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.expr.LiteralExpr;
+import ru.wds.wdl.ast.expr.MatchCase;
+import ru.wds.wdl.ast.expr.MatchExpr;
 import ru.wds.wdl.ast.expr.NewExpr;
 import ru.wds.wdl.ast.expr.ObjectExpr;
 import ru.wds.wdl.ast.expr.TernaryExpr;
@@ -116,11 +119,45 @@ final class DefaultValues {
                 }
                 yield null;
             }
+            // В match заглядываем целиком: предмет, образцы, условия и стрелочные тела —
+            // всё это выражения, и любое из них вправе сослаться на соседний параметр.
+            case MatchExpr match -> {
+                VariableExpr use = findUse(match.subject(), names);
+                for (MatchCase branch : match.cases()) {
+                    use = use != null ? use : inCase(names, branch);
+                }
+                yield use != null ? use : (match.hasOtherwise() ? inCase(names, match.otherwise()) : null);
+            }
             case TryExpr shortForm -> findUse(shortForm.inner(), names);
             case FunctionExpr ignored -> null;
             case LiteralExpr ignored -> null;
             case ErrorExpr ignored -> null;
         };
+    }
+
+    /**
+     * То же по одной ветке {@code match}: образцы, условие и стрелочное тело.
+     * <p>
+     * В тело-блок обход не заходит, и это известное ограничение, а не решение.
+     * Здесь ходит только выражение, а блок — территория инструкций, для которых
+     * своего обхода у {@link DefaultValues} нет. Цена: обращение к параметру,
+     * который связывается позже, из блока ветки будет названо при выполнении
+     * («переменная не определена»), а не при разборе. Написать такое надо
+     * постараться — {@code def f(a, b = match (a) { case 1 { yield b } ... })}, —
+     * и цена ошибки тут в качестве сообщения, а не в правильности.
+     */
+    private static VariableExpr inCase(List<String> names, MatchCase branch) {
+        for (CaseTail tail : branch.tails()) {
+            VariableExpr use = findUse(tail.right(), names);
+            if (use != null) {
+                return use;
+            }
+        }
+        VariableExpr inGuard = branch.hasGuard() ? findUse(branch.guard(), names) : null;
+        if (inGuard != null) {
+            return inGuard;
+        }
+        return branch.isValue() ? findUse(branch.value(), names) : null;
     }
 
     /**

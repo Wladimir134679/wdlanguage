@@ -17,7 +17,7 @@ import ru.wds.wdl.ast.visitor.ExprVisitor;
  * как это делает {@link String}.
  */
 public sealed interface Expr extends Node
-        permits LiteralExpr, VariableExpr, UnaryExpr, BinaryExpr, TernaryExpr,
+        permits LiteralExpr, VariableExpr, UnaryExpr, BinaryExpr, TernaryExpr, MatchExpr,
                 AccessExpr, CallExpr, NewExpr, ArrayExpr, ObjectExpr, FunctionExpr, TryExpr,
                 ErrorExpr {
 

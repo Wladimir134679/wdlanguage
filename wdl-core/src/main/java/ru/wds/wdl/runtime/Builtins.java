@@ -56,7 +56,7 @@ public final class Builtins {
         scope.define("typeof", BuiltinFunction.of("typeof", Arity.exactly(1),
                 (context, arguments, span) -> Types.of(arguments.get(0))));
 
-        // Десять дескрипторов типов — обычными именами корневой области, как println
+        // Дескрипторы типов — обычными именами корневой области, как println
         // и классы прелюдии: пространство имён одно, и скрипт вправе их перекрыть.
         // Цикл идёт по Types.all(), а не по ValueType.values() напрямую, чтобы новый
         // элемент ValueType сам собой оказался в области — без второй правки здесь.

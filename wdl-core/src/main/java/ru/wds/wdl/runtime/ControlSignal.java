@@ -5,7 +5,8 @@ import ru.wds.wdl.value.Value;
 import java.util.Objects;
 
 /**
- * Сигнал управления выполнением: {@code break}, {@code continue} и {@code return}.
+ * Сигнал управления выполнением: {@code break}, {@code continue}, {@code return}
+ * и {@code yield}.
  * <p>
  * Это не ошибка, а способ выйти из середины обхода дерева. Тело цикла или функции может
  * быть вложено сколь угодно глубоко — блок в ветвлении внутри другого блока, — и передавать
@@ -53,6 +54,31 @@ abstract sealed class ControlSignal extends RuntimeException {
         private final Value value;
 
         Return(Value value) {
+            this.value = Objects.requireNonNull(value, "value");
+        }
+
+        Value value() {
+            return value;
+        }
+    }
+
+    /**
+     * Отдать значение из ветки {@code case} и на этом ветку закончить.
+     * <p>
+     * Сигналом, а не хвостовым выражением блока, — и отсюда бесплатно берётся всё
+     * остальное: {@code yield} работает из любой глубины внутри ветки (из {@code if},
+     * из цикла), заканчивает ветку досрочно, а {@code defer} по пути наружу
+     * выполняется сам — {@code visitBlock} ловит любой {@link RuntimeException}
+     * и после отложенного бросает его дальше.
+     * <p>
+     * Ловит его ближайший {@code visitMatch}, поэтому вложенный {@code match}
+     * забирает свой {@code yield} первым — искать «свою» ветку по глубине не нужно.
+     */
+    static final class Yield extends ControlSignal {
+
+        private final Value value;
+
+        Yield(Value value) {
             this.value = Objects.requireNonNull(value, "value");
         }
 

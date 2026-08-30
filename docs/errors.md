@@ -894,8 +894,6 @@ wdl-core/src/main/resources/ru/wds/wdl/runtime/prelude.wdl
 
 * **`??`** — «взять правое, если левое `null`»: пара к `try?`, но про `null`, а не
   про ошибки, поэтому приходит отдельно.
-* **`match` по ошибке.** Токены `MATCH` и `CASE` [уже зарезервированы](../wdl-core/src/main/java/ru/wds/wdl/lexer/TokenType.java);
-  `catch` при этом никуда не денется — `match` про значения, `catch` про поток управления.
 * **Лимиты в `ExecutionContext`** — шаги и таймаут. Ложатся в ту же категорию, что
   прерывание потока: `FatalError`, который скрипт поймать не может.
 * **Печать через `text()`** — как только [`CallContext` научится звать функцию](classes.md#печать-и-равенство),

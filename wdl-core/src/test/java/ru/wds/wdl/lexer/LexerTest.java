@@ -111,7 +111,11 @@ class LexerTest {
     void dotAfterNumber() {
         assertEquals(List.of(TokenType.INT, TokenType.DOT, TokenType.WORD, TokenType.LPAREN, TokenType.RPAREN),
                 types("1.round()"));
-        assertEquals(List.of(TokenType.INT, TokenType.DOT, TokenType.DOT, TokenType.INT), types("1..5"));
+        // Диапазон ничего лексеру не стоил: '..' — обычный оператор, а числа его
+        // не откусывают, потому что дробная часть требует цифру после точки.
+        assertEquals(List.of(TokenType.INT, TokenType.DOTDOT, TokenType.INT), types("1..5"));
+        assertEquals(List.of(TokenType.FLOAT, TokenType.DOTDOT, TokenType.INT), types("1.5..3"));
+        assertEquals(List.of(TokenType.WORD, TokenType.DOTDOT, TokenType.WORD), types("x..y"));
         // На этом держатся члены числа: '213.toString()' разбирается как обращение
         // ровно потому, что дробная часть требует цифру ПОСЛЕ точки. Чинить лексер
         // «правильнее» нельзя — сломается весь набор членов числа.

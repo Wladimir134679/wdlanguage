@@ -31,9 +31,11 @@ import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.Property;
 import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.types.InstanceObjectValue;
+import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.ModuleValue;
 import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.MapValue;
+import ru.wds.wdl.value.types.RangeValue;
 import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.ValueType;
@@ -408,8 +410,31 @@ public final class Interpreter
                     }
                 }
             }
+            // Диапазон перебирается шагом в единицу, поэтому границы обязаны быть
+            // целыми: у '0.5..2.5' нет ответа на вопрос, какие числа он содержит
+            // «по одному», а выдумывать его за автора незачем.
+            case RangeValue range -> {
+                if (!range.from().isInteger() || !range.to().isInteger()) {
+                    throw new WdlRuntimeError(ErrorKind.TYPE, stmt.iterable().span(),
+                            "перебрать можно диапазон с целыми границами, а здесь " + range
+                                    + ": шаг перебора равен единице. Проверить принадлежность"
+                                    + " такому диапазону можно и так: 'x in " + range + "'");
+                }
+                long to = range.to().asLong();
+                // Пустой диапазон (5..1) даёт ноль проходов — это и есть ответ
+                // для 'for (i in 0..n - 1)' при n == 0.
+                for (long i = range.from().asLong(); i <= to; i++) {
+                    if (iteration(stmt, context, IntValue.of(i))) {
+                        return null;
+                    }
+                    if (i == Long.MAX_VALUE) {
+                        // Инкремент завернул бы счётчик и сделал цикл вечным.
+                        break;
+                    }
+                }
+            }
             default -> throw new WdlRuntimeError(ErrorKind.TYPE, stmt.iterable().span(),
-                    "перебрать можно массив, строку или объект, а здесь "
+                    "перебрать можно массив, строку, объект или диапазон, а здесь "
                             + iterable.type().title() + " (" + iterable + ")");
         }
         return null;
@@ -986,6 +1011,21 @@ public final class Interpreter
                 stmt.hasValue() ? valueOf(stmt.value(), context) : NullValue.NULL);
     }
 
+    /**
+     * Значение ветки {@code case}.
+     * <p>
+     * Сигналом, как и {@code return}, и по той же причине: {@code yield} бывает
+     * из глубины ветки — из {@code if}, из цикла, — и передавать его наверх кодом
+     * возврата значило бы проверять его в каждом узле. Ловит сигнал ближайший
+     * {@link #visitMatch}, поэтому вложенный {@code match} забирает свой {@code yield}
+     * первым. Отложенное по пути наружу выполняется само: {@link #visitBlock} ловит
+     * любой {@link RuntimeException}, доигрывает {@code defer} и бросает дальше.
+     */
+    @Override
+    public Void visitYield(YieldStmt stmt, ExecutionContext context) {
+        throw new ControlSignal.Yield(valueOf(stmt.value(), context));
+    }
+
     @Override
     public Void visitErrorStmt(ErrorStmt stmt, ExecutionContext context) {
         throw brokenTree(stmt.span());
@@ -1490,6 +1530,85 @@ public final class Interpreter
     }
 
     /**
+     * Ветвление по одному предмету.
+     * <p>
+     * <b>Предмет вычисляется ровно один раз</b> — это и есть главное отличие от цепочки
+     * {@code if}: {@code match (order.total())} не зовёт {@code total()} на каждую ветку.
+     * Образцы, наоборот, вычисляются лениво, сверху вниз, до первого совпадения:
+     * побочный эффект в образце случится, только если до этой ветки дошла очередь.
+     * <p>
+     * <b>Ни одной новой семантики здесь нет.</b> Проверка образца — это буквально
+     * {@link Operations#binary}, та же, что стоит за оператором в {@code if}: сравнения,
+     * {@code is}, {@code in}, {@code has}, диапазон. Ради этого {@code match} и делался
+     * последним.
+     * <p>
+     * <b>{@code break} и {@code continue} из ветки проходят наружу сами собой</b> —
+     * это {@link ControlSignal}, и здесь его никто не ловит. Провала между ветками нет,
+     * поэтому {@code break} в теле ветки относится к объемлющему циклу, а не к
+     * {@code match}: в Си иначе, и молчать об этом нельзя.
+     * <p>
+     * Ни одна ветка не подошла и {@code else} не написан — значение {@code null}.
+     * В позиции выражения такого не бывает: {@code else} там обязателен, и требует его
+     * парсер. Правило одно и стоит в одном месте.
+     */
+    @Override
+    public Value visitMatch(MatchExpr expr, ExecutionContext context) {
+        Value subject = valueOf(expr.subject(), context);
+        for (MatchCase branch : expr.cases()) {
+            if (fits(branch, subject, context)) {
+                return caseResult(expr, branch, context);
+            }
+        }
+        return expr.hasOtherwise() ? caseResult(expr, expr.otherwise(), context) : NullValue.NULL;
+    }
+
+    /**
+     * Подходит ли ветка: хоть один образец истинен и условие, если оно есть, тоже.
+     * <p>
+     * Ветка без образцов ({@code case if throttled =>}) подходит по одному условию —
+     * образцы перебирать нечего, и «ни один не совпал» здесь означало бы «никогда».
+     */
+    private boolean fits(MatchCase branch, Value subject, ExecutionContext context) {
+        boolean matched = branch.tails().isEmpty();
+        for (CaseTail tail : branch.tails()) {
+            Value right = valueOf(tail.right(), context);
+            if (Operations.binary(tail.op(), subject, right, tail.span()).isTruthy()) {
+                matched = true;
+                break;
+            }
+        }
+        return matched && (!branch.hasGuard() || valueOf(branch.guard(), context).isTruthy());
+    }
+
+    /**
+     * Тело ветки: стрелка даёт значение сразу, блок — словом {@code yield}.
+     * <p>
+     * Ветка-блок в позиции выражения, дошедшая до конца без {@code yield}, — ошибка,
+     * а не тихий {@code null}. Парсер такую ветку ловит, только когда {@code yield}
+     * не написан вовсе; когда он написан под условием, которое не выполнилось,
+     * сказать об этом может лишь выполнение — и говорит, вместо того чтобы подсунуть
+     * дальше пустое значение.
+     */
+    private Value caseResult(MatchExpr expr, MatchCase branch, ExecutionContext context) {
+        if (branch.isValue()) {
+            return valueOf(branch.value(), context);
+        }
+        try {
+            // Свою область блок заводит сам — см. visitBlock.
+            visit(branch.body(), context);
+        } catch (ControlSignal.Yield yielded) {
+            return yielded.value();
+        }
+        if (expr.asValue()) {
+            throw new WdlRuntimeError(ErrorKind.VALUE, branch.span(),
+                    "ветка 'case' закончилась, не отдав значение: 'match' стоит в позиции"
+                            + " выражения, и значение обязано быть у любого предмета."
+                            + " Проверьте, что 'yield' выполняется на всех путях ветки");
+        }
+        return NullValue.NULL;
+    }
+
+    /**
      * Обращение к содержимому значения.
      * <p>
      * Здесь видно, ради чего {@code a.x} и {@code a["x"]} — один узел: правило чтения
@@ -1870,6 +1989,8 @@ public final class Interpreter
                     : StringValue.of(String.valueOf(
                             string.value().charAt(checkIndex(string.length(), key, "строки", span))));
             case NumberValue number -> memberOrIndex(number, key, style, span, context);
+            // Диапазон неизменяем и по индексу не читается: у него только члены.
+            case RangeValue range -> memberOrIndex(range, key, style, span, context);
             case FunctionValue function -> memberOrIndex(function, key, style, span, context);
             case TraitValue trait -> memberOrIndex(trait, key, style, span, context);
             default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,

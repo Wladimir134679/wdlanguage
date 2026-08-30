@@ -24,6 +24,10 @@ import ru.wds.wdl.value.types.*;
  * тянет за собой дерево и область видимости. Список типов от этого не открывается —
  * {@link ValueType} по-прежнему закрытый.
  * <p>
+ * {@link RangeValue} — одиннадцатый тип, а не пара чисел в объекте: {@code typeof}
+ * обязан отвечать про него честно, иначе {@code x is Range} пришлось бы писать
+ * проверкой ключей.
+ * <p>
  * {@link ModuleValue} стоит отдельно от {@link MapValue}, хотя устроен похоже:
  * набор имён модуля задан его файлом, и обращаться с ним как со словарём — дописывать
  * ключи, спрашивать несуществующее и получать {@code null} — значит терять ошибки,
@@ -31,7 +35,7 @@ import ru.wds.wdl.value.types.*;
  */
 public sealed interface Value
         permits NullValue, BoolValue, NumberValue, StringValue, ArrayValue, MapValue,
-                ModuleValue, FunctionValue, ClassValue, TraitValue {
+                ModuleValue, RangeValue, FunctionValue, ClassValue, TraitValue {
 
     ValueType type();
 

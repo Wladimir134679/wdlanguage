@@ -127,9 +127,11 @@ public final class Parser {
             case IF -> ifStatement();
             case WHILE -> whileStatement();
             case FOR -> forStatement();
+            case MATCH -> matchStatement();
             case BREAK -> breakStatement();
             case CONTINUE -> continueStatement();
             case RETURN -> returnStatement();
+            case YIELD -> yieldStatement();
             case THROW -> throwStatement();
             // 'try?' и 'try!' — выражения, а не конструкция с блоком, и в начале строки
             // они тоже выражения: 'try? save()' значит «вызови, ошибку проглоти».
@@ -196,6 +198,9 @@ public final class Parser {
         return switch (expr) {
             case CallExpr ignored -> true;
             case NewExpr ignored -> true;
+            // 'match' инструкцией ничего не даёт наружу, но его ветки делают: тела
+            // веток проверены той же меркой, каждое по отдельности.
+            case MatchExpr ignored -> true;
             case TryExpr shortForm -> doesSomething(shortForm.inner());
             default -> false;
         };
@@ -573,6 +578,7 @@ public final class Parser {
         Token keyword = cursor.advance(); // return
         state.requireFunction(keyword);
         state.forbidInFinally(keyword);
+        state.markBranchExit();
         Expr value = cursor.check(TokenType.SEMICOLON) ? null : expression(0);
         if (value instanceof ErrorExpr) {
             // Возвращаемое выражение не разобралось — об этом уже сказано. Дальше по строке
@@ -582,6 +588,31 @@ public final class Parser {
         }
         Token end = cursor.expect(TokenType.SEMICOLON, "точку с запятой ';' после 'return'");
         return new ReturnStmt(value, keyword.span().to(end.span()));
+    }
+
+    /**
+     * Значение ветки: {@code yield price * count}.
+     * <p>
+     * Точка с запятой не обязательна, в отличие от {@code return}: значение
+     * у {@code yield} есть всегда, и решать «есть оно или нет» не приходится —
+     * тот же довод, что у {@code throw} и у стрелочного тела функции.
+     * <p>
+     * Где {@code yield} допустим, знает {@link ParseState}: только в ветке
+     * {@code case} у {@code match} в позиции выражения и не через границу функции.
+     * Это та же линия, что у {@code break} вне цикла, — ошибка разбора, а не тот день,
+     * когда до этой ветки наконец дойдёт выполнение.
+     */
+    private Stmt yieldStatement() {
+        Token keyword = cursor.advance(); // yield
+        state.requireValueBranch(keyword);
+        state.forbidYieldInFinally(keyword);
+        Expr value = expression(0);
+        if (value instanceof ErrorExpr) {
+            // Отдаваемое выражение не разобралось — об этом уже сказано.
+            cursor.synchronize();
+            return new ErrorStmt(keyword.span().to(value.span()));
+        }
+        return new YieldStmt(value, keyword.span().to(value.span()));
     }
 
     // --- ошибки --------------------------------------------------------------
@@ -596,6 +627,7 @@ public final class Parser {
      */
     private Stmt throwStatement() {
         Token keyword = cursor.advance(); // throw
+        state.markBranchExit();
         Expr value = expression(0);
         if (value instanceof ErrorExpr) {
             cursor.synchronize();
@@ -844,6 +876,260 @@ public final class Parser {
         return new IfStmt(condition, thenBranch, elseBranch, keyword.span().to(last.span()));
     }
 
+    // --- match ---------------------------------------------------------------
+
+    /**
+     * {@code match} в позиции инструкции: ветки делают, а не дают значение.
+     * <p>
+     * Позиция определяется <b>местом, а не заглядыванием вперёд</b>: {@code match}
+     * из {@link #statement()} — инструкция, {@code match} из {@link #prefix()} —
+     * выражение. Тем же приёмом решается {@code &#123;} в начале инструкции (всегда
+     * блок) против {@code &#123;} в позиции выражения (всегда объект), и побочно —
+     * {@code case 1 => &#123;a: 1&#125;} (объект) против {@code case 1 &#123;a: 1&#125;}
+     * (блок).
+     */
+    private Stmt matchStatement() {
+        Expr expr = matchExpression(false);
+        return expr instanceof ErrorExpr ? new ErrorStmt(expr.span()) : new ExprStmt(expr, expr.span());
+    }
+
+    /**
+     * Разбор {@code match} целиком. Позиция приходит аргументом, и различий ровно два:
+     * в позиции выражения обязателен {@code else}, а тело-блок запрещён.
+     *
+     * @param asValue стоит ли {@code match} там, где ждут значение
+     */
+    private Expr matchExpression(boolean asValue) {
+        Token keyword = cursor.advance(); // match
+        cursor.expect(TokenType.LPAREN, "открывающую скобку '(' после 'match'");
+        Expr subject = expression(0);
+        cursor.expect(TokenType.RPAREN, "закрывающую скобку ')' после предмета 'match'");
+        cursor.expect(TokenType.LBRACE, "открывающую скобку '{' перед ветками 'match'");
+
+        List<MatchCase> cases = new ArrayList<>();
+        MatchCase otherwise = null;
+        cursor.skipSeparators();
+        while (!cursor.check(TokenType.RBRACE) && !cursor.check(TokenType.EOF)) {
+            int before = cursor.position();
+            if (cursor.check(TokenType.CASE)) {
+                MatchCase branch = matchCase(asValue);
+                if (branch != null) {
+                    cases.add(branch);
+                }
+            } else if (cursor.check(TokenType.ELSE)) {
+                MatchCase branch = otherwiseCase(asValue);
+                if (branch != null && otherwise != null) {
+                    diagnostics.error(branch.span(), "у 'match' только одна ветка 'else': "
+                            + "она и значит «во всех остальных случаях»");
+                } else if (branch != null) {
+                    otherwise = branch;
+                }
+            } else {
+                diagnostics.error(cursor.peek().span(), "внутри 'match' бывают только ветки"
+                        + " 'case ... =>' и 'else =>', найдено " + describe(cursor.peek()));
+                cursor.synchronize();
+            }
+            cursor.ensureProgress(before);
+            cursor.skipSeparators();
+        }
+        Token close = cursor.expect(TokenType.RBRACE, "закрывающую скобку '}' после веток 'match'");
+        Span span = keyword.span().to(close.span());
+
+        if (asValue && otherwise == null) {
+            // Исчерпаемость в динамическом языке не доказать, а тихий null из непопавшего
+            // match — ровно тот класс ошибок, который язык обещает ломать там, где написано.
+            diagnostics.error(span, "'match' в позиции выражения обязан иметь 'else': "
+                    + "значение должно быть у любого предмета");
+            return new ErrorExpr(span);
+        }
+        return subject instanceof ErrorExpr ? new ErrorExpr(span)
+                : new MatchExpr(subject, cases, otherwise, asValue, span);
+    }
+
+    /**
+     * Одна ветка: {@code case} → образцы через запятую → необязательное
+     * {@code if условие} → тело.
+     *
+     * @return разобранная ветка или {@code null}, если разобрать не вышло
+     */
+    private MatchCase matchCase(boolean asValue) {
+        Token keyword = cursor.advance(); // case
+        // Тело сразу после 'case' — почти наверняка забытый образец, и сказать надо
+        // это, а не «ожидалось выражение»: разбор образца назвал бы симптом.
+        if (startsBody(cursor.peek().type())) {
+            diagnostics.error(cursor.peek().span(), "после 'case' нужен образец или условие 'if',"
+                    + " найдено " + describe(cursor.peek()));
+            cursor.synchronize();
+            return null;
+        }
+        List<CaseTail> tails = new ArrayList<>();
+        // 'case if throttled =>' — ветка из одного условия: предмет по-прежнему один
+        // и назван в одном месте.
+        if (!cursor.check(TokenType.IF)) {
+            do {
+                CaseTail tail = caseTail();
+                if (tail == null) {
+                    cursor.synchronize();
+                    return null;
+                }
+                tails.add(tail);
+            } while (cursor.match(TokenType.COMMA));
+        }
+
+        Expr guard = null;
+        if (cursor.match(TokenType.IF)) {
+            guard = expression(0);
+            if (guard instanceof ErrorExpr) {
+                cursor.synchronize();
+                return null;
+            }
+        }
+        if (tails.isEmpty() && guard == null) {
+            diagnostics.error(cursor.peek().span(), "после 'case' нужен образец или условие 'if',"
+                    + " найдено " + describe(cursor.peek()));
+            cursor.synchronize();
+            return null;
+        }
+        return caseBody(keyword, tails, guard, asValue);
+    }
+
+    /** Токен, с которого начинается тело ветки, а не образец. */
+    private static boolean startsBody(TokenType type) {
+        return type == TokenType.FATARROW || type == TokenType.LBRACE
+                || type == TokenType.RBRACE || type == TokenType.EOF;
+    }
+
+    /** Ветка «во всех остальных случаях»: {@code else => ...}. */
+    private MatchCase otherwiseCase(boolean asValue) {
+        Token keyword = cursor.advance(); // else
+        if (cursor.check(TokenType.IF)) {
+            // 'else if' здесь читалось бы как цепочка ветвлений, которой у match нет.
+            diagnostics.error(cursor.peek().span(), "у 'else' в 'match' не бывает условия:"
+                    + " ветка с условием — это 'case if условие =>'");
+            cursor.synchronize();
+            return null;
+        }
+        return caseBody(keyword, List.of(), null, asValue);
+    }
+
+    /**
+     * Один образец — <i>хвост</i> обычного бинарного выражения, подлежащее которого
+     * предмет: {@code case > 90} ≡ «предмет {@code >} 90». Голый образец — хвост
+     * с неявным {@code ==}.
+     * <p>
+     * Правый операнд разбирается с порогом {@code COMPARISON + 1}, и это не мелочь,
+     * а <b>механизм запрета</b> на полное выражение в образце: при таком пороге
+     * {@code case score > 90} не соберётся в образец — {@code >} останется несъеденным,
+     * и {@link #missingBody()} скажет, что именно не так. Иначе эта запись значила бы
+     * «предмет == (score > 90)», то есть тихое «никогда».
+     *
+     * @return разобранный образец или {@code null}, если разобрать не вышло
+     */
+    private CaseTail caseTail() {
+        Token start = cursor.peek();
+        if (start.type() == TokenType.NOT) {
+            BinaryOp negated = Operators.negated(cursor.peek(1).type());
+            if (negated != null) {
+                cursor.advance(); // !
+                cursor.advance(); // is | in | has
+                Expr right = expression(Operators.COMPARISON + 1);
+                return right instanceof ErrorExpr ? null
+                        : new CaseTail(negated, right, start.span().to(right.span()));
+            }
+        }
+        Operators.Infix infix = Operators.infix(start.type());
+        if (infix != null) {
+            cursor.advance();
+            Expr right = expression(Operators.COMPARISON + 1);
+            return right instanceof ErrorExpr ? null
+                    : new CaseTail(infix.op(), right, start.span().to(right.span()));
+        }
+        Expr right = expression(Operators.COMPARISON + 1);
+        return right instanceof ErrorExpr ? null
+                : new CaseTail(BinaryOp.EQUAL, right, right.span());
+    }
+
+    /**
+     * Тело ветки: {@code => выражение} или блок.
+     * <p>
+     * Стрелка значит здесь то же, что в {@code def f(a) => a + 1}: «дальше значение».
+     * Блок годится в обеих позициях, и разница в том, чем он обязан кончиться.
+     * <p>
+     * В позиции инструкции стрелочное тело обязано что-то делать — мерка та же, что
+     * у обычной инструкции, и код тот же ({@link #doesSomething}). В позиции выражения
+     * блок обязан отдать значение словом {@code yield}; «последнее выражение блока —
+     * результат» отвергнуто сознательно: неявный результат читатель обязан вычислить
+     * сам, пробежав блок до конца, и добавленная после него строка молча меняет
+     * значение ветки.
+     * <p>
+     * Проверка здесь синтаксическая — «{@code yield} в ветке вообще написан». Что он
+     * <i>выполнился</i>, здесь знать неоткуда: {@code yield} бывает под условием,
+     * и это законно. Оставшееся ловит выполнение.
+     *
+     * @return разобранная ветка или {@code null}, если разобрать не вышло
+     */
+    private MatchCase caseBody(Token keyword, List<CaseTail> tails, Expr guard, boolean asValue) {
+        if (cursor.match(TokenType.FATARROW)) {
+            Expr value = expression(0);
+            if (value instanceof ErrorExpr) {
+                cursor.synchronize();
+                return null;
+            }
+            if (!asValue && !doesSomething(value)) {
+                diagnostics.error(value.span(), "это выражение ничего не делает: телом ветки"
+                        + " здесь может быть вызов или блок — 'match' стоит инструкцией,"
+                        + " а не в позиции значения");
+                return null;
+            }
+            return new MatchCase(tails, guard, value, null, keyword.span().to(value.span()));
+        }
+        if (cursor.check(TokenType.LBRACE)) {
+            Stmt body = asValue
+                    ? state.inValueBranch(this::block)
+                    : state.outOfValueBranch(this::block);
+            if (asValue && !state.lastBranchExited()) {
+                diagnostics.error(body.span(), "ветка не отдаёт значения: здесь 'match' стоит"
+                        + " в позиции выражения, и блок обязан отдать значение словом"
+                        + " 'yield выражение'. Ветке в одну строку хватит стрелки:"
+                        + " 'case ... => выражение'");
+                return null;
+            }
+            return new MatchCase(tails, guard, null, body, keyword.span().to(body.span()));
+        }
+        return missingBody();
+    }
+
+    /**
+     * Тела у ветки нет. Отдельный разбор случая, когда несъеденным остался бинарный
+     * оператор: почти всегда это записанный целиком образец ({@code case score > 90}),
+     * и назвать надо причину, а не симптом.
+     */
+    private MatchCase missingBody() {
+        Token token = cursor.peek();
+        String symbol = operatorSymbol(token);
+        if (symbol != null) {
+            diagnostics.error(token.span(), "слева от '" + symbol + "' не нужен операнд:"
+                    + " предмет уже назван в 'match (...)' — напишите 'case " + symbol
+                    + " ...'. Скобки снимают запрет: 'case (a " + symbol + " b)' — это"
+                    + " сравнение предмета с логическим");
+        } else {
+            diagnostics.error(token.span(), "у ветки нет тела: после образца пишется"
+                    + " '=> выражение' или блок '{ ... }', найдено " + describe(token));
+        }
+        cursor.synchronize();
+        return null;
+    }
+
+    /** Знак бинарного оператора, стоящего на этом месте, или {@code null}. */
+    private String operatorSymbol(Token token) {
+        if (token.type() == TokenType.NOT) {
+            BinaryOp negated = Operators.negated(cursor.peek(1).type());
+            return negated == null ? null : negated.symbol();
+        }
+        Operators.Infix infix = Operators.infix(token.type());
+        return infix == null ? null : infix.op().symbol();
+    }
+
     private Stmt whileStatement() {
         Token keyword = cursor.advance(); // while
         Expr condition = condition("'while'");
@@ -857,6 +1143,13 @@ public final class Parser {
      * Что это за форма, видно по двум токенам после открывающей скобки: имя и
      * {@code in} — перебор, что угодно другое — цикл со счётчиком. Заглядывание
      * ровно на два токена и без отката: {@link TokenCursor#peek(int)} для этого и есть.
+     * <p>
+     * <b>Порядок проверки — часть контракта, а не оптимизация.</b> С тех пор как
+     * {@code in} стал ещё и бинарным оператором, {@code for (item in cart)} годится
+     * и в разбор выражения — как условие {@code item in cart} у цикла со счётчиком,
+     * у которого забыли точку с запятой. Разводит эти два чтения только то, что форма
+     * перебора распознаётся <b>до</b> общего разбора выражения. Переставить проверки
+     * местами значит сломать перебор во всех скриптах сразу.
      */
     private Stmt forStatement() {
         Token keyword = cursor.advance(); // for
@@ -892,6 +1185,7 @@ public final class Parser {
         Token keyword = cursor.advance();
         state.requireLoop(keyword);
         state.forbidInFinally(keyword);
+        state.markBranchExit();
         return new BreakStmt(keyword.span());
     }
 
@@ -899,6 +1193,7 @@ public final class Parser {
         Token keyword = cursor.advance();
         state.requireLoop(keyword);
         state.forbidInFinally(keyword);
+        state.markBranchExit();
         return new ContinueStmt(keyword.span());
     }
 
@@ -979,6 +1274,24 @@ public final class Parser {
                 continue;
             }
 
+            // '!is', '!in', '!has' — один оператор из двух токенов. Слить их в лексеме
+            // нельзя (между ними бывает пробел), а здесь это стоит одной проверки:
+            // сила и ассоциативность берутся у той же операции без отрицания.
+            if (type == TokenType.NOT) {
+                BinaryOp negated = Operators.negated(cursor.peek(1).type());
+                if (negated != null) {
+                    Operators.Infix positive = Operators.infix(cursor.peek(1).type());
+                    if (positive.power() < minPower) {
+                        return left;
+                    }
+                    cursor.advance(); // !
+                    cursor.advance(); // is | in | has
+                    Expr right = expression(positive.rightPower());
+                    left = new BinaryExpr(negated, left, right, left.span().to(right.span()));
+                    continue;
+                }
+            }
+
             Operators.Infix infix = Operators.infix(type);
             if (infix == null || infix.power() < minPower) {
                 return left;
@@ -1057,6 +1370,11 @@ public final class Parser {
             }
             case LBRACE -> {
                 return objectLiteral();
+            }
+            // Позиция определяется местом: сюда попадает только тот match, что стоит
+            // там, где ждут значение.
+            case MATCH -> {
+                return matchExpression(true);
             }
             case DEF -> {
                 return functionExpr();

@@ -122,7 +122,8 @@ final class TokenCursor {
      * Третья граница — токены, за которые заходить нельзя ни при каких переносах строк:
      * закрывающая фигурная скобка и слова, начинающие следующую конструкцию. Без этого
      * опечатка в теле цикла съедала бы {@code &#125;}, и одна ошибка разваливала бы
-     * разбор всего оставшегося файла.
+     * разбор всего оставшегося файла. {@code case} и {@code else} в этом списке
+     * работают ещё и на {@code match}: ошибка в одной ветке не съедает остальные.
      */
     void synchronize() {
         while (!check(TokenType.EOF)) {
@@ -141,7 +142,7 @@ final class TokenCursor {
     private static boolean isStatementBoundary(TokenType type) {
         return switch (type) {
             case RBRACE, IF, ELSE, WHILE, FOR, BREAK, CONTINUE, CONST, DEF, CLASS, TRAIT,
-                 IMPORT, RETURN, THROW, TRY, CATCH, FINALLY, DEFER, USE -> true;
+                 IMPORT, RETURN, THROW, TRY, CATCH, FINALLY, DEFER, USE, MATCH, CASE -> true;
             default -> false;
         };
     }

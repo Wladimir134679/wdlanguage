@@ -2,6 +2,7 @@ package ru.wds.wdl.runtime.members;
 
 import ru.wds.wdl.embed.Args;
 import ru.wds.wdl.runtime.ErrorKind;
+import ru.wds.wdl.runtime.Operations;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
@@ -55,9 +56,10 @@ public final class StringMembers {
                 .method("indexOf", Arity.exactly(1), (receiver, context, arguments, span) ->
                         IntValue.of(text(receiver).indexOf(args("indexOf", arguments, context, span)
                                 .string(0, "искомое"))))
+                // Как и у массива: за 'sub in s' и за 's.contains(sub)' стоит одна
+                // реализация — Operations.contains.
                 .method("contains", Arity.exactly(1), (receiver, context, arguments, span) ->
-                        BoolValue.of(text(receiver).contains(args("contains", arguments, context, span)
-                                .string(0, "искомое"))))
+                        BoolValue.of(Operations.contains(self(receiver), arguments.get(0), span)))
                 .method("startsWith", Arity.exactly(1), (receiver, context, arguments, span) ->
                         BoolValue.of(text(receiver).startsWith(args("startsWith", arguments, context, span)
                                 .string(0, "начало"))))

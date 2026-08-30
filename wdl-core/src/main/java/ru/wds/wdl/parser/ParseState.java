@@ -33,6 +33,40 @@ final class ParseState {
     /** Сколько функций вокруг: то же самое для {@code return} вне функции. */
     private int functionDepth;
     /**
+     * Сколько веток {@code case} у {@code match} в позиции выражения вокруг
+     * разбираемой сейчас инструкции. {@code yield} допустим, только пока их больше нуля.
+     * <p>
+     * Тело функции и тело ветки у {@code match}-инструкции начинаются с нуля: из ветки
+     * нельзя отдать значение через границу функции, а у ветки, которая ничего не даёт,
+     * отдавать нечего. Второе важнее, чем кажется: без обнуления {@code yield} внутри
+     * вложенного {@code match}-инструкции молча уходил бы во внешнюю ветку-значение,
+     * хотя читается как «значение этого case».
+     */
+    private int valueBranchDepth;
+    /**
+     * Глубины {@code finally} и {@code defer} на входе в ближайшую ветку-значение.
+     * <p>
+     * Нужны, чтобы запрет «не выходить наружу из {@code finally}» говорил про
+     * {@code yield} правду. {@code return} из ветки действительно уходит за пределы
+     * объемлющего {@code finally} и гасит летящую ошибку, а {@code yield} дальше своей
+     * ветки не идёт никогда — и запрещать его в {@code match}, целиком написанном
+     * внутри {@code finally}, значило бы соврать в тексте ошибки. Запрещён он только
+     * тогда, когда {@code finally} или {@code defer} открыты <b>внутри</b> самой ветки.
+     */
+    private int yieldFinallyBase;
+    private int yieldDeferBase;
+    /**
+     * Написан ли в ветке хоть какой-то выход — разбор ветки только что закончился.
+     * <p>
+     * Считается не только {@code yield}: ветка, которая делает {@code return},
+     * {@code throw}, {@code break} или {@code continue}, значения не отдаёт законно —
+     * управление уходит мимо {@code match} целиком. Требовать от неё {@code yield}
+     * значило бы требовать недостижимую строку.
+     */
+    private boolean lastBranchExited;
+    /** То же для ветки, которая разбирается сейчас. */
+    private boolean branchExits;
+    /**
      * Сколько блоков {@code finally} вокруг разбираемой сейчас инструкции.
      * <p>
      * {@code return}, {@code break} и {@code continue} внутри {@code finally}
@@ -90,16 +124,18 @@ final class ParseState {
     /**
      * Тело функции — отдельная территория для управляющих конструкций: {@code return}
      * внутри разрешён, а {@code break} из цикла, объемлющего объявление, — нет.
-     * Поэтому глубины циклов, {@code finally} и {@code defer} на время разбора тела
-     * обнуляются, а не просто не растут.
+     * Поэтому глубины циклов, {@code finally}, {@code defer} и веток-значений
+     * на время разбора тела обнуляются, а не просто не растут.
      */
     <T> T inFunctionBody(Supplier<T> parse) {
         int outerLoops = loopDepth;
         int outerFinally = finallyDepth;
         int outerDefer = deferDepth;
+        int outerBranches = valueBranchDepth;
         loopDepth = 0;
         finallyDepth = 0;
         deferDepth = 0;
+        valueBranchDepth = 0;
         functionDepth++;
         try {
             return parse.get();
@@ -108,6 +144,69 @@ final class ParseState {
             loopDepth = outerLoops;
             finallyDepth = outerFinally;
             deferDepth = outerDefer;
+            valueBranchDepth = outerBranches;
+        }
+    }
+
+    /**
+     * Тело ветки {@code case} у {@code match} в позиции выражения: отсюда — и только
+     * отсюда — можно отдать значение через {@code yield}.
+     * <p>
+     * Глубины {@code finally} и {@code defer} здесь не обнуляются, а запоминаются:
+     * см. {@link #yieldFinallyBase}.
+     */
+    <T> T inValueBranch(Supplier<T> parse) {
+        int outerFinallyBase = yieldFinallyBase;
+        int outerDeferBase = yieldDeferBase;
+        boolean outerExits = branchExits;
+        yieldFinallyBase = finallyDepth;
+        yieldDeferBase = deferDepth;
+        branchExits = false;
+        valueBranchDepth++;
+        try {
+            return parse.get();
+        } finally {
+            valueBranchDepth--;
+            lastBranchExited = branchExits;
+            branchExits = outerExits;
+            yieldFinallyBase = outerFinallyBase;
+            yieldDeferBase = outerDeferBase;
+        }
+    }
+
+    /**
+     * Тело ветки у {@code match}-инструкции: значения такая ветка не даёт, поэтому
+     * {@code yield} внутри неё недопустим — даже если снаружи есть ветка-значение.
+     */
+    <T> T outOfValueBranch(Supplier<T> parse) {
+        int outer = valueBranchDepth;
+        valueBranchDepth = 0;
+        try {
+            return parse.get();
+        } finally {
+            valueBranchDepth = outer;
+        }
+    }
+
+    /**
+     * Написан ли выход в ветке, которую только что разобрал {@link #inValueBranch}.
+     * <p>
+     * Проверка синтаксическая и намеренно грубая: она ловит ветку, у которой выхода
+     * нет вовсе, и молчит про ту, где {@code yield} стоит под условием. Доказывать,
+     * что условие выполнится, — работа, которой в языке нет ни одной стадии; остальное
+     * говорит выполнение, когда ветка отработала и значения не дала.
+     */
+    boolean lastBranchExited() {
+        return lastBranchExited;
+    }
+
+    /**
+     * Отмечает, что ветка-значение уходит наружу и без {@code yield}: {@code return},
+     * {@code throw}, {@code break}, {@code continue}. Вне ветки — ничего не делает.
+     */
+    void markBranchExit() {
+        if (valueBranchDepth > 0) {
+            branchExits = true;
         }
     }
 
@@ -204,6 +303,38 @@ final class ParseState {
         if (functionDepth == 0) {
             diagnostics.error(keyword.span(), "'return' допустим только внутри функции");
         }
+    }
+
+    /**
+     * {@code yield} допустим только в ветке {@code case} у {@code match} в позиции
+     * выражения. Заодно отмечает, что ветка своё значение отдаёт: по этой отметке
+     * {@code Parser.caseBody} ловит ветку, у которой {@code yield} забыт совсем.
+     */
+    void requireValueBranch(Token keyword) {
+        if (valueBranchDepth == 0) {
+            diagnostics.error(keyword.span(), "'yield' допустим только в ветке 'case'"
+                    + " у 'match' в позиции выражения: он отдаёт значение ветки."
+                    + " Выйти из функции — это 'return'");
+            return;
+        }
+        branchExits = true;
+    }
+
+    /**
+     * Тот же запрет на выход наружу, что и у {@code return}, но считанный от ветки:
+     * {@code yield} дальше своей ветки не идёт, поэтому мешает он только тому
+     * {@code finally}, который открыт внутри самой ветки. Про {@code match},
+     * целиком написанный внутри {@code finally}, здесь молчим — и это не поблажка,
+     * а правда: гасить такому {@code yield} нечего.
+     */
+    void forbidYieldInFinally(Token keyword) {
+        if (finallyDepth <= yieldFinallyBase && deferDepth <= yieldDeferBase) {
+            return;
+        }
+        String where = finallyDepth > yieldFinallyBase ? "блоке 'finally'" : "теле 'defer'";
+        diagnostics.error(keyword.span(), "'yield' в " + where + " запрещён: "
+                + "он молча погасил бы ошибку, которая сейчас летит наружу."
+                + " Отдавайте значение из тела 'try' или из 'catch'");
     }
 
     /**

@@ -37,6 +37,13 @@ final class Operators {
     static final int BIT_OR = 12;
     static final int BIT_XOR = 14;
     static final int BIT_AND = 16;
+    /**
+     * Диапазон {@code ..} — <b>сильнее сравнений</b>, иначе {@code x in 1..5}
+     * разобралось бы как {@code (x in 1)..5}, и <b>слабее арифметики и сдвигов</b>,
+     * чтобы {@code 0..n - 1} значило {@code 0..(n - 1)}. Место между {@link #BIT_AND}
+     * и {@link #SHIFT} было свободно: шаг 2 в таблице заводился ровно для этого.
+     */
+    static final int RANGE = 17;
     static final int SHIFT = 18;
     static final int ADDITIVE = 20;
     static final int MULTIPLICATIVE = 22;
@@ -52,6 +59,7 @@ final class Operators {
     private static final Map<TokenType, Infix> INFIX;
     private static final Map<TokenType, UnaryOp> PREFIX;
     private static final Map<TokenType, AssignOp> ASSIGN;
+    private static final Map<TokenType, BinaryOp> NEGATED;
 
     static {
         Map<TokenType, AssignOp> assign = new EnumMap<>(TokenType.class);
@@ -89,6 +97,14 @@ final class Operators {
         // ответа, а 'фигура is Круг && ...' не требует скобок.
         put(infix, TokenType.IS, BinaryOp.IS, COMPARISON);
 
+        // Принадлежность стоит там же, где 'is', и по тем же причинам:
+        // 'role in roles == true' читается как сравнение ответа, а 'a in b && c'
+        // не требует скобок.
+        put(infix, TokenType.IN, BinaryOp.IN, COMPARISON);
+        put(infix, TokenType.HAS, BinaryOp.HAS, COMPARISON);
+
+        put(infix, TokenType.DOTDOT, BinaryOp.RANGE, RANGE);
+
         put(infix, TokenType.SHL, BinaryOp.SHIFT_LEFT, SHIFT);
         put(infix, TokenType.SHR, BinaryOp.SHIFT_RIGHT, SHIFT);
         put(infix, TokenType.USHR, BinaryOp.SHIFT_RIGHT_UNSIGNED, SHIFT);
@@ -107,6 +123,12 @@ final class Operators {
         prefix.put(TokenType.NOT, UnaryOp.NOT);
         prefix.put(TokenType.TILDE, UnaryOp.COMPLEMENT);
         PREFIX = Collections.unmodifiableMap(prefix);
+
+        Map<TokenType, BinaryOp> negated = new EnumMap<>(TokenType.class);
+        negated.put(TokenType.IS, BinaryOp.NOT_IS);
+        negated.put(TokenType.IN, BinaryOp.NOT_IN);
+        negated.put(TokenType.HAS, BinaryOp.NOT_HAS);
+        NEGATED = Collections.unmodifiableMap(negated);
     }
 
     private Operators() {
@@ -124,6 +146,19 @@ final class Operators {
     /** Префиксный оператор для токена или {@code null}. */
     static UnaryOp prefix(TokenType type) {
         return PREFIX.get(type);
+    }
+
+    /**
+     * Отрицающая операция для слова после {@code !}: {@code !is}, {@code !in},
+     * {@code !has}. Для всего остального — {@code null}.
+     * <p>
+     * Два токена, а не одна лексема: {@code !} и слово лексер слить не может — между
+     * ними бывает пробел, — а парсеру это стоит одной проверки в инфиксной позиции.
+     * Силу связывания отдельно задавать не надо: она берётся у той же операции
+     * без отрицания, потому что это она и есть, только с обратным ответом.
+     */
+    static BinaryOp negated(TokenType type) {
+        return NEGATED.get(type);
     }
 
     /**

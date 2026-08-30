@@ -23,6 +23,33 @@ println("1 == \"1\"       = ", 1 == "1")         // false: типы не при�
 println("null || \"да\"   = ", null || "да")     // ленивое ИЛИ возвращает операнд
 println("17 % 5 > 1     = ", 17 % 5 > 1 ? "больше" : "меньше")
 
+// --- принадлежность: in, has и отрицания -------------------------------------
+// Одна реализация на все записи: 'x in a', 'a has x' и 'a.contains(x)' отвечают
+// одинаково всегда, а не пока за ними следят.
+roles = ["admin", "editor"]
+box = {color: "синий", size: 10}
+
+println("\"admin\" in roles = ", "admin" in roles)      // true — значение массива
+println("roles has \"admin\" = ", roles has "admin")    // то же самое, от контейнера
+println("\"guest\" !in roles = ", "guest" !in roles)    // true
+println("\"ход\" in \"переход\" = ", "ход" in "переход")  // true — подстрока
+println("\"color\" in box  = ", "color" in box)         // true — КЛЮЧ объекта
+println("\"синий\" in box  = ", "синий" in box)         // false: значение не ключ
+println("5 !is String    = ", 5 !is String)           // true
+
+// --- диапазон: обычное значение, а не форма записи ---------------------------
+workingAge = 18..65
+println("18..65         = ", workingAge)               // 18..65
+println("typeof         = ", typeof(workingAge))       // range
+println("42 in 18..65   = ", 42 in workingAge)         // true, границы включительны
+println("(5..1).empty   = ", (5..1).empty)             // true: 5..1 пуст, а не идёт вниз
+println("границы        = ", workingAge.from, "..", workingAge.to)
+
+// Диапазон сильнее сравнений и слабее арифметики: 'x in 1..5' — это
+// принадлежность диапазону, а '0..n - 1' — это '0..(n - 1)'.
+n = 3
+println("0..n - 1       = ", 0..n - 1)                 // 0..2
+
 // --- строки ------------------------------------------------------------------
 println("конкатенация   = ", "итого: " + 42)
 println("символ строки  = ", "привет"[0])

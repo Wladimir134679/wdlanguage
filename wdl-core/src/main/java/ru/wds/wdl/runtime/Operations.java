@@ -8,7 +8,9 @@ import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.BoolValue;
 import ru.wds.wdl.value.types.FloatValue;
 import ru.wds.wdl.value.types.IntValue;
+import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.NumberValue;
+import ru.wds.wdl.value.types.RangeValue;
 import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
@@ -50,7 +52,17 @@ public final class Operations {
             case EQUAL -> BoolValue.of(equal(left, right));
             case NOT_EQUAL -> BoolValue.of(!equal(left, right));
             case LESS, LESS_EQUAL, GREATER, GREATER_EQUAL -> compare(op, left, right, span);
-            case IS -> BoolValue.of(is(left, right, span));
+            case IS -> BoolValue.of(is(op, left, right, span));
+            case NOT_IS -> BoolValue.of(!is(op, left, right, span));
+
+            // Принадлежность: 'in' спрашивает у правого, 'has' — у левого, а отрицания
+            // отличаются от них только знаком ответа. Реализация при этом одна.
+            case IN -> BoolValue.of(contains(right, left, span));
+            case NOT_IN -> BoolValue.of(!contains(right, left, span));
+            case HAS -> BoolValue.of(contains(left, right, span));
+            case NOT_HAS -> BoolValue.of(!contains(left, right, span));
+
+            case RANGE -> range(left, right, span);
 
             case BIT_AND, BIT_OR, BIT_XOR, SHIFT_LEFT, SHIFT_RIGHT, SHIFT_RIGHT_UNSIGNED ->
                     bitwise(op, left, right, span);
@@ -254,13 +266,83 @@ public final class Operations {
      * не два (класс и тип), — и чужая реализация {@code ClassValue}, которую напишет
      * приложение, отвечает на {@code is} по-своему, не трогая ни этот метод, ни язык.
      */
-    private static boolean is(Value left, Value right, Span span) {
+    private static boolean is(BinaryOp op, Value left, Value right, Span span) {
         return switch (right) {
             case ClassValue declared -> declared.matches(left);
             case TraitValue declared -> declared.matches(left);
             default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
-                    "справа от 'is' должен стоять класс, трейт или тип, а здесь "
+                    "справа от '" + op.symbol() + "' должен стоять класс, трейт или тип, а здесь "
                             + right.type().title() + " (" + right + ")");
+        };
+    }
+
+    // --- диапазон ------------------------------------------------------------
+
+    /**
+     * Диапазон из двух границ. Обе обязаны быть числами: {@code "a".."z"} выглядит
+     * осмысленно, но порядок строк зависит от того, о чём спросить, и молчаливого
+     * ответа тут быть не должно.
+     */
+    private static Value range(Value left, Value right, Span span) {
+        if (!(left instanceof NumberValue from) || !(right instanceof NumberValue to)) {
+            throw typeError(span, BinaryOp.RANGE, left, right, "границы диапазона — числа");
+        }
+        return RangeValue.of(from, to);
+    }
+
+    // --- принадлежность ------------------------------------------------------
+
+    /**
+     * Содержит ли контейнер это значение — единственная реализация принадлежности
+     * на весь язык.
+     * <p>
+     * Сюда приходят все четыре записи оператора ({@code in}, {@code has} и их
+     * отрицания) и все члены, спрашивающие о том же: {@code a.contains(x)},
+     * {@code s.contains(sub)}, {@code obj.has(k)}. Разведи их по разным реализациям —
+     * и {@code x in a} с {@code a.contains(x)} однажды разойдутся; тот же довод,
+     * по которому {@code a.size} и длина в сообщении об ошибке берут ответ из одного
+     * места.
+     * <p>
+     * У объекта спрашивается <b>ключ</b>, а не значение: перебор объекта тоже идёт
+     * по ключам, и два разных ответа на «что в объекте» язык давать не должен.
+     *
+     * @param container где ищем
+     * @param item      что ищем
+     */
+    public static boolean contains(Value container, Value item, Span span) {
+        return switch (container) {
+            case ArrayValue array -> {
+                for (Value element : array.items()) {
+                    if (equal(element, item)) {
+                        yield true;
+                    }
+                }
+                yield false;
+            }
+            // В строке ищется строка: 'in' у строки значит «подстрока», и число
+            // здесь почти наверняка означает ошибку выше, а не намерение.
+            case StringValue text -> {
+                if (!(item instanceof StringValue part)) {
+                    throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                            "в строке ищется строка, а здесь " + item.type().title()
+                                    + " (" + item + ")");
+                }
+                yield text.value().contains(part.value());
+            }
+            case MapValue object -> object.has(item);
+            // У диапазона спрашивается число, и любое: вопрос «между ли» осмыслен
+            // и для вещественного, а целые границы нужны только перебору.
+            case RangeValue range -> {
+                if (!(item instanceof NumberValue number)) {
+                    throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                            "в диапазоне ищется число, а здесь " + item.type().title()
+                                    + " (" + item + ")");
+                }
+                yield range.contains(number);
+            }
+            default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                    "искать можно в массиве, строке, объекте или диапазоне, а здесь "
+                            + container.type().title() + " (" + container + ")");
         };
     }
 

@@ -17,9 +17,10 @@ wdl-cli/build/install/wdl/bin/wdl examples/hello.wdl
 | Файл | О чём |
 |---|---|
 | [hello.wdl](hello.wdl) | переменные, объекты, массивы, вывод — с чего начать |
-| [types.wdl](types.wdl) | десять типов: `typeof` возвращает дескриптор, `is` по всем типам, `typeof(x) == Тип` против `is`, дескриптор как обычное имя |
-| [expressions.wdl](expressions.wdl) | шпаргалка по выражениям: числа, биты, сравнения, обращение |
-| [control-flow.wdl](control-flow.wdl) | `if`, `while`, `for`, перебор, `break`/`continue`, области блока |
+| [types.wdl](types.wdl) | типы значений: `typeof` возвращает дескриптор, `is` по всем типам, `typeof(x) == Тип` против `is`, дескриптор как обычное имя |
+| [expressions.wdl](expressions.wdl) | шпаргалка по выражениям: числа, биты, сравнения, принадлежность `in`/`has`, диапазоны, обращение |
+| [control-flow.wdl](control-flow.wdl) | `if`, `while`, `for`, перебор (в том числе по диапазону), `break`/`continue`, области блока |
+| [match.wdl](match.wdl) | `match` выражением и инструкцией: образцы, перечисление, условия в ветках, `else`, значение ветки через `yield`, что бывает ошибкой |
 | [const.wdl](const.wdl) | `const`: заморожено имя, а не содержимое |
 | [functions.wdl](functions.wdl) | объявления, `return`, `=>`, анонимные функции, замыкания |
 | [defaults.wdl](defaults.wdl) | значения параметров по умолчанию и когда они вычисляются |

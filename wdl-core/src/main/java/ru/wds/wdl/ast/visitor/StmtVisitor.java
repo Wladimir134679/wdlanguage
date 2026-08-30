@@ -45,6 +45,12 @@ public interface StmtVisitor<R, C> {
 
     R visitReturn(ReturnStmt stmt, C context);
 
+    /**
+     * Значение ветки {@code case}. Отдельная инструкция, а не {@code return}:
+     * {@code return} выходит из функции, {@code yield} — из ветки.
+     */
+    R visitYield(YieldStmt stmt, C context);
+
     R visitThrow(ThrowStmt stmt, C context);
 
     R visitTry(TryStmt stmt, C context);
@@ -88,6 +94,7 @@ public interface StmtVisitor<R, C> {
             case TraitDeclStmt s -> visitTraitDecl(s, context);
             case ImportStmt s -> visitImport(s, context);
             case ReturnStmt s -> visitReturn(s, context);
+            case YieldStmt s -> visitYield(s, context);
             case ThrowStmt s -> visitThrow(s, context);
             case TryStmt s -> visitTry(s, context);
             case DeferStmt s -> visitDefer(s, context);

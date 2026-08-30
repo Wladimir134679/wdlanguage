@@ -352,6 +352,46 @@ class ParserTest {
         assertEquals("(new Point (* coords))", tree("new Point(*coords)"));
     }
 
+    // --- принадлежность ------------------------------------------------------
+
+    @Test
+    @DisplayName("'in' и 'has' — обычные бинарные операторы")
+    void membershipOperators() {
+        assertEquals("(in role roles)", tree("role in roles"));
+        assertEquals("(has roles role)", tree("roles has role"));
+        assertEquals("(in role (get user \"roles\"))", tree("role in user.roles"));
+    }
+
+    @Test
+    @DisplayName("'!' перед словом даёт один оператор, а не отрицание левого операнда")
+    void negatedMembership() {
+        assertEquals("(!in a b)", tree("a !in b"));
+        assertEquals("(!has a b)", tree("a !has b"));
+        assertEquals("(!is figure Circle)", tree("figure !is Circle"));
+        // Префиксное '!' на месте не изменилось: оно относится ко всему сравнению.
+        assertEquals("(! (in a b))", tree("!(a in b)"));
+    }
+
+    @Test
+    @DisplayName("принадлежность стоит на уровне сравнений")
+    void membershipPrecedence() {
+        assertEquals("(== (in a b) true)", tree("a in b == true"));
+        assertEquals("(&& (in a b) c)", tree("a in b && c"));
+        assertEquals("(in a (+ b c))", tree("a in b + c"));
+        assertEquals("(&& (!in a b) c)", tree("a !in b && c"));
+    }
+
+    // --- диапазон ------------------------------------------------------------
+
+    @Test
+    @DisplayName("диапазон сильнее сравнений и слабее арифметики")
+    void rangePrecedence() {
+        assertEquals("(.. 0 (- n 1))", tree("0..n - 1"));
+        assertEquals("(in x (.. 1 5))", tree("x in 1..5"));
+        assertEquals("(.. (<< 1 2) 8)", tree("1 << 2..8"));
+        assertEquals("(== (.. 1 5) other)", tree("1..5 == other"));
+    }
+
     @Test
     @DisplayName("позиционная группа идёт перед именованной, и раскрытие не исключение")
     void spreadKeepsGroupOrder() {
