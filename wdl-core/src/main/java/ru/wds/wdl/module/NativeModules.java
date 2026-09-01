@@ -1,6 +1,6 @@
 package ru.wds.wdl.module;
 
-import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.module.Library;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

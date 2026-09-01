@@ -1,13 +1,11 @@
 package ru.wds.wdl.stdlib.gui;
 
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.Environment;
-import ru.wds.wdl.stdlib.Types;
-import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.NativeInstance;
+import ru.wds.wdl.bridge.Params;
+import ru.wds.wdl.bridge.reflect.FromJava;
 import ru.wds.wdl.value.Signature;
-import ru.wds.wdl.value.Value;
-import ru.wds.wdl.value.types.BoolValue;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.types.NullValue;
 
 import javax.swing.JPanel;
@@ -22,32 +20,30 @@ public final class NativePanel {
     private NativePanel() {
     }
 
-    public static NativeClass in(Environment scope) {
-        return Types.in(scope, "Panel", NativeClass.class, NativePanel::build);
-    }
-
-    private static NativeClass build() {
+    static NativeClass build() {
         return NativeClass.named("Panel")
-                .field("layout", NullValue.NULL)
-                .field("enabled", BoolValue.TRUE)
+                .backing(JPanel.class)
+                .init(Params.of()
+                        .optional("layout", NullValue.NULL)
+                        .optional("enabled", true),
+                        (self, context, args, span) -> {
+                            JPanel panel = new JPanel();
+                            if (args.size() > 0 && args.at(0) != NullValue.NULL) {
+                                LayoutManager lm = Layouts.extractLayout(args.at(0));
+                                if (lm != null) {
+                                    panel.setLayout(lm);
+                                }
+                            }
+                            panel.setEnabled(args.at(1).isTruthy());
+                            self.state(panel);
+                            return NullValue.NULL;
+                        })
 
-                .init((self, context, args, span) -> {
-                    JPanel panel = new JPanel();
-                    if (args.size() > 0 && args.at(0) != NullValue.NULL) {
-                        LayoutManager lm = Layouts.extractLayout(args.at(0));
-                        if (lm != null) {
-                            panel.setLayout(lm);
-                        }
-                    }
-                    boolean enabled = self.get("enabled").isTruthy();
-                    panel.setEnabled(enabled);
+                .members(FromJava.of(JPanel.class)
+                        .bean("enabled"))
 
-                    self.state(panel);
-                    return NullValue.NULL;
-                })
-
-                .method("add", Signature.of(Signature.Param.required("component"),
-                        Signature.Param.optional("constraint")), (self, context, args, span) -> {
+                .method("add", Signature.of(Param.required("component"),
+                        Param.optional("constraint")), (self, context, args, span) -> {
                     Component comp = ComponentUtils.extractComponent(args.at(0));
                     if (comp == null) {
                         throw args.bad(0, "компонент", "ожидался UI-компонент");
@@ -63,7 +59,7 @@ public final class NativePanel {
                     return NullValue.NULL;
                 })
 
-                .method("setLayout", Signature.of(Signature.Param.required("layout")),
+                .method("setLayout", Signature.of(Param.required("layout")),
                         (self, context, args, span) -> {
                     LayoutManager lm = Layouts.extractLayout(args.at(0));
                     if (lm == null) {
@@ -71,14 +67,6 @@ public final class NativePanel {
                     }
                     panel(self).setLayout(lm);
                     panel(self).revalidate();
-                    return NullValue.NULL;
-                })
-
-                .method("setEnabled", Signature.of(Signature.Param.required("enabled")),
-                        (self, context, args, span) -> {
-                    boolean enabled = args.at(0).isTruthy();
-                    panel(self).setEnabled(enabled);
-                    self.put("enabled", BoolValue.of(enabled));
                     return NullValue.NULL;
                 })
 

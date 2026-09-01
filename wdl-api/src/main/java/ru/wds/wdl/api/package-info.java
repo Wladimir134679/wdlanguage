@@ -64,7 +64,7 @@
  *       станет вместе с остальными — их место в {@code runtime.Run}, где уже лежит
  *       всё остальное про запуск.</li>
  *   <li><b>Моста к произвольному Java-объекту</b>: {@code player.getName()} без описания
- *       класса руками. Пока это {@code embed.NativeClass}.</li>
+ *       класса руками. Пока это {@code bridge.NativeClass}.</li>
  * </ul>
  */
 package ru.wds.wdl.api;

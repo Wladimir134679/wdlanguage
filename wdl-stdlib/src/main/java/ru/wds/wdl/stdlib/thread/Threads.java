@@ -1,16 +1,16 @@
 package ru.wds.wdl.stdlib.thread;
 
-import ru.wds.wdl.embed.Callback;
-import ru.wds.wdl.embed.Library;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
+import ru.wds.wdl.runtime.Callback;
+import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.module.Library;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.NativeInstance;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.runtime.FatalError;
 import ru.wds.wdl.runtime.WdlError;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
-import ru.wds.wdl.stdlib.Types;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.Value;
@@ -20,7 +20,6 @@ import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.StringValue;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 
@@ -60,7 +59,7 @@ import java.util.concurrent.ExecutorService;
  * ({@code FatalError}), а не ошибкой языка: {@code while (true) { try { ... } catch (e) {} }}
  * поймал бы ошибку и продолжил работу — ровно то, ради чего прерывание и звали.
  */
-public final class Threads implements Library {
+public final class Threads {
 
     /** Имя класса потока в области модуля. */
     private static final String THREAD = "Thread";
@@ -81,19 +80,59 @@ public final class Threads implements Library {
 
     /** Фабрика для реестра встроенных модулей. */
     public static Library library() {
-        return new Threads();
+        return new Threads().module();
     }
 
-    @Override
-    public String name() {
-        return "sys/thread";
+    /**
+     * Модуль этого запуска: семь типов и функции, которые их создают.
+     * <p>
+     * Классы стоят в области рядом с фабриками, а не прячутся за ними: {@code f is Future}
+     * — законный вопрос, и ответить на него можно только имеющимся именем.
+     */
+    private Library module() {
+        return Module.named("sys/thread")
+                .type(THREAD, scope -> threadClass())
+                .type("Future", scope -> Pool.futureClass())
+                .type("Pool", scope -> Pool.poolClass(scope,
+                        Module.typeIn(scope, "Future")))
+                .type("Lock", scope -> Sync.lockClass())
+                .type("Counter", scope -> Sync.counterClass())
+                .type("Channel", scope -> Sync.channelClass())
+                .type("Latch", scope -> Sync.latchClass())
+
+                .function("current", Arity.exactly(0),
+                        (context, arguments, span) -> describe(Thread.currentThread()))
+
+                .function("sleep", Arity.exactly(1), (context, arguments, span) -> {
+                    long millis = arguments.integer(0, "миллисекунды");
+                    if (millis < 0) {
+                        throw arguments.bad(0, "миллисекунды", "ожидалось неотрицательное число");
+                    }
+                    try {
+                        Thread.sleep(millis);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw FatalError.interrupted(span);
+                    }
+                    return NullValue.NULL;
+                })
+
+                // yield — подсказка планировщику, а не гарантия; на корректность скрипта
+                // влиять не должна и потому ничего не возвращает.
+                .function("yield", Arity.exactly(0), (context, arguments, span) -> {
+                    Thread.yield();
+                    return NullValue.NULL;
+                })
+
+                // Дальше — то, что замыкается на собранные классы: взять их можно
+                // только здесь, когда типы уже стоят в области.
+                .install(this::functions)
+                .onClose(this::shutdownPools)
+                .build();
     }
 
-    @Override
-    public Environment installTo(Environment scope) {
-        Objects.requireNonNull(scope, "scope");
-        NativeClass threadClass = Types.in(scope, THREAD, NativeClass.class, Threads::threadClass);
-        scope.define(THREAD, threadClass);
+    private void functions(Environment scope) {
+        NativeClass threadClass = Module.typeIn(scope, THREAD);
         installPool(scope);
         installPrimitives(scope);
 
@@ -107,33 +146,6 @@ public final class Threads implements Library {
                     return spawn(threadClass, context, span, title, body);
                 }));
 
-        scope.define("current", BuiltinFunction.of("current", Arity.exactly(0),
-                (context, arguments, span) -> describe(Thread.currentThread())));
-
-        scope.define("sleep", BuiltinFunction.of("sleep", Arity.exactly(1),
-                (context, arguments, span) -> {
-                    long millis = arguments.integer(0, "миллисекунды");
-                    if (millis < 0) {
-                        throw arguments.bad(0, "миллисекунды", "ожидалось неотрицательное число");
-                    }
-                    try {
-                        Thread.sleep(millis);
-                    } catch (InterruptedException interrupted) {
-                        Thread.currentThread().interrupt();
-                        throw FatalError.interrupted(span);
-                    }
-                    return NullValue.NULL;
-                }));
-
-        // yield — подсказка планировщику, а не гарантия; на корректность скрипта
-        // влиять не должна и потому ничего не возвращает.
-        scope.define("yield", BuiltinFunction.of("yield", Arity.exactly(0),
-                (context, arguments, span) -> {
-                    Thread.yield();
-                    return NullValue.NULL;
-                }));
-
-        return scope;
     }
 
     /**
@@ -143,10 +155,8 @@ public final class Threads implements Library {
      * — законный вопрос, и ответить на него можно только имеющимся именем.
      */
     private void installPool(Environment scope) {
-        NativeClass futureClass = Types.in(scope, "Future", NativeClass.class, Pool::futureClass);
-        NativeClass poolClass = Types.in(scope, "Pool", NativeClass.class, () -> Pool.poolClass(scope, futureClass));
-        scope.define("Future", futureClass);
-        scope.define("Pool", poolClass);
+        NativeClass futureClass = Module.typeIn(scope, "Future");
+        NativeClass poolClass = Module.typeIn(scope, "Pool");
 
         scope.define("pool", BuiltinFunction.of("pool", Arity.between(0, 1),
                 (context, arguments, span) -> {
@@ -165,14 +175,10 @@ public final class Threads implements Library {
 
     /** Замок, счётчик, канал и защёлка — всё, что даёт значение, а не ключевое слово. */
     private static void installPrimitives(Environment scope) {
-        NativeClass lockClass = Types.in(scope, "Lock", NativeClass.class, Sync::lockClass);
-        NativeClass counterClass = Types.in(scope, "Counter", NativeClass.class, Sync::counterClass);
-        NativeClass channelClass = Types.in(scope, "Channel", NativeClass.class, Sync::channelClass);
-        NativeClass latchClass = Types.in(scope, "Latch", NativeClass.class, Sync::latchClass);
-        scope.define("Lock", lockClass);
-        scope.define("Counter", counterClass);
-        scope.define("Channel", channelClass);
-        scope.define("Latch", latchClass);
+        NativeClass lockClass = Module.typeIn(scope, "Lock");
+        NativeClass counterClass = Module.typeIn(scope, "Counter");
+        NativeClass channelClass = Module.typeIn(scope, "Channel");
+        NativeClass latchClass = Module.typeIn(scope, "Latch");
 
         scope.define("lock", BuiltinFunction.of("lock", Arity.exactly(0),
                 (context, arguments, span) -> Sync.newLock(lockClass)));
@@ -211,8 +217,7 @@ public final class Threads implements Library {
      * с модулем — {@code close()} у пула идемпотентен, так что двойное закрытие
      * безобидно.
      */
-    @Override
-    public void close() {
+    private void shutdownPools() {
         pools.forEach(ExecutorService::shutdownNow);
         pools.clear();
     }

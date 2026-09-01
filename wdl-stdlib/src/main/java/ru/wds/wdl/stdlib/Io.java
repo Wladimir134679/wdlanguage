@@ -1,9 +1,9 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.Library;
-import ru.wds.wdl.embed.NativeClass;
+import ru.wds.wdl.module.Library;
+import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.bridge.NativeClass;
 import ru.wds.wdl.runtime.BuiltinFunction;
-import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.Value;
@@ -17,7 +17,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Stream;
 
 /**
@@ -53,132 +52,127 @@ import java.util.stream.Stream;
  * {@code sys/io} в реестр встроенных модулей — либо кладёт свою реализацию
  * под тем же именем.
  */
-public final class Io implements Library {
+public final class Io {
 
     private Io() {
     }
 
-    /** Фабрика для реестра встроенных модулей. */
+    /**
+     * Библиотека модуля: типы, константа и четырнадцать функций — одним объявлением.
+     * <p>
+     * Раньше здесь стоял ручной {@code installTo} на восемнадцать {@code define}
+     * подряд: собрать класс, спросить область, положить под своим именем, повторить.
+     * Ровно ту работу и делает построитель, и делает её одинаково для всех модулей —
+     * а восемнадцать одинаковых строк, написанных руками, только и умеют, что
+     * разойтись между собой.
+     * <p>
+     * Классы потоков стоят после {@code File} и берут его из области: порядок
+     * объявления здесь — это порядок установки.
+     */
     public static Library library() {
-        return new Io();
-    }
+        return Module.named("sys/io")
+                // Тот же класс File, что кладёт std, если std в этом запуске установлен:
+                // область модуля стоит на корне запуска, значит он там уже есть.
+                .type("File", scope -> Files.build())
+                .constant("SEPARATOR", StringValue.of(java.io.File.separator))
 
-    @Override
-    public String name() {
-        return "sys/io";
-    }
+                // Классы потоков собираются на запуск, а не статическим полем: они
+                // обещают трейт Closeable, а он объявлен прелюдией и принадлежит запуску.
+                // Общее у чтения и записи вынесено в родителя — и путь, и close(), и само
+                // обещание Closeable, — поэтому 'r is io.Stream' отвечает, не спрашивая,
+                // что именно открыли.
+                .type("Stream", Streams::stream)
+                .type("Reader", scope -> Streams.reader(Module.typeIn(scope, "Stream")))
+                .type("Writer", scope -> Streams.writer(Module.typeIn(scope, "Stream")))
 
-    @Override
-    public Environment installTo(Environment scope) {
-        Objects.requireNonNull(scope, "scope");
+                // Открытый поток — то, ради чего в языке есть use: дескриптор держится,
+                // пока не позовут close(), в отличие от read/write, которые всё делают внутри.
+                .install(scope -> {
+                    NativeClass reader = Module.typeIn(scope, "Reader");
+                    NativeClass writer = Module.typeIn(scope, "Writer");
+                    scope.define("open", BuiltinFunction.of("open", Arity.exactly(1),
+                            (context, arguments, span) ->
+                                    Streams.open(Files.pathOf(arguments, 0), reader, context, span)));
+                    scope.define("create", BuiltinFunction.of("create", Arity.exactly(1),
+                            (context, arguments, span) ->
+                                    Streams.create(Files.pathOf(arguments, 0), writer, context, span)));
+                    scope.define("appendTo", BuiltinFunction.of("appendTo", Arity.exactly(1),
+                            (context, arguments, span) ->
+                                    Streams.append(Files.pathOf(arguments, 0), writer, context, span)));
+                })
 
-        // Тот же класс File, что кладёт std, если std в этом запуске установлен:
-        // область модуля стоит на корне запуска, значит спросить его можно прямо здесь.
-        NativeClass file = Files.in(scope);
-        scope.define(file.name(), file);
-        scope.defineConstant("SEPARATOR", StringValue.of(java.io.File.separator));
+                .function("read", Arity.exactly(1), path((path, span) ->
+                        StringValue.of(Files.io(span, () ->
+                                java.nio.file.Files.readString(path, StandardCharsets.UTF_8)))))
 
-        // Классы потоков собираются здесь, а не статическим полем: они обещают трейт
-        // Closeable, а он объявлен прелюдией и принадлежит запуску.
-        // Общее у чтения и записи вынесено в родителя — и путь, и close(), и само
-        // обещание Closeable, — поэтому 'r is io.Stream' отвечает, не спрашивая,
-        // что именно открыли.
-        NativeClass stream = Streams.stream(scope);
-        NativeClass reader = Streams.reader(stream);
-        NativeClass writer = Streams.writer(stream);
-        scope.define(stream.name(), stream);
-        scope.define(reader.name(), reader);
-        scope.define(writer.name(), writer);
+                .function("lines", Arity.exactly(1), path((path, span) -> {
+                    List<String> lines = Files.io(span, () ->
+                            java.nio.file.Files.readAllLines(path, StandardCharsets.UTF_8));
+                    List<Value> values = new ArrayList<>(lines.size());
+                    lines.forEach(line -> values.add(StringValue.of(line)));
+                    return ArrayValue.of(values);
+                }))
 
-        // Открытый поток — то, ради чего в языке есть use: дескриптор держится,
-        // пока не позовут close(), в отличие от read/write, которые всё делают внутри.
-        scope.define("open", BuiltinFunction.of("open", Arity.exactly(1),
-                (context, arguments, span) ->
-                        Streams.open(Files.pathOf(arguments, 0), reader, context, span)));
-
-        scope.define("create", BuiltinFunction.of("create", Arity.exactly(1),
-                (context, arguments, span) ->
-                        Streams.create(Files.pathOf(arguments, 0), writer, context, span)));
-
-        scope.define("appendTo", BuiltinFunction.of("appendTo", Arity.exactly(1),
-                (context, arguments, span) ->
-                        Streams.append(Files.pathOf(arguments, 0), writer, context, span)));
-
-        scope.define("read", one("read", (path, span) ->
-                StringValue.of(Files.io(span, () ->
-                        java.nio.file.Files.readString(path, StandardCharsets.UTF_8)))));
-
-        scope.define("lines", one("lines", (path, span) -> {
-            List<String> lines = Files.io(span, () ->
-                    java.nio.file.Files.readAllLines(path, StandardCharsets.UTF_8));
-            List<Value> values = new ArrayList<>(lines.size());
-            lines.forEach(line -> values.add(StringValue.of(line)));
-            return ArrayValue.of(values);
-        }));
-
-        // Запись возвращает путь, а не null: 'println(io.write(p, text))' и цепочка
-        // с ним читаются, а «ничего» никому не нужно.
-        scope.define("write", BuiltinFunction.of("write", Arity.exactly(2),
-                (context, arguments, span) -> {
+                // Запись возвращает путь, а не null: 'println(io.write(p, text))' и цепочка
+                // с ним читаются, а «ничего» никому не нужно.
+                .function("write", Arity.exactly(2), (context, arguments, span) -> {
                     Path path = Files.pathOf(arguments, 0);
                     String data = arguments.at(1).display();
                     Files.io(span, () -> java.nio.file.Files.writeString(
                             path, data, StandardCharsets.UTF_8));
                     return arguments.get(0);
-                }));
+                })
 
-        scope.define("append", BuiltinFunction.of("append", Arity.exactly(2),
-                (context, arguments, span) -> {
+                .function("append", Arity.exactly(2), (context, arguments, span) -> {
                     Path path = Files.pathOf(arguments, 0);
                     String data = arguments.at(1).display();
                     Files.io(span, () -> java.nio.file.Files.writeString(path, data,
                             StandardCharsets.UTF_8, StandardOpenOption.CREATE,
                             StandardOpenOption.APPEND));
                     return arguments.get(0);
-                }));
+                })
 
-        scope.define("exists", one("exists", (path, span) ->
-                BoolValue.of(java.nio.file.Files.exists(path))));
+                .function("exists", Arity.exactly(1), path((path, span) ->
+                        BoolValue.of(java.nio.file.Files.exists(path))))
 
-        scope.define("isDir", one("isDir", (path, span) ->
-                BoolValue.of(java.nio.file.Files.isDirectory(path))));
+                .function("isDir", Arity.exactly(1), path((path, span) ->
+                        BoolValue.of(java.nio.file.Files.isDirectory(path))))
 
-        scope.define("size", one("size", (path, span) ->
-                IntValue.of(Files.io(span, () -> java.nio.file.Files.size(path)))));
+                .function("size", Arity.exactly(1), path((path, span) ->
+                        IntValue.of(Files.io(span, () -> java.nio.file.Files.size(path)))))
 
-        // Удаление отвечает, было ли что удалять: 'io.remove(p)' на несуществующем
-        // файле — обычное дело, а не ошибка.
-        scope.define("remove", one("remove", (path, span) ->
-                BoolValue.of(Files.io(span, () -> java.nio.file.Files.deleteIfExists(path)))));
+                // Удаление отвечает, было ли что удалять: 'io.remove(p)' на несуществующем
+                // файле — обычное дело, а не ошибка.
+                .function("remove", Arity.exactly(1), path((path, span) ->
+                        BoolValue.of(Files.io(span, () -> java.nio.file.Files.deleteIfExists(path)))))
 
-        scope.define("mkdirs", one("mkdirs", (path, span) -> {
-            Files.io(span, () -> java.nio.file.Files.createDirectories(path));
-            return StringValue.of(path.toString());
-        }));
+                .function("mkdirs", Arity.exactly(1), path((path, span) -> {
+                    Files.io(span, () -> java.nio.file.Files.createDirectories(path));
+                    return StringValue.of(path.toString());
+                }))
 
-        // Имена, а не пути: каталог известен вызывающему, а склеить путь он умеет.
-        scope.define("list", one("list", (path, span) -> {
-            List<Value> names = Files.io(span, () -> {
-                try (Stream<Path> entries = java.nio.file.Files.list(path)) {
-                    List<Value> collected = new ArrayList<>();
-                    entries.sorted().forEach(entry ->
-                            collected.add(StringValue.of(entry.getFileName().toString())));
-                    return collected;
-                }
-            });
-            return ArrayValue.of(names);
-        }));
+                // Имена, а не пути: каталог известен вызывающему, а склеить путь он умеет.
+                .function("list", Arity.exactly(1), path((path, span) -> {
+                    List<Value> names = Files.io(span, () -> {
+                        try (Stream<Path> entries = java.nio.file.Files.list(path)) {
+                            List<Value> collected = new ArrayList<>();
+                            entries.sorted().forEach(entry ->
+                                    collected.add(StringValue.of(entry.getFileName().toString())));
+                            return collected;
+                        }
+                    });
+                    return ArrayValue.of(names);
+                }))
 
-        scope.define("absolute", one("absolute", (path, span) ->
-                StringValue.of(path.toAbsolutePath().normalize().toString())));
+                .function("absolute", Arity.exactly(1), path((path, span) ->
+                        StringValue.of(path.toAbsolutePath().normalize().toString())))
 
-        return scope;
+                .build();
     }
 
-    /** Функция от одного пути — таких здесь большинство. */
-    private static BuiltinFunction one(String name, PathFunction body) {
-        return BuiltinFunction.of(name, Arity.exactly(1), (context, arguments, span) ->
-                body.apply(Files.pathOf(arguments, 0), span));
+    /** Тело функции от одного пути — таких здесь большинство. */
+    private static BuiltinFunction.Body path(PathFunction body) {
+        return (context, arguments, span) -> body.apply(Files.pathOf(arguments, 0), span);
     }
 
     @FunctionalInterface

@@ -2,7 +2,7 @@ package ru.wds.wdl.api;
 
 import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.diagnostic.Diagnostics;
-import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.module.Library;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.metrics.Measure;

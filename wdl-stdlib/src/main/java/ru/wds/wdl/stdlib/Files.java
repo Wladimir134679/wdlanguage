@@ -1,9 +1,8 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.Args;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.Args;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.NativeInstance;
 import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
@@ -40,19 +39,15 @@ import java.util.List;
  * <p>
  * Класс собирается на запуск, а не лежит статическим полем: поля самого класса
  * изменяемы, и {@code File.mark = 1} из одного скрипта не должно доставаться
- * следующему. Один на запуск он при этом остаётся — см. {@link Types#in}.
+ * следующему. Один на запуск он при этом остаётся — см. {@link ru.wds.wdl.bridge.Module}.
  */
 final class Files {
 
     private Files() {
     }
 
-    /** Класс {@code File} этого запуска: тот, что уже в области, или новый. */
-    static NativeClass in(Environment scope) {
-        return Types.in(scope, "File", NativeClass.class, Files::build);
-    }
-
-    private static NativeClass build() {
+    /** Класс {@code File}: собирается на запуск, ставится модулем. */
+    static NativeClass build() {
         return NativeClass.named("File")
             .field("path")
 

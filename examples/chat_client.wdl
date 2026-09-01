@@ -20,9 +20,9 @@ chatArea = new gui.TextArea("", 15, 35)
 
 bottomPanel = gui.hbox()
 inputMsg = new gui.TextField("")
-inputMsg.setEnabled(false)
+inputMsg.enabled = false
 btnSend = new gui.Button("Send")
-btnSend.setEnabled(false)
+btnSend.enabled = false
 
 bottomPanel.add(inputMsg)
 bottomPanel.add(btnSend)
@@ -30,7 +30,7 @@ bottomPanel.add(btnSend)
 socket = null
 
 def connect() {
-    nick = inputNick.getText()
+    nick = inputNick.text
     println("[CLIENT LOG] Connect clicked with nickname: ", nick)
     if (nick == "") {
         gui.alert("Please enter a nickname!", "Error")
@@ -42,10 +42,10 @@ def connect() {
         socket = new net.Socket("127.0.0.1", 9088)
         println("[CLIENT LOG] Connected! Socket: ", socket)
         chatArea.append("System: Connected to server on port 9088\n")
-        btnConnect.setEnabled(false)
-        inputNick.setEnabled(false)
-        inputMsg.setEnabled(true)
-        btnSend.setEnabled(true)
+        btnConnect.enabled = false
+        inputNick.enabled = false
+        inputMsg.enabled = true
+        btnSend.enabled = true
 
         socket.onLine(def (line) {
             println("[CLIENT LOG] Received message from server: ", line)
@@ -63,13 +63,13 @@ def connect() {
 }
 
 def sendMessage() {
-    text = inputMsg.getText()
-    nick = inputNick.getText()
+    text = inputMsg.text
+    nick = inputNick.text
     println("[CLIENT LOG] sendMessage called. text=", text, " nick=", nick, " socket=", socket)
     if (text != "" && socket != null) {
         socket.send("[" + nick + "]: " + text)
         println("[CLIENT LOG] Message sent over socket: [", nick, "]: ", text)
-        inputMsg.setText("")
+        inputMsg.text = ""
     } else {
         println("[CLIENT WARNING] sendMessage skipped. text empty or socket null.")
     }

@@ -1,13 +1,11 @@
 package ru.wds.wdl.stdlib.net;
 
-import ru.wds.wdl.embed.Callback;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.Callback;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.NativeInstance;
 import ru.wds.wdl.runtime.WdlError;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
-import ru.wds.wdl.stdlib.Types;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.Value;
@@ -31,10 +29,6 @@ public final class NativeSocket {
     private NativeSocket() {
     }
 
-    public static NativeClass in(Environment scope) {
-        return Types.in(scope, "Socket", NativeClass.class, NativeSocket::build);
-    }
-
     public static Value wrap(NativeClass socketClass, Socket socket) throws IOException {
         BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         PrintWriter writer = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8), true);
@@ -45,7 +39,7 @@ public final class NativeSocket {
         return instance;
     }
 
-    private static NativeClass build() {
+    static NativeClass build() {
         return NativeClass.named("Socket")
                 .field("host", StringValue.of("127.0.0.1"))
                 .field("port", IntValue.of(9088))

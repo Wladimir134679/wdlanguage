@@ -1,5 +1,10 @@
 package ru.wds.wdl.value;
 
+import ru.wds.wdl.value.types.BoolValue;
+import ru.wds.wdl.value.types.FloatValue;
+import ru.wds.wdl.value.types.IntValue;
+import ru.wds.wdl.value.types.StringValue;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -75,6 +80,32 @@ public final class Signature {
         /** Необязательный с готовым значением: пропуск заполнит связыватель. */
         public static Param optional(String name, Value constant) {
             return new Param(name, Kind.CONSTANT, Objects.requireNonNull(constant, "constant"));
+        }
+
+        /**
+         * То же, но значение по умолчанию пишется литералом: {@code optional("rows", 10)}.
+         * <p>
+         * Заведены ради заголовков, которые объявляет приложение: там дефолты — почти
+         * всегда литералы, и {@code IntValue.of(10)} вокруг каждого делает список
+         * параметров нечитаемым, ничего к нему не добавляя.
+         */
+        public static Param optional(String name, String constant) {
+            return optional(name, StringValue.of(constant));
+        }
+
+        /** Целый литерал: см. {@link #optional(String, String)}. */
+        public static Param optional(String name, long constant) {
+            return optional(name, IntValue.of(constant));
+        }
+
+        /** Дробный литерал: см. {@link #optional(String, String)}. */
+        public static Param optional(String name, double constant) {
+            return optional(name, FloatValue.of(constant));
+        }
+
+        /** Логический литерал: см. {@link #optional(String, String)}. */
+        public static Param optional(String name, boolean constant) {
+            return optional(name, BoolValue.of(constant));
         }
 
         /** Необязательный с отложенным значением: пропуск заполнит сам вызываемый. */

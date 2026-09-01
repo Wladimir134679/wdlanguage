@@ -12,5 +12,5 @@ dependencies {
 
     // Мост: библиотеки над чужими типами (sys.time) и над своими обычными
     // Java-классами (Random) описываются схемой, а не построителем лямбд.
-    api(project(":wdl-interop"))
+    api(project(":wdl-bridge"))
 }

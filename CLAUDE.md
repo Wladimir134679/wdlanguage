@@ -65,9 +65,9 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 
 | Модуль | Содержимое | Зависит от |
 |---|---|---|
-| `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source`, `metrics` | ничего |
-| `wdl-interop` | `interop`: мост в Java рефлексией — `JavaBridge`, `JavaSchema`, `JavaPolicy`, `Marshal` | core |
-| `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, `sys.time`, реестр `Sys` | core, interop |
+| `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source`, `metrics`, `module` | ничего |
+| `wdl-bridge` | всё для встраивания: `bridge` (`Module`, `NativeClass`, `NativeTrait`, `NativeInstance`, `MemberSource`) и `bridge.reflect` (мост рефлексией: `JavaBridge`, `FromJava`, `Marshal`, `JavaPolicy`) | core |
+| `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, `sys.time`, реестр `Sys` | core, bridge |
 | `wdl-api` | фасад для встраивания `WdlEngine` (пока заготовка) | core, stdlib |
 | `wdl-tools` | `AstDumper`, `TokenDumper`, позже линтер/форматтер/LSP | core |
 | `wdl-cli` | picocli-точка входа, REPL | api, tools |
@@ -152,11 +152,6 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   собираются сами. Граница свойства и метода — «устареет ли ответ», а не цена:
   см. `value/Member` и `docs/members.md`. Новый член **не** сопровождается новой
   встроенной функцией.
-* **Встроенный модуль** (`import sys.что-то`): класс с `implements Library` в `wdl-stdlib`,
-  фабрика `library()`, строка в `Sys.registry()`. Если модуль оборачивает чужие типы —
-  он состоит из списка `expose` и ничего больше (`Times` = `sys.time`, семь строк
-  на весь `java.time`); если свои — из построителей. Имена кладутся теми же `define`,
-  что и в корень; живое, если оно есть, отпускается в `close()`. Ключ — имя, а не путь.
 * **Новая стадия для метрик**: элемент в `metrics/Stage` с русским `title()` → охват
   `Measure` **в том месте, которое стадию запускает** (внутрь самой стадии приёмник
   не протаскивается — исключение только `ModuleUnits`, куда снаружи не дотянуться) →
@@ -164,18 +159,44 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   Приёмник берётся из `context.metrics()` либо приходит аргументом; закрывается замер
   из `finally`, а не `try`-с-ресурсами (`-Xlint:all` считает такой `try` забытым
   ресурсом). См. `docs/metrics.md`.
+* **Встроенный модуль** (`import sys.что-то`): `Module.named("sys/что-то")` в `wdl-stdlib`,
+  фабрика `library()`, строка в `Sys.registry()`. Ключ — имя, а не путь. Слова
+  построителя: `.type` (класс, **один на запуск**: тот же объект, если он уже стоит
+  в области), `.trait`, `.function`, `.constant`, `.members`, `.onClose`, а всё,
+  что в фасад не укладывается, — `.install` куском кода (`sys.gui` замыкает фабрики
+  на собранные классы и берёт их обратно через `Module.typeIn`). Модуль над чужими
+  типами — это список `expose` и ничего больше (`Times` = `sys.time`, семь строк
+  на весь `java.time`). Имена кладутся теми же `define`, что и в корень; живое
+  отпускается в `onClose`. `Library` остался интерфейсом из трёх методов в `module`:
+  ядро грузит по нему, построитель живёт в `wdl-bridge`.
 * **Пробросить чужой Java-класс**: `JavaBridge.open().expose(Type.class, "Имя").build()`
   и `installTo(scope)`; готовый объект — `bridge.wrap(object)`. Что видно, задаёт
-  `JavaSchema` (`method`, `bean`, `readOnly`, `noConstructors`, `factory`), что
-  запрещено навсегда — `JavaPolicy.forbidden`. Ни ядро, ни `ValueType` при этом
-  не трогаются: `JavaClass` — ещё одна реализация `ClassValue`, обёртка —
-  `NativeInstance` со `state()`. Java-поле открывается **свойством**, метод без
-  аргументов остаётся методом, перегрузка выбирается по стоимости приведения
-  (`Marshal.cost`), ничья — отказ. См. `docs/java-interop.md`.
-* **Класс от приложения**: построитель `embed/NativeClass` — поля заголовка, методы,
+  `FromJava` (`method`, `bean`, `readOnly`, `noConstructors`, `factory`, `all`),
+  что запрещено навсегда — `JavaPolicy.forbidden`. Ни ядро, ни `ValueType` при этом
+  не трогаются, и **отдельного вида класса тоже нет**: открытый мостом тип — тот же
+  `NativeClass`, только собранный из `FromJava.asClass()`, а обёртка — `NativeInstance`
+  со `state()`. Java-поле открывается **свойством**, метод без аргументов остаётся
+  методом, перегрузка выбирается по стоимости приведения (`Marshal.cost`), ничья —
+  отказ. См. `docs/java-interop.md`.
+* **Класс от приложения**: построитель `bridge/NativeClass` — поля заголовка, методы,
   фабрики, константы; состояние, не выразимое значением, — в `NativeInstance.state()`.
   Для интерпретатора это тот же `ClassValue`, что и класс на wdl. См. `docs/embedding.md`
   и `wdl-stdlib/.../Std.java` как пример.
+* **Своя обёртка над чужим типом** (смесь построителя и моста в одном объявлении):
+  `.backing(JButton.class).members(FromJava.of(JButton.class).bean("text").method("doClick"))`
+  — члены берутся у Java-типа, лежащего в `NativeInstance.state()`, а конструктор
+  и обработчики остаются лямбдами. Что живёт в чужом объекте, объявляется параметром
+  (аргумент создания **без** поля) плюс `bean` — иначе снимок при создании устареет,
+  а запись в поле не дойдёт до объекта. **Дефолт параметра пишется один раз**, в
+  заголовке: `instantiate` дополняет им короткий список до входа в `init`. Сам список
+  объявляется рядом с телом цепочкой `Params` — `.init(Params.of().optional("text", "")
+  .optional("rows", 10), тело)`, тем же словарём, каким `FromJava` перечисляет члены,
+  и дефолтом-литералом, — либо по одному `.param(имя, значение)`.
+  `.backing(...)` объявляет тип состояния, и по нему `FromJava` сверяется при сборке;
+  когда в состоянии лежит обёртка над нужным объектом (`TextArea` держит `JScrollPane`),
+  объект достаёт `.via(...)`. Промах по имени — исключение при сборке класса.
+  **Свойство и одноимённый `setX`/`getX` вместе не открываются**: одно имя — один член.
+  Примеры — `stdlib/gui/NativeButton.java`, `NativeCheckBox.java`, `NativeTextArea.java`.
 
 ## Тесты
 

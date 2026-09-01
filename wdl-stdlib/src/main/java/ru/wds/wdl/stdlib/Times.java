@@ -1,9 +1,8 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.Library;
-import ru.wds.wdl.interop.JavaBridge;
-import ru.wds.wdl.interop.JavaSchema;
-import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.bridge.reflect.JavaBridge;
+import ru.wds.wdl.module.Library;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -12,7 +11,6 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.Period;
 import java.time.format.DateTimeFormatter;
-import java.util.Objects;
 
 /**
  * Модуль {@code sys.time}: дата, время и промежутки — прямо из {@code java.time}.
@@ -49,27 +47,18 @@ public final class Times {
     private Times() {
     }
 
-    /** Библиотека модуля: собирается на запуск, как и все остальные. */
+    /**
+     * Библиотека модуля: собирается на запуск, как и все остальные.
+     * <p>
+     * Мост сам умеет класть свои имена в область, поэтому весь модуль — это он
+     * и его закрытие: описывать типы построителем незачем, они уже описаны в JDK.
+     */
     public static Library library() {
-        return new Library() {
-
-            private final JavaBridge bridge = bridge();
-
-            @Override
-            public String name() {
-                return "sys/time";
-            }
-
-            @Override
-            public Environment installTo(Environment scope) {
-                return bridge.installTo(Objects.requireNonNull(scope, "scope"));
-            }
-
-            @Override
-            public void close() {
-                bridge.close();
-            }
-        };
+        JavaBridge bridge = bridge();
+        return Module.named("sys/time")
+                .install(bridge::installTo)
+                .onClose(bridge::close)
+                .build();
     }
 
     /**

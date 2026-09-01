@@ -1,10 +1,9 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.Args;
-import ru.wds.wdl.embed.Library;
-import ru.wds.wdl.embed.NativeTrait;
-import ru.wds.wdl.runtime.BuiltinFunction;
-import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.Args;
+import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.bridge.NativeTrait;
+import ru.wds.wdl.module.Library;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
@@ -13,7 +12,6 @@ import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.StringValue;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Модуль {@code sys.json}: JSON в значения языка и обратно.
@@ -43,7 +41,7 @@ import java.util.Objects;
  * Требование одно — {@code def toJson()}, — и проверяется оно на строке
  * {@code class}, как у любого трейта.
  */
-public final class Json implements Library {
+public final class Json {
 
     /** Предел отступа: {@code stringify(value, 100)} — почти наверняка опечатка. */
     private static final int MAX_INDENT = 10;
@@ -62,32 +60,25 @@ public final class Json implements Library {
 
     /** Фабрика для реестра встроенных модулей. */
     public static Library library() {
-        return new Json();
+        return new Json().module();
     }
 
-    @Override
-    public String name() {
-        return "sys/json";
-    }
-
-    @Override
-    public Environment installTo(Environment scope) {
-        Objects.requireNonNull(scope, "scope");
-
-        serializable = NativeTrait.named("Serializable")
-                .requireMethod(TO_JSON, Arity.exactly(0))
+    /** Модуль этого запуска: трейт и две функции. */
+    private Library module() {
+        return Module.named("sys/json")
+                .trait("Serializable", scope -> {
+                    serializable = NativeTrait.named("Serializable")
+                            .requireMethod(TO_JSON, Arity.exactly(0))
+                            .build();
+                    return serializable;
+                })
+                .function("parse", Arity.exactly(1),
+                        (context, arguments, span) ->
+                                JsonReader.read(arguments.string(0, "текст"), span))
+                .function("stringify", Arity.between(1, 2),
+                        (context, arguments, span) -> StringValue.of(JsonWriter.write(arguments.at(0),
+                                indent(arguments), span, value -> toData(value, context, span))))
                 .build();
-        scope.define(serializable.name(), serializable);
-
-        scope.define("parse", BuiltinFunction.of("parse", Arity.exactly(1),
-                (context, arguments, span) ->
-                        JsonReader.read(arguments.string(0, "текст"), span)));
-
-        scope.define("stringify", BuiltinFunction.of("stringify", Arity.between(1, 2),
-                (context, arguments, span) -> StringValue.of(JsonWriter.write(arguments.at(0),
-                        indent(arguments), span, value -> toData(value, context, span)))));
-
-        return scope;
     }
 
     /**

@@ -1,12 +1,9 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.Library;
-import ru.wds.wdl.runtime.BuiltinFunction;
-import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.module.Library;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.DecoratorMeta;
-
-import java.util.Objects;
 
 /**
  * Модуль {@code sys.meta}: собрать метаданные декоратора руками.
@@ -40,28 +37,16 @@ import java.util.Objects;
  * в которой {@code name} равно {@code null}. Запрещать — значит завести проверку,
  * которой при настоящем декорировании не бывает.
  */
-public final class Meta implements Library {
+public final class Meta {
 
     private Meta() {
     }
 
     /** Фабрика для реестра встроенных модулей. */
     public static Library library() {
-        return new Meta();
-    }
-
-    @Override
-    public String name() {
-        return "sys/meta";
-    }
-
-    @Override
-    public Environment installTo(Environment scope) {
-        Objects.requireNonNull(scope, "scope");
-
-        scope.define("of", BuiltinFunction.of("of", Arity.exactly(1),
-                (context, arguments, span) -> DecoratorMeta.of(arguments.at(0))));
-
-        return scope;
+        return Module.named("sys/meta")
+                .function("of", Arity.exactly(1),
+                        (context, arguments, span) -> DecoratorMeta.of(arguments.at(0)))
+                .build();
     }
 }

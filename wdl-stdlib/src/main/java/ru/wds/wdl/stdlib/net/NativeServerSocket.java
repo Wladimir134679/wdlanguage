@@ -1,13 +1,11 @@
 package ru.wds.wdl.stdlib.net;
 
-import ru.wds.wdl.embed.Callback;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.Callback;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.NativeInstance;
 import ru.wds.wdl.runtime.WdlError;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
-import ru.wds.wdl.stdlib.Types;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.types.IntValue;
@@ -37,11 +35,7 @@ public final class NativeServerSocket {
     private NativeServerSocket() {
     }
 
-    public static NativeClass in(Environment scope, NativeClass socketClass) {
-        return Types.in(scope, "Server", NativeClass.class, () -> build(socketClass));
-    }
-
-    private static NativeClass build(NativeClass socketClass) {
+    static NativeClass build(NativeClass socketClass) {
         return NativeClass.named("Server")
                 .field("port", IntValue.of(9088))
 

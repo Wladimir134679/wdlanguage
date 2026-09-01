@@ -2,6 +2,7 @@ package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.module.Unit;
+import ru.wds.wdl.resolve.DeclaredTrait;
 import ru.wds.wdl.resolve.MethodSlot;
 import ru.wds.wdl.resolve.PropertySlot;
 import ru.wds.wdl.resolve.ScriptTraitShape;
@@ -25,7 +26,7 @@ import java.util.Objects;
  * Экземпляр трейтом не создаётся: {@code new Counted()} — ошибка. Трейт описывает,
  * чего не хватает классу, а не самостоятельную вещь.
  */
-final class WdlTrait implements TraitValue {
+final class WdlTrait implements DeclaredTrait {
 
     private final ScriptTraitShape shape;
     private final Environment closure;
@@ -57,7 +58,8 @@ final class WdlTrait implements TraitValue {
         return properties;
     }
 
-    ScriptTraitShape shape() {
+    @Override
+    public ScriptTraitShape shape() {
         return shape;
     }
 

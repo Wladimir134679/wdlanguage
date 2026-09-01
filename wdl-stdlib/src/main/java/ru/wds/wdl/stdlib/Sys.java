@@ -1,6 +1,6 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.module.Library;
 import ru.wds.wdl.module.NativeModules;
 
 import java.util.LinkedHashMap;

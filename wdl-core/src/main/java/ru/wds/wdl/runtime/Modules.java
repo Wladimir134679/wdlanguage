@@ -1,6 +1,6 @@
 package ru.wds.wdl.runtime;
 
-import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.module.Library;
 import ru.wds.wdl.module.ModuleKey;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;

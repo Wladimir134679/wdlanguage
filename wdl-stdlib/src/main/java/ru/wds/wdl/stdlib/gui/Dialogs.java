@@ -1,6 +1,6 @@
 package ru.wds.wdl.stdlib.gui;
 
-import ru.wds.wdl.embed.Callback;
+import ru.wds.wdl.runtime.Callback;
 import ru.wds.wdl.runtime.FatalError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.CallContext;

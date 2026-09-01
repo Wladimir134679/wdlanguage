@@ -1,6 +1,6 @@
 package ru.wds.wdl.stdlib.thread;
 
-import ru.wds.wdl.embed.NativeInstance;
+import ru.wds.wdl.bridge.NativeInstance;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.BoolValue;

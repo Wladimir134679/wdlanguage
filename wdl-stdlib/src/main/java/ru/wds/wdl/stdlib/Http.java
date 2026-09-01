@@ -1,10 +1,9 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.Args;
-import ru.wds.wdl.embed.Library;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.runtime.BuiltinFunction;
-import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.Args;
+import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.module.Library;
+import ru.wds.wdl.bridge.NativeClass;
 import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
@@ -29,7 +28,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Модуль {@code sys.net.http}: запросы по HTTP.
@@ -62,12 +60,12 @@ import java.util.Objects;
  * <b>Клиент один на модуль и создаётся при первом запросе.</b> Соединения тогда
  * переиспользуются между запросами скрипта, а импорт, за которым запроса не последовало,
  * не стоит ни потока, ни сокета. Закрывается клиент вместе с запуском —
- * {@link #close()}.
+ * {@link #closeClient()}, которое модуль вешает на закрытие запуска.
  * <p>
  * Тело — строка в UTF-8: этого хватает JSON, формам и тексту. Двоичные данные
  * потребуют своего типа значений, и заводить его до появления задачи незачем.
  */
-public final class Http implements Library {
+public final class Http {
 
     /** Сколько ждать ответа, если скрипт не сказал иного. */
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
@@ -105,47 +103,35 @@ public final class Http implements Library {
 
     /** Фабрика для реестра встроенных модулей. */
     public static Library library() {
-        return new Http();
+        return new Http().module();
     }
 
-    @Override
-    public String name() {
-        return "sys/net/http";
-    }
-
-    @Override
-    public Environment installTo(Environment scope) {
-        Objects.requireNonNull(scope, "scope");
-
-        responseClass = responseClass();
-        scope.define(responseClass.name(), responseClass);
-
-        scope.define("get", BuiltinFunction.of("get", Arity.between(1, 2),
-                (context, arguments, span) -> send("GET", url(arguments), null,
-                        options(arguments, 1), context, span)));
-
-        scope.define("post", BuiltinFunction.of("post", Arity.between(2, 3),
-                (context, arguments, span) -> send("POST", url(arguments), arguments.at(1),
-                        options(arguments, 2), context, span)));
-
-        scope.define("put", BuiltinFunction.of("put", Arity.between(2, 3),
-                (context, arguments, span) -> send("PUT", url(arguments), arguments.at(1),
-                        options(arguments, 2), context, span)));
-
-        scope.define("delete", BuiltinFunction.of("delete", Arity.between(1, 2),
-                (context, arguments, span) -> send("DELETE", url(arguments), null,
-                        options(arguments, 1), context, span)));
-
-        // Общая форма: метод и тело приходят опциями. Всё остальное — сокращения к ней.
-        scope.define("request", BuiltinFunction.of("request", Arity.between(1, 2),
-                (context, arguments, span) -> {
-                    MapValue options = options(arguments, 1);
-                    String method = text(options, "method", "GET", span).toUpperCase(Locale.ROOT);
-                    Value body = options.has("body") ? options.get("body") : null;
-                    return send(method, url(arguments), body, options, context, span);
-                }));
-
-        return scope;
+    /** Модуль этого запуска: класс ответа, пять функций и клиент, который надо закрыть. */
+    private Library module() {
+        return Module.named("sys/net/http")
+                .type("Response", scope -> responseClass = responseClass())
+                .function("get", Arity.between(1, 2),
+                        (context, arguments, span) -> send("GET", url(arguments), null,
+                                options(arguments, 1), context, span))
+                .function("post", Arity.between(2, 3),
+                        (context, arguments, span) -> send("POST", url(arguments), arguments.at(1),
+                                options(arguments, 2), context, span))
+                .function("put", Arity.between(2, 3),
+                        (context, arguments, span) -> send("PUT", url(arguments), arguments.at(1),
+                                options(arguments, 2), context, span))
+                .function("delete", Arity.between(1, 2),
+                        (context, arguments, span) -> send("DELETE", url(arguments), null,
+                                options(arguments, 1), context, span))
+                // Общая форма: метод и тело приходят опциями. Всё остальное — сокращения к ней.
+                .function("request", Arity.between(1, 2),
+                        (context, arguments, span) -> {
+                            MapValue options = options(arguments, 1);
+                            String method = text(options, "method", "GET", span).toUpperCase(Locale.ROOT);
+                            Value body = options.has("body") ? options.get("body") : null;
+                            return send(method, url(arguments), body, options, context, span);
+                        })
+                .onClose(this::closeClient)
+                .build();
     }
 
     /**
@@ -154,8 +140,7 @@ public final class Http implements Library {
      * Без этого встроенный в приложение движок оставлял бы после каждого скрипта
      * живой пул потоков — незаметно и до тех пор, пока их не станет слишком много.
      */
-    @Override
-    public void close() {
+    private void closeClient() {
         if (client != null) {
             client.close();
             client = null;

@@ -1,9 +1,7 @@
 package ru.wds.wdl.stdlib.gui;
 
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.Environment;
-import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.NativeInstance;
 import ru.wds.wdl.value.Value;
 
 import java.awt.BorderLayout;
@@ -19,7 +17,7 @@ public final class Layouts {
     private Layouts() {
     }
 
-    public static NativeClass layoutClass(Environment scope) {
+    static NativeClass layoutClass() {
         return NativeClass.named("Layout")
                 .build();
     }

@@ -38,7 +38,7 @@ class GuiTest {
                 win.add(lbl)
                 win.add(btn)
 
-                btn.setText("Clicked")
+                btn.text = "Clicked"
                 println("Title: ", win.title, " Text: ", btn.text)
                 """));
     }
@@ -54,7 +54,7 @@ class GuiTest {
                 box = new gui.CheckBox("Check", true)
                 combo = new gui.ComboBox(["Option 1", "Option 2"])
 
-                println("TextField: ", field.getText(), " CheckBox: ", box.isChecked(), " ComboBox: ", combo.getSelectedItem())
+                println("TextField: ", field.text, " CheckBox: ", box.checked, " ComboBox: ", combo.getSelectedItem())
                 """));
     }
 

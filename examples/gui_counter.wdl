@@ -15,14 +15,14 @@ count = 0
 
 btnInc.onClick(handler: def () {
     count += 1
-    lbl.setText(text: "Значение: " + count)
+    lbl.text = "Значение: " + count
 })
 
 btnReset.onClick(handler: def () {
     // title можно задать, не повторяя остальных: пропуск в середине допустим
     if (gui.confirm("Сбросить счётчик?", title: "Сброс")) {
         count = 0
-        lbl.setText(text: "Значение: 0")
+        lbl.text = "Значение: 0"
         gui.alert("Счётчик сброшен", title: "Уведомление")
     }
 })

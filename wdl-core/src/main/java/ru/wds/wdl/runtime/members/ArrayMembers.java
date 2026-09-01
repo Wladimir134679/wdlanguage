@@ -1,6 +1,6 @@
 package ru.wds.wdl.runtime.members;
 
-import ru.wds.wdl.embed.Args;
+import ru.wds.wdl.runtime.Args;
 import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.Operations;
 import ru.wds.wdl.runtime.WdlRuntimeError;

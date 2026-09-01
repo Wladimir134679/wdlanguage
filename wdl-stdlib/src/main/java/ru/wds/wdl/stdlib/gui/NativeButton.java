@@ -1,73 +1,56 @@
 package ru.wds.wdl.stdlib.gui;
 
-import ru.wds.wdl.embed.Callback;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.Environment;
-import ru.wds.wdl.stdlib.Types;
-import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.Params;
+import ru.wds.wdl.bridge.reflect.FromJava;
+import ru.wds.wdl.runtime.Callback;
 import ru.wds.wdl.value.Signature;
-import ru.wds.wdl.value.types.BoolValue;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.types.NullValue;
-import ru.wds.wdl.value.types.StringValue;
 
 import javax.swing.JButton;
 
 /**
  * Нативный класс {@code Button}: кнопка Swing (JButton).
+ * <p>
+ * Своего здесь ровно два: создание кнопки и {@code onClick} — обработчик, которого
+ * у {@code JButton} нет и быть не может, потому что зовёт он функцию скрипта.
+ * Всё остальное уже написано в Swing и берётся оттуда ({@link FromJava}).
+ * <p>
+ * {@code text} и {@code enabled} — <b>свойства</b>, а не поля: значение живёт
+ * в {@code JButton}, и полем оно устаревало бы к следующему обращению, а запись
+ * в поле ({@code b.text = "..."}) не доходила бы до кнопки. Аргументами создания
+ * они при этом остаются — {@code new Button("+1")} работает как раньше.
  */
 public final class NativeButton {
 
     private NativeButton() {
     }
 
-    public static NativeClass in(Environment scope) {
-        return Types.in(scope, "Button", NativeClass.class, NativeButton::build);
-    }
-
-    private static NativeClass build() {
+    static NativeClass build() {
         return NativeClass.named("Button")
-                .field("text", StringValue.of(""))
-                .field("enabled", BoolValue.TRUE)
+                .backing(JButton.class)
+                .init(Params.of()
+                        .optional("text", "")
+                        .optional("enabled", true),
+                        (self, context, args, span) -> {
+                            JButton button = new JButton(args.string(0, "текст"));
+                            button.setEnabled(args.at(1).isTruthy());
+                            self.state(button);
+                            return NullValue.NULL;
+                        })
 
-                .init((self, context, args, span) -> {
-                    String text = self.get("text").display();
-                    boolean enabled = self.get("enabled").isTruthy();
+                .members(FromJava.of(JButton.class)
+                        .bean("text")
+                        .bean("enabled")
+                        .method("doClick"))
 
-                    JButton button = new JButton(text);
-                    button.setEnabled(enabled);
-
-                    self.state(button);
-                    return NullValue.NULL;
-                })
-
-                .method("onClick", Signature.of(Signature.Param.required("handler")), (self, context, args, span) -> {
+                .method("onClick", Signature.of(Param.required("handler")), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    button(self).addActionListener(GuiEvents.toActionListener(callback, context));
-                    return NullValue.NULL;
-                })
-
-                .method("setText", Signature.of(Signature.Param.required("text")), (self, context, args, span) -> {
-                    String text = args.string(0, "текст");
-                    button(self).setText(text);
-                    self.put("text", StringValue.of(text));
-                    return NullValue.NULL;
-                })
-
-                .method("getText", Arity.exactly(0), (self, context, args, span) ->
-                        StringValue.of(button(self).getText()))
-
-                .method("setEnabled", Signature.of(Signature.Param.required("enabled")), (self, context, args, span) -> {
-                    boolean enabled = args.at(0).isTruthy();
-                    button(self).setEnabled(enabled);
-                    self.put("enabled", BoolValue.of(enabled));
+                    self.state(JButton.class).addActionListener(GuiEvents.toActionListener(callback, context));
                     return NullValue.NULL;
                 })
 
                 .build();
-    }
-
-    private static JButton button(NativeInstance self) {
-        return self.state(JButton.class);
     }
 }

@@ -1,16 +1,14 @@
 package ru.wds.wdl.stdlib.gui;
 
-import ru.wds.wdl.embed.Callback;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.Environment;
-import ru.wds.wdl.stdlib.Types;
+import ru.wds.wdl.runtime.Callback;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.NativeInstance;
+import ru.wds.wdl.bridge.Params;
+import ru.wds.wdl.bridge.reflect.FromJava;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.Signature;
-import ru.wds.wdl.value.Value;
-import ru.wds.wdl.value.types.IntValue;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.types.NullValue;
-import ru.wds.wdl.value.types.StringValue;
 
 import javax.swing.JFrame;
 import javax.swing.WindowConstants;
@@ -25,29 +23,35 @@ public final class NativeWindow {
     private NativeWindow() {
     }
 
-    public static NativeClass in(Environment scope, WindowTracker tracker) {
-        return Types.in(scope, "Window", NativeClass.class, () -> build(tracker));
-    }
-
-    private static NativeClass build(WindowTracker tracker) {
+    static NativeClass build(WindowTracker tracker) {
         return NativeClass.named("Window")
-                .field("title", StringValue.of("WDL Window"))
-                .field("width", IntValue.of(400))
-                .field("height", IntValue.of(300))
+                .backing(JFrame.class)
+                .init(Params.of()
+                        .optional("title", "WDL Window")
+                        .optional("width", 400)
+                        .optional("height", 300),
+                        (self, context, args, span) -> {
+                            int width = (int) args.integer(1, "ширина");
+                            int height = (int) args.integer(2, "высота");
 
-                .init((self, context, args, span) -> {
-                    String title = self.get("title").display();
-                    int width = (int) args.integer(1, "ширина", 400);
-                    int height = (int) args.integer(2, "высота", 300);
+                            JFrame frame = new JFrame(args.string(0, "заголовок"));
+                            frame.setSize(width, height);
+                            frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+                            frame.setLocationRelativeTo(null);
 
-                    JFrame frame = new JFrame(title);
-                    frame.setSize(width, height);
-                    frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-                    frame.setLocationRelativeTo(null);
+                            self.state(frame);
+                            return NullValue.NULL;
+                        })
 
-                    self.state(frame);
-                    return NullValue.NULL;
-                })
+                // Заголовок и размеры окна — у самого окна: пользователь тянет рамку
+                // мышью, и снимок, сделанный при создании, врал бы уже через секунду.
+                // Ширина и высота только для чтения: у JFrame нет пары к getWidth(),
+                // менять размер положено через setSize(w, h).
+                .members(FromJava.of(JFrame.class)
+                        .bean("title")
+                        .bean("width")
+                        .bean("height")
+                        .method("setSize"))
 
                 .method("show", Arity.exactly(0), (self, context, args, span) -> {
                     JFrame frame = frame(self);
@@ -78,8 +82,8 @@ public final class NativeWindow {
                     return NullValue.NULL;
                 })
 
-                .method("add", Signature.of(Signature.Param.required("component"),
-                        Signature.Param.optional("constraint")), (self, context, args, span) -> {
+                .method("add", Signature.of(Param.required("component"),
+                        Param.optional("constraint")), (self, context, args, span) -> {
                     Component comp = ComponentUtils.extractComponent(args.at(0));
                     if (comp == null) {
                         throw args.bad(0, "компонент", "ожидался UI-компонент");
@@ -95,7 +99,7 @@ public final class NativeWindow {
                     return NullValue.NULL;
                 })
 
-                .method("setLayout", Signature.of(Signature.Param.required("layout")),
+                .method("setLayout", Signature.of(Param.required("layout")),
                         (self, context, args, span) -> {
                     LayoutManager lm = Layouts.extractLayout(args.at(0));
                     if (lm == null) {
@@ -106,30 +110,12 @@ public final class NativeWindow {
                     return NullValue.NULL;
                 })
 
-                .method("setTitle", Signature.of(Signature.Param.required("title")),
-                        (self, context, args, span) -> {
-                    String title = args.string(0, "заголовок");
-                    frame(self).setTitle(title);
-                    self.put("title", StringValue.of(title));
-                    return NullValue.NULL;
-                })
-
-                .method("setSize", Signature.of(Signature.Param.required("width"),
-                        Signature.Param.required("height")), (self, context, args, span) -> {
-                    int w = (int) args.integer(0, "ширина");
-                    int h = (int) args.integer(1, "высота");
-                    frame(self).setSize(w, h);
-                    self.put("width", IntValue.of(w));
-                    self.put("height", IntValue.of(h));
-                    return NullValue.NULL;
-                })
-
                 .method("center", Arity.exactly(0), (self, context, args, span) -> {
                     frame(self).setLocationRelativeTo(null);
                     return NullValue.NULL;
                 })
 
-                .method("onClose", Signature.of(Signature.Param.required("handler")),
+                .method("onClose", Signature.of(Param.required("handler")),
                         (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
                     frame(self).addWindowListener(GuiEvents.toWindowCloseListener(callback, context));

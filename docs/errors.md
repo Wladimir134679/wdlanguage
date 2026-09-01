@@ -764,7 +764,7 @@ try {
 | `runtime/PreludeTypes` | реестр типов прелюдии на запуск (рядом с `Modules` и `Linker`): движок берёт `TypeError` и `Closeable` отсюда, а не поиском имени в области |
 | `runtime/Deferred` | отложенные действия одной области: тело плюс контекст, в котором его записали |
 | `runtime/Interpreter` | `visitThrow`, `visitTry`, `visitDefer`, `visitUse`, `visitTryExpr`; оборачивание чужих `RuntimeException` в `JavaException` в `visitCall` и `visitNew`; выполнение отложенных в `visitBlock`; `onTheWayOut` — одно правило подавления на `finally`, `defer` и `close` |
-| `embed` | `NativeClass.Builder.with(trait)` и проверка требований при сборке класса; `TraitValue.requiredMethods()` — то единственное, что для этой проверки нужно знать о трейте |
+| `bridge` | `NativeClass.Builder.with(trait)` и проверка требований при сборке класса; `TraitValue.requiredMethods()` — то единственное, что для этой проверки нужно знать о трейте |
 | `wdl-stdlib` | `io.open`/`io.create`/`io.appendTo` и классы `io.Reader`, `io.Writer` с `close()`; собираются в `installTo`, потому что обещают трейт запуска |
 | `wdl-cli` | печать вида ошибки и скриптового трейса, флаг `--debug` для Java-стека |
 

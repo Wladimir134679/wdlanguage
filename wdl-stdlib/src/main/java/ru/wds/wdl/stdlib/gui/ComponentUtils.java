@@ -1,6 +1,6 @@
 package ru.wds.wdl.stdlib.gui;
 
-import ru.wds.wdl.embed.NativeInstance;
+import ru.wds.wdl.bridge.NativeInstance;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 

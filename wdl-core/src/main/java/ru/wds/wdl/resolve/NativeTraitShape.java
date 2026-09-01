@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Форма трейта, объявленного приложением ({@code embed.NativeTrait}).
+ * Форма трейта, объявленного приложением ({@code bridge.NativeTrait}).
  * <p>
  * Для {@link Linker} она такая же, как форма трейта на wdl: те же требования, та же
  * таблица полей, та же проверка на строке {@code class}. Отличий два, и оба следуют

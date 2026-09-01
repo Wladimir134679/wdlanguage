@@ -1,9 +1,8 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.interop.JavaBridge;
-import ru.wds.wdl.interop.JavaClass;
-import ru.wds.wdl.interop.JavaSchema;
-import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.bridge.reflect.JavaBridge;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.reflect.FromJava;
 
 /**
  * Класс {@code Random}: генератор случайных чисел, открытый скриптом через мост.
@@ -14,14 +13,14 @@ import ru.wds.wdl.runtime.Environment;
  * <b>какие имена видит скрипт</b>.
  *
  * <h2>Почему схема, а не «всё public»</h2>
- * Открыто ровно четыре имени. {@code JavaSchema.all} открыла бы заодно
+ * Открыто ровно четыре имени. {@code FromJava.all()} открыло бы заодно
  * {@code equals}, {@code hashCode} и {@code toString} — имена, которые в языке
  * ничего не значат и только засоряют {@code Random.methods}. Схема здесь дешевле
  * фильтра: четыре строки против объяснений, почему у генератора есть {@code hashCode}.
  *
  * <h2>Один класс на запуск — как и раньше</h2>
  * Собирается из {@code installTo} и берётся из области, если уже там стоит
- * ({@link Types#in}): {@code std} и будущие модули должны отдавать <b>тот же</b>
+ * ({@link ru.wds.wdl.bridge.Module}): {@code std} и будущие модули должны отдавать <b>тот же</b>
  * класс, иначе {@code r is Random} врал бы. Заодно исчезла старая забота: даже
  * если классов окажется два, {@code is} у моста отвечает по живому Java-типу,
  * а не по ссылке на класс.
@@ -31,22 +30,18 @@ final class Randoms {
     private Randoms() {
     }
 
-    /** Класс {@code Random} этого запуска: тот, что уже в области, или новый. */
-    static JavaClass in(Environment scope) {
-        return Types.in(scope, "Random", JavaClass.class, Randoms::build);
-    }
-
-    private static JavaClass build() {
-        JavaSchema schema = JavaSchema.of(ScriptRandom.class).as("Random")
-                .method("next")
-                // В Java метод не назовёшь 'int' — а в скрипте это лучшее имя.
-                .methodAs("int", "nextInt")
-                .method("pick")
-                // Зерно не меняется после создания, поэтому свойство, а не метод:
-                // ответ зависит только от объекта, каким его создали.
-                .bean("seed")
-                .build();
-
-        return JavaBridge.open().expose(schema).build().classOf(ScriptRandom.class);
+    /** Класс {@code Random}: собирается на запуск, ставится модулем. */
+    static NativeClass build() {
+        return JavaBridge.open()
+                .expose(FromJava.of(ScriptRandom.class).as("Random")
+                        .method("next")
+                        // В Java метод не назовёшь 'int' — а в скрипте это лучшее имя.
+                        .methodAs("int", "nextInt")
+                        .method("pick")
+                        // Зерно не меняется после создания, поэтому свойство, а не метод:
+                        // ответ зависит только от объекта, каким его создали.
+                        .bean("seed"))
+                .build()
+                .classOf(ScriptRandom.class);
     }
 }

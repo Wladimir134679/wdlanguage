@@ -110,7 +110,8 @@ Source → Lexer → List<Token> → Parser → Program (AST) → Interpreter �
 
 | Модуль | Назначение |
 |---|---|
-| `wdl-core` | лексер, парсер, AST, значения, интерпретатор, [API встраивания](embedding.md). Без зависимостей |
+| `wdl-core` | лексер, парсер, AST, значения, интерпретатор. Без зависимостей |
+| `wdl-bridge` | [встраивание](embedding.md): свои классы, модули и [мост в Java](java-interop.md) |
 | `wdl-stdlib` | стандартная библиотека `std`: математика, `File`, `Random` |
 | `wdl-api` | фасад для встраивания: `WdlEngine`, компиляция, биндинг Java |
 | `wdl-tools` | линтер, форматтер, дамп AST, позже LSP |

@@ -12,7 +12,7 @@ dependencyResolutionManagement {
 
 include(
     "wdl-core",
-    "wdl-interop",
+    "wdl-bridge",
     "wdl-stdlib",
     "wdl-api",
     "wdl-cli",

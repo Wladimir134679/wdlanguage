@@ -1,17 +1,13 @@
 package ru.wds.wdl.stdlib.gui;
 
-import ru.wds.wdl.embed.Callback;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.Environment;
-import ru.wds.wdl.stdlib.Types;
-import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.runtime.Callback;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.reflect.FromJava;
 import ru.wds.wdl.value.Signature;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.BoolValue;
-import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
-import ru.wds.wdl.value.types.StringValue;
 
 import javax.swing.JComboBox;
 import java.util.List;
@@ -24,72 +20,42 @@ public final class NativeComboBox {
     private NativeComboBox() {
     }
 
-    public static NativeClass in(Environment scope) {
-        return Types.in(scope, "ComboBox", NativeClass.class, NativeComboBox::build);
-    }
-
-    private static NativeClass build() {
+    static NativeClass build() {
         return NativeClass.named("ComboBox")
+                .backing(JComboBox.class)
                 .field("items", ArrayValue.of(List.of()))
-                .field("enabled", BoolValue.TRUE)
+                .param("enabled", BoolValue.TRUE)
 
                 .init((self, context, args, span) -> {
                     JComboBox<String> comboBox = new JComboBox<>();
-                    if (args.size() > 0 && args.at(0) instanceof ArrayValue items) {
+                    if (args.at(0) instanceof ArrayValue items) {
                         for (int i = 0; i < items.size(); i++) {
                             comboBox.addItem(items.get(i).display());
                         }
                     }
-                    boolean enabled = self.get("enabled").isTruthy();
-                    comboBox.setEnabled(enabled);
-
+                    comboBox.setEnabled(args.at(1).isTruthy());
                     self.state(comboBox);
                     return NullValue.NULL;
                 })
 
-                .method("addItem", Signature.of(Signature.Param.required("item")), (self, context, args, span) -> {
-                    String itemStr = args.at(0).display();
-                    comboBox(self).addItem(itemStr);
-                    return NullValue.NULL;
-                })
+                // Всё, что список умеет сам. Единственное переименование — clear:
+                // 'removeAllItems' это имя из Swing, а в языке то же действие
+                // у массива, строки и карты зовётся 'clear'.
+                .members(FromJava.of(JComboBox.class)
+                        .bean("enabled")
+                        .method("addItem")
+                        .methodAs("clear", "removeAllItems")
+                        .method("getSelectedIndex")
+                        .method("setSelectedIndex")
+                        .method("getSelectedItem"))
 
-                .method("clear", Arity.exactly(0), (self, context, args, span) -> {
-                    comboBox(self).removeAllItems();
-                    return NullValue.NULL;
-                })
-
-                .method("getSelectedIndex", Arity.exactly(0), (self, context, args, span) ->
-                        IntValue.of(comboBox(self).getSelectedIndex()))
-
-                .method("setSelectedIndex", Signature.of(Signature.Param.required("index")), (self, context, args, span) -> {
-                    int index = (int) args.integer(0, "индекс");
-                    comboBox(self).setSelectedIndex(index);
-                    return NullValue.NULL;
-                })
-
-                .method("getSelectedItem", Arity.exactly(0), (self, context, args, span) -> {
-                    Object selected = comboBox(self).getSelectedItem();
-                    return selected != null ? StringValue.of(selected.toString()) : NullValue.NULL;
-                })
-
-                .method("setEnabled", Signature.of(Signature.Param.required("enabled")), (self, context, args, span) -> {
-                    boolean enabled = args.at(0).isTruthy();
-                    comboBox(self).setEnabled(enabled);
-                    self.put("enabled", BoolValue.of(enabled));
-                    return NullValue.NULL;
-                })
-
-                .method("onChange", Signature.of(Signature.Param.required("handler")), (self, context, args, span) -> {
+                .method("onChange", Signature.of(Param.required("handler")), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    comboBox(self).addActionListener(GuiEvents.toActionListener(callback, context));
+                    ((JComboBox<?>) self.state()).addActionListener(
+                            GuiEvents.toActionListener(callback, context));
                     return NullValue.NULL;
                 })
 
                 .build();
-    }
-
-    @SuppressWarnings("unchecked")
-    private static JComboBox<String> comboBox(NativeInstance self) {
-        return (JComboBox<String>) self.state();
     }
 }

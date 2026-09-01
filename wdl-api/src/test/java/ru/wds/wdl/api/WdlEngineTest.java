@@ -2,7 +2,7 @@ package ru.wds.wdl.api;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.module.Library;
 import ru.wds.wdl.metrics.MetricsReport;
 import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.ModuleSource;

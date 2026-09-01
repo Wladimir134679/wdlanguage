@@ -72,11 +72,11 @@ NativeInstance` — экономия целого класса и всех ег�
 Инвариант 3 («никакой изменяемой статики») этим не нарушается: кэш неизменяемых описаний —
 то же самое, чем являются таблицы `Operators`, и живёт он вне ядра.
 
-### 4. Живёт в новом модуле `wdl-interop`, между `core` и `stdlib`
+### 4. Живёт в новом модуле `wdl-bridge`, между `core` и `stdlib`
 
 | Модуль | Содержимое | Зависит от |
 |---|---|---|
-| `wdl-interop` | `interop`: мост рефлексии, схемы, маршалинг | core |
+| `wdl-bridge` | `interop`: мост рефлексии, схемы, маршалинг | core |
 
 Почему не в ядро: ядро не знает слова «рефлексия» и не должно. Открывать чужие пакеты
 через `module-info`, разрешать `setAccessible`, держать чёрный список опасных классов —
@@ -86,7 +86,7 @@ NativeInstance` — экономия целого класса и всех ег�
 им в три строки вместо трёхсот), а `stdlib` от `api` не зависит и не должен. Порядок
 зависимостей остаётся строго в одну сторону: `core ← interop ← stdlib ← api ← cli`.
 
-Внешних зависимостей у `wdl-interop` нет тоже: `MethodHandles`, `LambdaMetafactory`
+Внешних зависимостей у `wdl-bridge` нет тоже: `MethodHandles`, `LambdaMetafactory`
 и `java.lang.reflect.Proxy` — это JDK.
 
 ### 5. Мост — обычная `Library`, а не «режим движка»
@@ -251,11 +251,11 @@ println(now.epochSecond)
 
 ### Фаза 0. Каркас модуля
 
-- [x] `settings.gradle.kts`: `include("wdl-interop")`
-- [x] `wdl-interop/build.gradle.kts` с `description` (задача `modules` его печатает),
+- [x] `settings.gradle.kts`: `include("wdl-bridge")`
+- [x] `wdl-bridge/build.gradle.kts` с `description` (задача `modules` его печатает),
       `api(project(":wdl-core"))`, без внешних зависимостей
-- [x] `module-info.java`: `module ru.wds.wdl.interop { requires ru.wds.wdl.core;
-      exports ru.wds.wdl.interop; }`
+- [x] `module-info.java`: `module ru.wds.wdl.bridge.reflect { requires ru.wds.wdl.core;
+      exports ru.wds.wdl.bridge.reflect; }`
 - [x] `package-info.java` с описанием замысла — по образцу `embed/package-info.java`
 - [x] строка в таблице модулей в `README.md` и `CLAUDE.md`
 
@@ -322,7 +322,7 @@ println(now.epochSecond)
       когда целевой параметр — интерфейс с одним абстрактным методом
       (`Runnable`, `Comparator`, слушатели)
 - [x] **Время жизни решается здесь, а не оставляется на потом.** Обработчик, ушедший
-      в Java, живёт дольше вызова, и `embed.Callback` для этого прямо не годится (его
+      в Java, живёт дольше вызова, и `bridge.Callback` для этого прямо не годится (его
       javadoc это и говорит). Значит прокси держит функцию так же, как `api.WdlCallable`:
       с внешним входом в запуск (`Run.enter`/`exit`), чтобы вызов после `close()`
       отвечал ошибкой, а не лез в закрытые модули
@@ -392,7 +392,7 @@ println(now.epochSecond)
 
 ## Как это кончилось
 
-Сделано целиком, 61 тест в `wdl-interop`, полная сборка зелёная. Четыре вещи
+Сделано целиком, 61 тест в `wdl-bridge`, полная сборка зелёная. Четыре вещи
 разошлись с замыслом — все четыре в сторону меньшего кода:
 
 1. **Иерархия не строится** (решение 11 выше): `is` отвечает `isAssignableFrom`,

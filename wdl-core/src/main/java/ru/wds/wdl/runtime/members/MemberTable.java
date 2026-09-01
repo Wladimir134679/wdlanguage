@@ -1,6 +1,6 @@
 package ru.wds.wdl.runtime.members;
 
-import ru.wds.wdl.embed.MemberRegistry;
+import ru.wds.wdl.value.MemberRegistry;
 import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;

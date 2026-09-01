@@ -8,8 +8,8 @@ import ru.wds.wdl.ast.visitor.*;
 import ru.wds.wdl.metrics.Measure;
 import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.Unit;
-import ru.wds.wdl.embed.NativeTrait;
 import ru.wds.wdl.resolve.ClassShape;
+import ru.wds.wdl.resolve.DeclaredTrait;
 import ru.wds.wdl.resolve.LinkError;
 import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.resolve.ScriptTraitShape;
@@ -759,8 +759,9 @@ public final class Interpreter
                                ExecutionContext context) {
         List<TraitShape> mixins = new ArrayList<>(traits.size());
         for (TraitValue trait : traits) {
-            mixins.add(trait instanceof WdlTrait declared ? declared.shape()
-                    : ((NativeTrait) trait).shape());
+            // Приведение безопасно: в список попадают только трейты с формой —
+            // это проверил mixinsOf, и других сюда не доходит.
+            mixins.add(((DeclaredTrait) trait).shape());
         }
         try {
             return context.linker().classShape(stmt, parent == null ? null : parent.shape(), mixins);
@@ -792,7 +793,7 @@ public final class Interpreter
                     + "трейт подмешивается через 'with', наследуются от класса");
         }
         if (value instanceof ClassValue) {
-            // Класс от приложения (embed.NativeClass): его поля и методы живут в Java,
+            // Класс от приложения (bridge.NativeClass): его поля и методы живут в Java,
             // и плоскую таблицу по ним не собрать.
             throw new WdlRuntimeError(ErrorKind.DECLARATION, parent.span(), "'" + parent.title() + "' — встроенный класс: "
                     + "наследоваться можно только от класса, объявленного на wdl");
@@ -804,16 +805,17 @@ public final class Interpreter
     /**
      * Подмешанные трейты — тем же правилом, что и родитель.
      * <p>
-     * Трейт языка и трейт от приложения ({@link NativeTrait}) равноправны: у обоих
-     * есть форма, а требования обоих проверяет один и тот же {@code Linker}. Разница
-     * появится дальше, при сборке значения класса, и автору скрипта не видна.
+     * Трейт языка и трейт от приложения равноправны: у обоих есть форма
+     * ({@link DeclaredTrait}), а требования обоих проверяет один и тот же
+     * {@code Linker}. Разница появится дальше, при сборке значения класса,
+     * и автору скрипта не видна.
      */
     private List<TraitValue> mixinsOf(ClassDeclStmt stmt, ExecutionContext context) {
         List<TraitValue> traits = new ArrayList<>(stmt.traits().size());
         for (ClassDeclStmt.TraitRef reference : stmt.traits()) {
             Value value = typeValue(reference.type(), reference.title(), "трейт",
                     reference.span(), context);
-            if (value instanceof WdlTrait || value instanceof NativeTrait) {
+            if (value instanceof DeclaredTrait) {
                 traits.add((TraitValue) value);
                 continue;
             }

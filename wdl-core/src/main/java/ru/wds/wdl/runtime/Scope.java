@@ -65,19 +65,19 @@ public final class Scope implements Environment {
      * а {@link ExecutionContext#of}: запуск создаётся из области, а не наоборот,
      * поэтому в конструкторе его ещё нет. Вложенные области спрашивают внешнюю.
      */
-    private volatile ru.wds.wdl.embed.MemberRegistry members;
+    private volatile ru.wds.wdl.value.MemberRegistry members;
 
     private Scope(Environment parent) {
         this.parent = parent;
     }
 
-    void useMembers(ru.wds.wdl.embed.MemberRegistry registry) {
+    void useMembers(ru.wds.wdl.value.MemberRegistry registry) {
         this.members = registry;
     }
 
     @Override
-    public ru.wds.wdl.embed.MemberRegistry members() {
-        ru.wds.wdl.embed.MemberRegistry own = members;
+    public ru.wds.wdl.value.MemberRegistry members() {
+        ru.wds.wdl.value.MemberRegistry own = members;
         if (own != null) {
             return own;
         }

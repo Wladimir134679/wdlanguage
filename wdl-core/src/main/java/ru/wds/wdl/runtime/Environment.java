@@ -83,7 +83,7 @@ public interface Environment {
      * <p>
      * Реализация по умолчанию кладёт снимок значения — это ровно то, что делал
      * развёрнутый импорт раньше. Так окружение, написанное приложением
-     * ({@link ru.wds.wdl.embed.Library}), продолжает работать, не зная о связках вовсе.
+     * ({@link ru.wds.wdl.module.Library}), продолжает работать, не зная о связках вовсе.
      */
     default void defineAlias(String name, Binding binding) {
         define(name, binding.value());
@@ -119,7 +119,7 @@ public interface Environment {
     /**
      * Куда добавлять члены значениям, или {@code null}, если добавлять некуда.
      * <p>
-     * Через область, а не вторым методом у {@link ru.wds.wdl.embed.Library}: таблица
+     * Через область, а не вторым методом у {@link ru.wds.wdl.module.Library}: таблица
      * членов принадлежит запуску, а библиотека видит только область — и звать её
      * {@code installTo} умеют все, кто заводит запуск, тогда как второй метод легко
      * забыть. Реализация по умолчанию отвечает {@code null}: область, написанная
@@ -127,7 +127,7 @@ public interface Environment {
      * узнаёт об этом сразу и на месте, а не из {@code NullPointerException}
      * в середине установки.
      */
-    default ru.wds.wdl.embed.MemberRegistry members() {
+    default ru.wds.wdl.value.MemberRegistry members() {
         return null;
     }
 

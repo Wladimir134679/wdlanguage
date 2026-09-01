@@ -1,75 +1,53 @@
 package ru.wds.wdl.stdlib.gui;
 
-import ru.wds.wdl.embed.Callback;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
-import ru.wds.wdl.runtime.Environment;
-import ru.wds.wdl.stdlib.Types;
-import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.Params;
+import ru.wds.wdl.bridge.reflect.FromJava;
+import ru.wds.wdl.runtime.Callback;
 import ru.wds.wdl.value.Signature;
-import ru.wds.wdl.value.types.BoolValue;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.types.NullValue;
-import ru.wds.wdl.value.types.StringValue;
 
 import javax.swing.JCheckBox;
 
 /**
  * Нативный класс {@code CheckBox}: флажок Swing (JCheckBox).
+ * <p>
+ * В Swing флажок «выбран» зовётся {@code selected}, в скрипте — {@code checked}:
+ * имена расходятся, и источник членов умеет их переименовывать
+ * ({@link FromJava#beanAs}), а не заставляет писать переходник лямбдой.
  */
 public final class NativeCheckBox {
 
     private NativeCheckBox() {
     }
 
-    public static NativeClass in(Environment scope) {
-        return Types.in(scope, "CheckBox", NativeClass.class, NativeCheckBox::build);
-    }
-
-    private static NativeClass build() {
+    static NativeClass build() {
         return NativeClass.named("CheckBox")
-                .field("text", StringValue.of(""))
-                .field("checked", BoolValue.FALSE)
-                .field("enabled", BoolValue.TRUE)
+                .backing(JCheckBox.class)
+                .init(Params.of()
+                        .optional("text", "")
+                        .optional("checked", false)
+                        .optional("enabled", true),
+                        (self, context, args, span) -> {
+                            JCheckBox box = new JCheckBox(args.string(0, "текст"),
+                                    args.at(1).isTruthy());
+                            box.setEnabled(args.at(2).isTruthy());
+                            self.state(box);
+                            return NullValue.NULL;
+                        })
 
-                .init((self, context, args, span) -> {
-                    String text = self.get("text").display();
-                    boolean checked = self.get("checked").isTruthy();
-                    boolean enabled = self.get("enabled").isTruthy();
+                .members(FromJava.of(JCheckBox.class)
+                        .bean("text")
+                        .bean("enabled")
+                        .beanAs("checked", "selected"))
 
-                    JCheckBox checkBox = new JCheckBox(text, checked);
-                    checkBox.setEnabled(enabled);
-
-                    self.state(checkBox);
-                    return NullValue.NULL;
-                })
-
-                .method("isChecked", Arity.exactly(0), (self, context, args, span) ->
-                        BoolValue.of(checkBox(self).isSelected()))
-
-                .method("setChecked", Signature.of(Signature.Param.required("checked")), (self, context, args, span) -> {
-                    boolean checked = args.at(0).isTruthy();
-                    checkBox(self).setSelected(checked);
-                    self.put("checked", BoolValue.of(checked));
-                    return NullValue.NULL;
-                })
-
-                .method("setEnabled", Signature.of(Signature.Param.required("enabled")), (self, context, args, span) -> {
-                    boolean enabled = args.at(0).isTruthy();
-                    checkBox(self).setEnabled(enabled);
-                    self.put("enabled", BoolValue.of(enabled));
-                    return NullValue.NULL;
-                })
-
-                .method("onChange", Signature.of(Signature.Param.required("handler")), (self, context, args, span) -> {
+                .method("onChange", Signature.of(Param.required("handler")), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
-                    checkBox(self).addItemListener(GuiEvents.toItemListener(callback, context));
+                    self.state(JCheckBox.class).addItemListener(GuiEvents.toItemListener(callback, context));
                     return NullValue.NULL;
                 })
 
                 .build();
-    }
-
-    private static JCheckBox checkBox(NativeInstance self) {
-        return self.state(JCheckBox.class);
     }
 }

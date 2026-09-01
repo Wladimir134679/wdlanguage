@@ -17,10 +17,10 @@ topPanel.add(component: addButton)
 taskArea = new gui.TextArea(rows: 14, cols: 35)
 
 def addTask() {
-    text = inputField.getText()
+    text = inputField.text
     if (text != "") {
         taskArea.append(text: "• " + text + "\n")
-        inputField.setText(text: "")
+        inputField.text = ""
     }
 }
 

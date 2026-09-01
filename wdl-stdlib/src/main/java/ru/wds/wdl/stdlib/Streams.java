@@ -1,8 +1,8 @@
 package ru.wds.wdl.stdlib;
 
-import ru.wds.wdl.embed.Args;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
+import ru.wds.wdl.runtime.Args;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.NativeInstance;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.value.CallContext;

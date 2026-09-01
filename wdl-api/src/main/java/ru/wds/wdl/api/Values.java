@@ -1,6 +1,6 @@
 package ru.wds.wdl.api;
 
-import ru.wds.wdl.interop.Marshal;
+import ru.wds.wdl.bridge.reflect.Marshal;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Value;
@@ -72,8 +72,8 @@ public final class Values {
         } catch (WdlRuntimeError refused) {
             throw new IllegalArgumentException("нечем представить в языке: "
                     + object.getClass().getName() + ". Строки, числа, логические, списки "
-                    + "и карты переводятся сами; для своего типа есть embed.NativeClass "
-                    + "или мост interop.JavaBridge", refused);
+                    + "и карты переводятся сами; для своего типа есть bridge.NativeClass "
+                    + "или мост bridge.reflect.JavaBridge", refused);
         }
     }
 

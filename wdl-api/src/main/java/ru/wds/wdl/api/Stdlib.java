@@ -1,6 +1,6 @@
 package ru.wds.wdl.api;
 
-import ru.wds.wdl.embed.Library;
+import ru.wds.wdl.module.Library;
 import ru.wds.wdl.stdlib.Http;
 import ru.wds.wdl.stdlib.Io;
 import ru.wds.wdl.stdlib.Json;

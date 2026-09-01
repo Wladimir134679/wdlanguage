@@ -3,12 +3,12 @@ package ru.wds.wdl.runtime;
 import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
-import ru.wds.wdl.embed.NativeTrait;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.FieldSlot;
 import ru.wds.wdl.resolve.MethodSlot;
 import ru.wds.wdl.resolve.PropertySlot;
+import ru.wds.wdl.resolve.DeclaredTrait;
 import ru.wds.wdl.resolve.NativeTraitShape;
 import ru.wds.wdl.resolve.ScriptTraitShape;
 import ru.wds.wdl.resolve.Shape;
@@ -81,7 +81,7 @@ final class WdlClass implements ClassValue {
      * Интерпретатор нужен, чтобы выполнить тело метода и значения по умолчанию.
      * Он безсостоятельный, поэтому держать на него ссылку безопасно, а альтернатива —
      * протаскивать его аргументом через {@link ClassValue}, у второй реализации
-     * которого ({@code embed.NativeClass}) никакого интерпретатора нет и не будет.
+     * которого ({@code bridge.NativeClass}) никакого интерпретатора нет и не будет.
      */
     private final Interpreter interpreter;
 
@@ -543,10 +543,9 @@ final class WdlClass implements ClassValue {
     public boolean conformsTo(Value classOrTrait) {
         return switch (classOrTrait) {
             case WdlClass other -> shape.conformsTo(other.shape);
-            case WdlTrait other -> shape.conformsTo(other.shape());
-            // Трейт от приложения отвечает так же: сравниваются формы, а форма
-            // у него одна на всю его жизнь — как и у трейта, объявленного скриптом.
-            case NativeTrait other -> shape.conformsTo(other.shape());
+            // Трейт языка и трейт от приложения отвечают одинаково: сравниваются
+            // формы, а форма одна на всю жизнь трейта — откуда бы он ни взялся.
+            case DeclaredTrait other -> shape.conformsTo(other.shape());
             default -> false;
         };
     }

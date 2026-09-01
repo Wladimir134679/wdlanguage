@@ -1,36 +1,27 @@
 package ru.wds.wdl.stdlib.net;
 
-import ru.wds.wdl.embed.Library;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.runtime.Environment;
-
-import java.util.Objects;
+import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.module.Library;
 
 /**
  * Встроенный модуль {@code sys.net.socket}: сетевые сокеты TCP.
+ * <p>
+ * Весь модуль — два типа: клиентское соединение и слушающий сокет. Второй знает
+ * первый (принятого клиента он отдаёт скрипту как {@code Socket}) и берёт его
+ * из области: типы ставятся по порядку объявления, поэтому к моменту сборки
+ * {@code Server} класс {@code Socket} там уже стоит.
  */
-public final class Sockets implements Library {
+public final class Sockets {
 
     private Sockets() {
     }
 
     public static Library library() {
-        return new Sockets();
-    }
-
-    @Override
-    public String name() {
-        return "sys/net/socket";
-    }
-
-    @Override
-    public Environment installTo(Environment scope) {
-        Objects.requireNonNull(scope, "scope");
-        NativeClass socket = NativeSocket.in(scope);
-        NativeClass server = NativeServerSocket.in(scope, socket);
-
-        scope.define(socket.name(), socket);
-        scope.define(server.name(), server);
-        return scope;
+        return Module.named("sys/net/socket")
+                .type("Socket", scope -> NativeSocket.build())
+                .type("Server", scope -> NativeServerSocket.build(
+                        Module.typeIn(scope, "Socket")))
+                .build();
     }
 }

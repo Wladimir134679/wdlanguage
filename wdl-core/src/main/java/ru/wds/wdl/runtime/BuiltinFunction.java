@@ -1,6 +1,6 @@
 package ru.wds.wdl.runtime;
 
-import ru.wds.wdl.embed.Args;
+import ru.wds.wdl.runtime.Args;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;

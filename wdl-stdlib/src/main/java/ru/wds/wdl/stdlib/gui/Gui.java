@@ -1,21 +1,19 @@
 package ru.wds.wdl.stdlib.gui;
 
-import ru.wds.wdl.embed.Callback;
-import ru.wds.wdl.embed.Library;
-import ru.wds.wdl.embed.NativeClass;
-import ru.wds.wdl.embed.NativeInstance;
+import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.module.Library;
+import ru.wds.wdl.bridge.NativeClass;
+import ru.wds.wdl.bridge.NativeInstance;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.Signature;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.Value;
-import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
-import ru.wds.wdl.value.types.StringValue;
 
 import javax.swing.BoxLayout;
 import javax.swing.JPanel;
-import java.util.Objects;
 
 /**
  * Встроенный модуль {@code sys.gui}: графический интерфейс пользователя на Java Swing.
@@ -40,7 +38,7 @@ import java.util.Objects;
  * win.show()
  * }</pre>
  */
-public final class Gui implements Library {
+public final class Gui {
 
     private final WindowTracker tracker = new WindowTracker();
 
@@ -48,44 +46,44 @@ public final class Gui implements Library {
     }
 
     public static Library library() {
-        return new Gui();
+        return new Gui().module();
     }
 
-    @Override
-    public String name() {
-        return "sys/gui";
+    /**
+     * Модуль этого запуска: девять типов и фабрики к ним.
+     * <p>
+     * Фабрики компоновщиков и диалогов замкнуты на собранные классы, поэтому стоят
+     * в {@link Module.Builder#install}: типы к этому шагу уже в области, и берутся
+     * они оттуда — тем же {@link Module#typeIn}, которым их ставил построитель.
+     */
+    private Library module() {
+        return Module.named("sys/gui")
+                .type("Layout", scope -> Layouts.layoutClass())
+                .type("Window", scope -> NativeWindow.build(tracker))
+                .type("Panel", scope -> NativePanel.build())
+                .type("Button", scope -> NativeButton.build())
+                .type("Label", scope -> NativeLabel.build())
+                .type("TextField", scope -> NativeTextField.build())
+                .type("TextArea", scope -> NativeTextArea.build())
+                .type("CheckBox", scope -> NativeCheckBox.build())
+                .type("ComboBox", scope -> NativeComboBox.build())
+                .install(this::functions)
+                // Закрытие модуля держит завершение процесса, пока пользователь
+                // не закроет окна: обработчики кнопок всё это время работают.
+                .onClose(tracker::waitUntilClosed)
+                .build();
     }
 
-    @Override
-    public Environment installTo(Environment scope) {
-        Objects.requireNonNull(scope, "scope");
-
-        NativeClass layout = Layouts.layoutClass(scope);
-        NativeClass window = NativeWindow.in(scope, tracker);
-        NativeClass panel = NativePanel.in(scope);
-        NativeClass button = NativeButton.in(scope);
-        NativeClass label = NativeLabel.in(scope);
-        NativeClass textField = NativeTextField.in(scope);
-        NativeClass textArea = NativeTextArea.in(scope);
-        NativeClass checkBox = NativeCheckBox.in(scope);
-        NativeClass comboBox = NativeComboBox.in(scope);
-
-        scope.define(layout.name(), layout);
-        scope.define(window.name(), window);
-        scope.define(panel.name(), panel);
-        scope.define(button.name(), button);
-        scope.define(label.name(), label);
-        scope.define(textField.name(), textField);
-        scope.define(textArea.name(), textArea);
-        scope.define(checkBox.name(), checkBox);
-        scope.define(comboBox.name(), comboBox);
+    private void functions(Environment scope) {
+        NativeClass layout = Module.typeIn(scope, "Layout");
+        NativeClass panel = Module.typeIn(scope, "Panel");
 
         // Фабрики компоновщиков. Имена параметров объявлены, поэтому
         // 'grid(rows: 2, cols: 3)' читается, а 'grid(2, 3)' продолжает работать.
         scope.define("flow", BuiltinFunction.of("flow", Signature.of(
-                        Signature.Param.optional("align", StringValue.of("center")),
-                        Signature.Param.optional("hgap", IntValue.of(5)),
-                        Signature.Param.optional("vgap", IntValue.of(5))),
+                        Param.optional("align", "center"),
+                        Param.optional("hgap", 5),
+                        Param.optional("vgap", 5)),
                 (context, arguments, span) -> {
                     String align = arguments.size() > 0 ? arguments.string(0, "выравнивание") : "center";
                     int hgap = (int) arguments.integer(1, "горизонтальный отступ", 5);
@@ -94,8 +92,8 @@ public final class Gui implements Library {
                 }));
 
         scope.define("border", BuiltinFunction.of("border", Signature.of(
-                        Signature.Param.optional("hgap", IntValue.of(0)),
-                        Signature.Param.optional("vgap", IntValue.of(0))),
+                        Param.optional("hgap", 0),
+                        Param.optional("vgap", 0)),
                 (context, arguments, span) -> {
                     int hgap = (int) arguments.integer(0, "горизонтальный отступ", 0);
                     int vgap = (int) arguments.integer(1, "вертикальный отступ", 0);
@@ -103,10 +101,10 @@ public final class Gui implements Library {
                 }));
 
         scope.define("grid", BuiltinFunction.of("grid", Signature.of(
-                        Signature.Param.required("rows"),
-                        Signature.Param.required("cols"),
-                        Signature.Param.optional("hgap", IntValue.of(0)),
-                        Signature.Param.optional("vgap", IntValue.of(0))),
+                        Param.required("rows"),
+                        Param.required("cols"),
+                        Param.optional("hgap", 0),
+                        Param.optional("vgap", 0)),
                 (context, arguments, span) -> {
                     int rows = (int) arguments.integer(0, "строки");
                     int cols = (int) arguments.integer(1, "колонки");
@@ -123,8 +121,8 @@ public final class Gui implements Library {
 
         // Модальные диалоги и утилиты
         scope.define("alert", BuiltinFunction.of("alert", Signature.of(
-                        Signature.Param.required("text"),
-                        Signature.Param.optional("title", StringValue.of("Информация"))),
+                        Param.required("text"),
+                        Param.optional("title", "Информация")),
                 (context, arguments, span) -> {
                     String msg = arguments.at(0).display();
                     String title = arguments.size() > 1 ? arguments.string(1, "заголовок") : "Информация";
@@ -132,8 +130,8 @@ public final class Gui implements Library {
                 }));
 
         scope.define("confirm", BuiltinFunction.of("confirm", Signature.of(
-                        Signature.Param.required("text"),
-                        Signature.Param.optional("title", StringValue.of("Подтверждение"))),
+                        Param.required("text"),
+                        Param.optional("title", "Подтверждение")),
                 (context, arguments, span) -> {
                     String msg = arguments.at(0).display();
                     String title = arguments.size() > 1 ? arguments.string(1, "заголовок") : "Подтверждение";
@@ -141,8 +139,8 @@ public final class Gui implements Library {
                 }));
 
         scope.define("prompt", BuiltinFunction.of("prompt", Signature.of(
-                        Signature.Param.required("text"),
-                        Signature.Param.optional("initial", StringValue.of(""))),
+                        Param.required("text"),
+                        Param.optional("initial", "")),
                 (context, arguments, span) -> {
                     String msg = arguments.at(0).display();
                     String defText = arguments.size() > 1 ? arguments.string(1, "текст по умолчанию") : "";
@@ -153,18 +151,18 @@ public final class Gui implements Library {
         // из потока скрипта. Swing не потокобезопасен, и раньше это было незаметно
         // только из-за замка запуска.
         scope.define("later", BuiltinFunction.of("later",
-                Signature.of(Signature.Param.required("handler")),
+                Signature.of(Param.required("handler")),
                 (context, arguments, span) ->
                         Dialogs.later(arguments.callback(0, "обработчик"), context)));
 
         scope.define("sync", BuiltinFunction.of("sync",
-                Signature.of(Signature.Param.required("handler")),
+                Signature.of(Param.required("handler")),
                 (context, arguments, span) ->
                         Dialogs.sync(arguments.callback(0, "обработчик"), context, span)));
 
         // Прежнее имя того же моста: скрипты с ним уже написаны, и ломать их незачем.
         scope.define("runLater", BuiltinFunction.of("runLater",
-                Signature.of(Signature.Param.required("handler")),
+                Signature.of(Param.required("handler")),
                 (context, arguments, span) ->
                         Dialogs.later(arguments.callback(0, "обработчик"), context)));
 
@@ -179,15 +177,6 @@ public final class Gui implements Library {
                     tracker.waitUntilClosed(context);
                     return NullValue.NULL;
                 }));
-
-        return scope;
-    }
-
-    @Override
-    public void close() {
-        // Завершение работы модуля: блокирует завершение процесса до тех пор,
-        // пока все открытые окна GUI не будут закрыты пользователем.
-        tracker.waitUntilClosed();
     }
 
     private static Value createBoxPanel(NativeClass panelClass, int axis) {
