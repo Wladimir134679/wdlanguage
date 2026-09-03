@@ -53,7 +53,7 @@ public final class Signature {
     public static final class Param {
 
         private enum Kind {
-            REQUIRED, OPTIONAL, CONSTANT, LAZY
+            REQUIRED, OPTIONAL, CONSTANT, LAZY, HOLE
         }
 
         private final String name;
@@ -70,6 +70,26 @@ public final class Signature {
         /** Обязательный: аргумент передать придётся. */
         public static Param required(String name) {
             return new Param(name, Kind.REQUIRED, null);
+        }
+
+        /**
+         * Дырка {@code _}: позицию занимает, имени не имеет.
+         * <p>
+         * Обязательна, как и обычный параметр без значения по умолчанию, — значение
+         * ей передать придётся, просто некуда будет положить. А вот по имени её
+         * не задать: {@link Signature#indexOf(String)} дырки не видит, и {@code f(_: 1)}
+         * уходит туда же, куда любое неизвестное имя. По той же причине одноимённость
+         * дырок не проверяется: имени, которое могло бы повториться, у них нет.
+         */
+        public static Param hole() {
+            // Написание берётся литералом, а не из дерева: контракт вызова про разбор
+            // знать не обязан, а '_' здесь нужен только сообщениям об ошибках.
+            return new Param("_", Kind.HOLE, null);
+        }
+
+        /** Дырка ли это — то есть есть ли у параметра имя. */
+        public boolean isHole() {
+            return kind == Kind.HOLE;
         }
 
         /** Необязательный без значения по умолчанию: пропустить можно только в хвосте. */
@@ -118,7 +138,7 @@ public final class Signature {
         }
 
         public boolean isRequired() {
-            return kind == Kind.REQUIRED;
+            return kind == Kind.REQUIRED || kind == Kind.HOLE;
         }
 
         /** Готовое значение по умолчанию или {@code null}, если его нет. */
@@ -139,7 +159,7 @@ public final class Signature {
         @Override
         public String toString() {
             return switch (kind) {
-                case REQUIRED -> name;
+                case REQUIRED, HOLE -> name;
                 case OPTIONAL -> name + "?";
                 case CONSTANT -> name + " = " + constant.display();
                 case LAZY -> name + " = ...";
@@ -197,10 +217,14 @@ public final class Signature {
         List<String> seen = new ArrayList<>(copy.size());
         boolean optionalSeen = false;
         for (Param param : copy) {
-            if (seen.contains(param.name())) {
-                throw new IllegalArgumentException("параметр '" + param.name() + "' уже объявлен");
+            // Дырок в заголовке бывает сколько угодно: одноимённость проверяется
+            // по имени, а имени у дырки нет — см. Param#hole().
+            if (!param.isHole()) {
+                if (seen.contains(param.name())) {
+                    throw new IllegalArgumentException("параметр '" + param.name() + "' уже объявлен");
+                }
+                seen.add(param.name());
             }
-            seen.add(param.name());
             if (param.isRequired() && optionalSeen) {
                 throw new IllegalArgumentException("параметр '" + param.name()
                         + "' без значения по умолчанию не может идти после параметра со значением");
@@ -272,7 +296,9 @@ public final class Signature {
      */
     public int indexOf(String name) {
         for (int i = 0; i < params.size(); i++) {
-            if (params.get(i).name().equals(name)) {
+            // Дырка пропускается: у неё нет имени, а не имя '_'. Иначе 'f(_: 1)'
+            // задавало бы позицию, значение из которой всё равно некуда положить.
+            if (!params.get(i).isHole() && params.get(i).name().equals(name)) {
                 return i;
             }
         }

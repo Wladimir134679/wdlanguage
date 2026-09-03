@@ -58,6 +58,11 @@ public final class ClassShape implements Shape {
         Map<String, FieldSlot> ownFields = new LinkedHashMap<>();
         List<FunctionExpr.Param> params = declaration.params();
         for (int i = 0; i < params.size(); i++) {
+            // Дырка '_' поля не заводит: у неё нет имени, а поле — это имя. Позицию
+            // при этом она занимает, поэтому 'class Vec(_, y)' принимает два аргумента.
+            if (params.get(i).isHole()) {
+                continue;
+            }
             String name = params.get(i).name();
             ownFields.put(name, new FieldSlot(name, this, i));
         }

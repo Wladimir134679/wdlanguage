@@ -142,7 +142,7 @@ class ControlFlowParserTest {
     void forEachIsRecognized() {
         ForEachStmt each = assertInstanceOf(ForEachStmt.class, single("for (товар in корзина) { println(товар) }"));
 
-        assertEquals("товар", each.name());
+        assertEquals("товар", each.value().toString());
         assertEquals("корзина", SExprPrinter.print(each.iterable()));
     }
 

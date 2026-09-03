@@ -1,6 +1,7 @@
 package ru.wds.wdl.ast.expr;
 
 import ru.wds.wdl.source.Span;
+import ru.wds.wdl.value.types.StringValue;
 
 import java.util.Objects;
 
@@ -58,6 +59,20 @@ public record AccessExpr(Expr target, Expr key, AccessStyle style, Span span) im
             return literal.value().display();
         }
         return null;
+    }
+
+    /**
+     * Ключ, написанный в тексте буквально, или {@code null}, если он вычисляется.
+     * <p>
+     * От {@link #fieldName()} отличается тем, что форма записи ему безразлична:
+     * {@code a.x} и {@code a["x"]} дают одно и то же {@code x}, а {@code a[i]} —
+     * {@code null}. Это ровно тот вопрос, который задаёт распаковка по именам:
+     * «видно ли по тексту, какой ключ отсюда берут». См. {@code docs/statements.md}.
+     */
+    public String literalKey() {
+        return key instanceof LiteralExpr literal && literal.value() instanceof StringValue text
+                ? text.value()
+                : null;
     }
 
     @Override

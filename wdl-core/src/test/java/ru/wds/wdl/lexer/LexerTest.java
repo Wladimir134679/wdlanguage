@@ -46,6 +46,17 @@ class LexerTest {
     }
 
     @Test
+    @DisplayName("одиночное '_' — пропуск, а '_x', '__' и '_1' остаются именами")
+    void holeIsOnlyOneUnderscore() {
+        assertEquals(List.of(TokenType.HOLE), types("_"));
+        assertEquals(List.of(TokenType.WORD, TokenType.WORD, TokenType.WORD), types("_x __ _1"));
+        assertEquals("_x|__|_1", texts("_x __ _1"));
+        // Текст у пропуска есть — он нужен диагностике, — а место обычное.
+        assertEquals("_", lex("_").get(0).text());
+        assertEquals(List.of(TokenType.HOLE, TokenType.COMMA, TokenType.WORD), types("_, x"));
+    }
+
+    @Test
     @DisplayName("имена, ключевые слова и позиции")
     void wordsAndKeywords() {
         List<Token> tokens = lex("def сумма(a) { return a }");

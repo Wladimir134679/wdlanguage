@@ -5,6 +5,7 @@ import ru.wds.wdl.ast.expr.*;
 import ru.wds.wdl.ast.op.*;
 import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.diagnostic.Diagnostics;
+import ru.wds.wdl.diagnostic.Plural;
 import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.lexer.TokenType;
 import ru.wds.wdl.source.Span;
@@ -163,9 +164,22 @@ public final class Parser {
      * становится целью записи; если нет — это должен быть вызов, иначе строка ничего
      * не делает и об этом надо сказать. Заглядывать вперёд не нужно: цель присваивания
      * и обычное выражение начинаются одинаково и разбираются одним и тем же кодом.
+     * <p>
+     * Распаковка узнаётся тем же способом и в том же месте. Начинается она либо
+     * с обычного выражения, за которым стоит запятая, либо сразу с пропуска или
+     * звёздочки — а с них выражение не начинается никогда, потому что префиксной
+     * {@code *} в языке нет ({@link Operators#PREFIX}). Отката и заглядывания вперёд
+     * не нужно и здесь.
      */
     private Stmt simpleStatement() {
+        if (cursor.check(TokenType.HOLE) || cursor.check(TokenType.STAR)
+                || cursor.check(TokenType.STARSTAR)) {
+            return unpackStatement(null);
+        }
         Expr expr = expression(0);
+        if (cursor.check(TokenType.COMMA) || spreadAssignAhead()) {
+            return unpackStatement(expr);
+        }
 
         AssignOp assign = Operators.assign(cursor.peek().type());
         if (assign != null) {
@@ -222,21 +236,319 @@ public final class Parser {
             cursor.synchronize();
             return new ErrorStmt(span);
         }
+        if (!writable(target, op.symbol())) {
+            return new ErrorStmt(span);
+        }
+        return new AssignStmt(target, op, named(target, op, value), span);
+    }
+
+    /**
+     * Годится ли выражение целью записи. Одна проверка на присваивание и на распаковку —
+     * понятие цели у них общее, и расходиться этим двум местам нельзя.
+     * <p>
+     * Слева допустимы только имя и обращение: узел {@link AssignStmt} и запись
+     * {@link UnpackTarget} с недопустимой целью просто не должны возникать.
+     * Про уже сломанное выражение молчим — об этом сказано там, где оно сломалось.
+     *
+     * @param op знак, который назовёт сообщение: {@code =}, {@code +=} и прочие
+     */
+    private boolean writable(Expr target, String op) {
         // this и super — имена самого объекта, а не переменные для хранения:
         // присвоить их значило бы подменить объект под ногами у выполняющегося метода.
         if (target instanceof VariableExpr variable && isSelfName(variable.name())) {
             diagnostics.error(target.span(), "'" + variable.name() + "' нельзя присвоить: "
                     + "это имя самого объекта. Поле объекта пишется как 'this." + "имя = значение'");
-            return new ErrorStmt(span);
+            return false;
         }
         if (target instanceof VariableExpr || target instanceof AccessExpr) {
-            return new AssignStmt(target, op, named(target, op, value), span);
+            return true;
         }
         if (!(target instanceof ErrorExpr)) {
-            diagnostics.error(target.span(), "слева от '" + op.symbol()
+            diagnostics.error(target.span(), "слева от '" + op
                     + "' должно стоять имя переменной или обращение вида a.b или a[i]");
         }
-        return new ErrorStmt(span);
+        return false;
+    }
+
+    // --- распаковка ----------------------------------------------------------
+
+    /**
+     * Распаковка в одну цель: {@code only = *[42]}, {@code p = **defaults}.
+     * <p>
+     * Отличается от обычного присваивания одной звёздочкой, и заглядывать за неё
+     * не приходится: префиксной {@code *} в языке нет, поэтому {@code = *} и
+     * {@code = **} больше ничем быть не могут.
+     */
+    private boolean spreadAssignAhead() {
+        return cursor.check(TokenType.ASSIGN)
+                && (cursor.peek(1).type() == TokenType.STAR
+                    || cursor.peek(1).type() == TokenType.STARSTAR);
+    }
+
+    /**
+     * Распаковка целиком: {@code x, y = *point}, {@code host, port, **rest = **config},
+     * {@code a, b = b, a}.
+     * <p>
+     * Разбор идёт слева направо и без единой догадки о том, чем строка окажется:
+     * сначала список целей, потом обязательный {@code =} (и <b>только</b> {@code =} —
+     * см. {@link UnpackStmt}), потом правая часть. Вид записи узнаётся уже по разобранному:
+     * один источник со звёздочкой — распаковка, всё остальное — попарный список.
+     * <p>
+     * Проверки формы собраны в {@link #checkUnpack} и делаются <b>после</b> разбора,
+     * а не по ходу: половина из них зависит от вида записи, а вид становится известен
+     * только когда прочитана правая часть.
+     *
+     * @param first первая цель, если её уже разобрали как выражение, иначе {@code null}
+     */
+    private Stmt unpackStatement(Expr first) {
+        Span start = first != null ? first.span() : cursor.peek().span();
+        List<UnpackTarget> targets = new ArrayList<>();
+        boolean broken;
+        if (first != null) {
+            broken = !writable(first, TokenType.ASSIGN.text());
+            if (!broken) {
+                targets.add(UnpackTarget.value(first));
+            }
+        } else {
+            broken = !collect(targets, unpackTarget());
+        }
+        while (cursor.match(TokenType.COMMA)) {
+            // Запятая перед '=' — недописанная строка, а не пустая цель: пусть о ней
+            // скажет ожидание '=', а не «ожидалось выражение».
+            if (cursor.check(TokenType.ASSIGN) || cursor.check(TokenType.EOF)) {
+                break;
+            }
+            broken |= !collect(targets, unpackTarget());
+        }
+
+        AssignOp op = Operators.assign(cursor.peek().type());
+        if (op != null && op != AssignOp.ASSIGN) {
+            Token token = cursor.advance();
+            diagnostics.error(token.span(), "распаковка не сочетается с '" + op.symbol()
+                    + "': непонятно, к чему прибавлять и что делать,"
+                    + " если ошибка случится на середине");
+            cursor.synchronize();
+            return new ErrorStmt(start.to(token.span()));
+        }
+        if (!cursor.match(TokenType.ASSIGN)) {
+            diagnostics.error(cursor.peek().span(), "ожидалось '=' после списка целей,"
+                    + " найдено " + describe(cursor.peek()));
+            cursor.synchronize();
+            return new ErrorStmt(start.to(cursor.lastSpan()));
+        }
+
+        List<Argument> sources = unpackSources();
+        Span span = start.to(sources.get(sources.size() - 1).span());
+        for (Argument source : sources) {
+            if (source.value() instanceof ErrorExpr) {
+                // Источник не разобрался — об этом уже сказано; дальше по строке
+                // разбирать нечего, иначе тот же токен даст вторую ошибку.
+                cursor.synchronize();
+                return new ErrorStmt(span);
+            }
+        }
+        UnpackStmt.Style style = styleOf(sources);
+        if (broken | !checkUnpack(targets, sources, style, span)) {
+            return new ErrorStmt(span);
+        }
+        return new UnpackStmt(targets, sources, style, span);
+    }
+
+    /** Кладёт разобранную цель в список; {@code null} значит «о причине уже сказано». */
+    private static boolean collect(List<UnpackTarget> targets, UnpackTarget target) {
+        if (target == null) {
+            return false;
+        }
+        targets.add(target);
+        return true;
+    }
+
+    /**
+     * Одна цель: {@code _}, {@code *rest}, {@code *_}, {@code **rest} или обычное
+     * выражение, проверяемое тем же правилом, что и цель присваивания.
+     *
+     * @return разобранная цель или {@code null}, если целью написанное быть не может
+     */
+    private UnpackTarget unpackTarget() {
+        Token token = cursor.peek();
+        if (token.type() == TokenType.HOLE) {
+            cursor.advance();
+            return UnpackTarget.hole(token.span());
+        }
+        if (token.type() == TokenType.STAR || token.type() == TokenType.STARSTAR) {
+            cursor.advance();
+            UnpackTarget.Kind kind = token.type() == TokenType.STARSTAR
+                    ? UnpackTarget.Kind.REST_NAMED
+                    : UnpackTarget.Kind.REST;
+            if (cursor.check(TokenType.HOLE)) {
+                // '*_' — явный отказ от остатка; '**_' разберётся тоже, но проверку
+                // не переживёт: под правилом «лишние ключи не ошибка» он ничего не делает.
+                Token hole = cursor.advance();
+                return new UnpackTarget(null, kind, token.span().to(hole.span()));
+            }
+            Expr name = expression(0);
+            return writable(name, TokenType.ASSIGN.text())
+                    ? new UnpackTarget(name, kind, token.span().to(name.span()))
+                    : null;
+        }
+        Expr expr = expression(0);
+        return writable(expr, TokenType.ASSIGN.text()) ? UnpackTarget.value(expr) : null;
+    }
+
+    /**
+     * Правая часть: один источник со звёздочкой либо список значений через запятую.
+     * <p>
+     * Разбирается одинаково в обоих случаях — звёздочка здесь ровно то же самое, что
+     * в списке аргументов вызова, и записывается тем же {@link Argument}. Что из этого
+     * вышло, решает {@link #styleOf}.
+     */
+    private List<Argument> unpackSources() {
+        List<Argument> sources = new ArrayList<>();
+        do {
+            Token star = cursor.peek();
+            if (star.type() == TokenType.STAR || star.type() == TokenType.STARSTAR) {
+                cursor.advance();
+                Expr value = expression(0);
+                sources.add(star.type() == TokenType.STARSTAR
+                        ? Argument.namedSpread(star.span(), value)
+                        : Argument.spread(star.span(), value));
+            } else {
+                sources.add(Argument.positional(expression(0)));
+            }
+        } while (cursor.match(TokenType.COMMA));
+        return sources;
+    }
+
+    /** Вид записи: одно раскрытие — распаковка, всё остальное — попарный список. */
+    private static UnpackStmt.Style styleOf(List<Argument> sources) {
+        if (sources.size() != 1) {
+            return UnpackStmt.Style.PAIRWISE;
+        }
+        return switch (sources.get(0).kind()) {
+            case SPREAD -> UnpackStmt.Style.POSITIONAL;
+            case NAMED_SPREAD -> UnpackStmt.Style.NAMED;
+            case POSITIONAL, NAMED -> UnpackStmt.Style.PAIRWISE;
+        };
+    }
+
+    /**
+     * Всё, что о распаковке видно прямо в тексте: порядок остатков, согласие вида
+     * записи со звёздочками в списке целей, наличие имени у цели в {@code **}-форме
+     * и длина списков в попарной форме.
+     * <p>
+     * Ни одна из них разбор не прерывает: каждая называет своё, и человек видит все
+     * ошибки строки разом, а не по одной за запуск.
+     */
+    private boolean checkUnpack(List<UnpackTarget> targets, List<Argument> sources,
+                                UnpackStmt.Style style, Span span) {
+        boolean ok = true;
+        UnpackTarget firstRest = null;
+        for (int i = 0; i < targets.size(); i++) {
+            UnpackTarget target = targets.get(i);
+            if (target.isRest()) {
+                if (firstRest != null) {
+                    diagnostics.error(target.span(), "остаток в списке целей может быть"
+                            + " только один: '" + firstRest + "' уже забирает всё, что осталось");
+                    ok = false;
+                    continue;
+                }
+                firstRest = target;
+                if (i != targets.size() - 1) {
+                    diagnostics.error(target.span(), "остаток '" + target + "' должен стоять"
+                            + " последним в списке целей: после него забирать уже нечего");
+                    ok = false;
+                }
+            }
+            ok &= checkTargetStyle(target, style);
+        }
+        return checkSources(targets, sources, style, span) & ok;
+    }
+
+    /** Согласуется ли вид цели с видом записи справа. */
+    private boolean checkTargetStyle(UnpackTarget target, UnpackStmt.Style style) {
+        if (target.kind() == UnpackTarget.Kind.REST_NAMED && !target.writes()) {
+            diagnostics.error(target.span(), "'**_' ничего не делает:"
+                    + " лишние ключи в '**'-форме и так не ошибка");
+            return false;
+        }
+        return switch (style) {
+            case POSITIONAL -> {
+                if (target.kind() == UnpackTarget.Kind.REST_NAMED) {
+                    diagnostics.error(target.span(), "'" + target + "' собирает остаток"
+                            + " по именам, а распаковка идёт по позициям: здесь остаток"
+                            + " пишется одной звёздочкой, '*" + target.target() + "'");
+                    yield false;
+                }
+                yield true;
+            }
+            case NAMED -> checkNamedTarget(target);
+            case PAIRWISE -> {
+                if (target.isRest()) {
+                    diagnostics.error(target.span(), "остаток '" + target + "' бывает только"
+                            + " при распаковке: справа список значений, а не источник");
+                    yield false;
+                }
+                yield true;
+            }
+        };
+    }
+
+    /**
+     * Цель в {@code **}-форме: имя там делает двойную работу — оно же ключ, по которому
+     * лезут в источник. Отсюда и все три запрета.
+     */
+    private boolean checkNamedTarget(UnpackTarget target) {
+        return switch (target.kind()) {
+            case HOLE -> {
+                diagnostics.error(target.span(), "в списке по именам пропускать нечего:"
+                        + " уберите имя '_'. Порядок в '**'-форме ничего не значит —"
+                        + " значения берутся по ключам");
+                yield false;
+            }
+            case REST -> {
+                diagnostics.error(target.span(), "'" + target + "' собирает остаток"
+                        + " по позициям, а распаковка идёт по именам: здесь остаток пишется"
+                        + " двумя звёздочками, '**" + (target.writes() ? target.target() : "rest")
+                        + "'");
+                yield false;
+            }
+            case VALUE -> {
+                if (target.trailingName() == null) {
+                    diagnostics.error(target.span(), "в '**'-форме ключ берётся из имени цели,"
+                            + " а у '" + target + "' имени нет: по вычисленному ключу уже"
+                            + " не прочитать, что именно берут из источника");
+                    yield false;
+                }
+                yield true;
+            }
+            case REST_NAMED -> true;
+        };
+    }
+
+    /** Проверки правой части: они есть только у попарной формы. */
+    private boolean checkSources(List<UnpackTarget> targets, List<Argument> sources,
+                                 UnpackStmt.Style style, Span span) {
+        if (style != UnpackStmt.Style.PAIRWISE) {
+            return true;
+        }
+        boolean ok = true;
+        boolean spread = false;
+        for (Argument source : sources) {
+            if (source.kind() == Argument.Kind.NAMED_SPREAD) {
+                diagnostics.error(source.span(), "раскрытие по именам '**' в списке справа"
+                        + " не имеет позиции: значения там расходятся попарно");
+                ok = false;
+            }
+            spread |= source.kind() == Argument.Kind.SPREAD;
+        }
+        // Длина сверяется только когда она видна: за '*pair' стоит сколько угодно
+        // значений, и узнать сколько можно лишь при выполнении.
+        if (ok && !spread && targets.size() != sources.size()) {
+            diagnostics.error(span, "слева " + Plural.names(targets.size())
+                    + ", а справа " + Plural.values(sources.size()));
+            ok = false;
+        }
+        return ok;
     }
 
     /**
@@ -1154,7 +1466,7 @@ public final class Parser {
     private Stmt forStatement() {
         Token keyword = cursor.advance(); // for
         cursor.expect(TokenType.LPAREN, "открывающую скобку '(' после 'for'");
-        if (cursor.check(TokenType.WORD) && cursor.peek(1).type() == TokenType.IN) {
+        if (forEachAhead()) {
             return forEachStatement(keyword);
         }
 
@@ -1171,14 +1483,68 @@ public final class Parser {
         return new ForStmt(init, condition, step, body, keyword.span().to(body.span()));
     }
 
-    /** Перебор: {@code for (item in cart) ...}. Открывающая скобка уже съедена. */
+    /**
+     * Перебор ли это: {@code for (item in cart)}, {@code for (i, tile in row)}.
+     * <p>
+     * Просматривается ровно то, что и есть форма, — список имён до {@code in}: имя
+     * или пропуск, дальше либо {@code in} (перебор), либо запятая (смотрим следующее
+     * имя), либо что угодно ещё (обычный {@code for} со счётчиком). Проверять только
+     * два первых токена нельзя: {@code for (a, b = *pair; ...)} — законный счётчик
+     * с распаковкой в начале, и по одной запятой его от перебора не отличить.
+     * <p>
+     * Заканчивается просмотр всегда: {@code peek} за концом потока отдаёт {@code EOF},
+     * а он не имя и не пропуск.
+     */
+    private boolean forEachAhead() {
+        for (int offset = 0; ; offset += 2) {
+            TokenType type = cursor.peek(offset).type();
+            if (type != TokenType.WORD && type != TokenType.HOLE) {
+                return false;
+            }
+            TokenType next = cursor.peek(offset + 1).type();
+            if (next == TokenType.IN) {
+                return true;
+            }
+            if (next != TokenType.COMMA) {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Перебор: {@code for (item in cart) ...} и {@code for (i, tile in row) ...}.
+     * Открывающая скобка уже съедена, а форма уже опознана {@link #forEachAhead()}.
+     * <p>
+     * Имён бывает одно или два. Третье — ошибка, и место у неё на самом лишнем имени,
+     * а не на всём цикле: человеку надо показать, что именно убрать.
+     */
     private Stmt forEachStatement(Token keyword) {
-        Token name = cursor.advance(); // имя переменной цикла
-        cursor.advance();              // in
+        List<UnpackTarget> names = new ArrayList<>(2);
+        Token extra = null;
+        while (!cursor.check(TokenType.IN)) {
+            Token name = cursor.advance(); // имя переменной цикла или пропуск
+            if (names.size() < ForEachStmt.MAX_NAMES) {
+                names.add(name.type() == TokenType.HOLE
+                        ? UnpackTarget.hole(name.span())
+                        : UnpackTarget.value(new VariableExpr(name.text(), name.span())));
+            } else if (extra == null) {
+                extra = name;
+            }
+            if (!cursor.match(TokenType.COMMA)) {
+                break;
+            }
+        }
+        cursor.expect(TokenType.IN, "'in' после имён переменных цикла");
         Expr iterable = expression(0);
         cursor.expect(TokenType.RPAREN, "закрывающую скобку ')' после перебираемого значения");
         Stmt body = loopBody("цикла 'for'");
-        return new ForEachStmt(name.text(), name.span(), iterable, body, keyword.span().to(body.span()));
+        Span span = keyword.span().to(body.span());
+        if (extra != null) {
+            diagnostics.error(extra.span(), "в 'for' бывает одно имя (значение) или два"
+                    + " (ключ и значение), а здесь больше");
+            return new ErrorStmt(span);
+        }
+        return new ForEachStmt(names, iterable, body, span);
     }
 
     private Stmt breakStatement() {
@@ -1345,6 +1711,15 @@ public final class Parser {
             case WORD -> {
                 cursor.advance();
                 return new VariableExpr(token.text(), token.span());
+            }
+            // Пропуск ничего не хранит, поэтому и прочитать его нельзя. Ошибка здесь,
+            // при разборе, а не при выполнении: место известно прямо по тексту, и ждать
+            // прохода до этой строки незачем.
+            case HOLE -> {
+                cursor.advance();
+                diagnostics.error(token.span(),
+                        "'_' — это пропуск, а не переменная: читать его нельзя");
+                return new ErrorExpr(token.span());
             }
             // this и super — обычные имена, а не спецформы: их можно положить
             // в переменную и передать. Особенное в них только одно — где они допустимы,

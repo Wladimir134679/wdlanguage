@@ -19,6 +19,13 @@ public interface StmtVisitor<R, C> {
 
     R visitAssign(AssignStmt stmt, C context);
 
+    /**
+     * Распаковка: {@code x, y = *point}. Отдельно от присваивания, потому что
+     * целей здесь список, у целей есть виды, а значения ещё предстоит достать
+     * из источника — см. {@link UnpackStmt}.
+     */
+    R visitUnpack(UnpackStmt stmt, C context);
+
     R visitBlock(BlockStmt stmt, C context);
 
     R visitIf(IfStmt stmt, C context);
@@ -81,6 +88,7 @@ public interface StmtVisitor<R, C> {
         return switch (stmt) {
             case ExprStmt s -> visitExprStmt(s, context);
             case AssignStmt s -> visitAssign(s, context);
+            case UnpackStmt s -> visitUnpack(s, context);
             case BlockStmt s -> visitBlock(s, context);
             case IfStmt s -> visitIf(s, context);
             case WhileStmt s -> visitWhile(s, context);

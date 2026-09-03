@@ -1,6 +1,8 @@
 package ru.wds.wdl.parser;
 
 import ru.wds.wdl.ast.expr.*;
+import ru.wds.wdl.ast.stmt.UnpackStmt;
+import ru.wds.wdl.ast.stmt.UnpackTarget;
 import ru.wds.wdl.ast.visitor.ExprVisitor;
 
 import java.util.List;
@@ -126,6 +128,45 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
     /** Отдельный аргумент — для тестов, которым нужен один элемент списка. */
     static String print(Argument argument) {
         return print(argument.value());
+    }
+
+    /**
+     * Распаковка: {@code x, y = *point} → {@code (unpack * (x y) ((* point)))}.
+     * <p>
+     * Вид записи стоит вторым словом, потому что в тексте эти три формы различаются
+     * одной звёздочкой, а деревья у них разные: сравнивать их надо так, чтобы разница
+     * бросалась в глаза и в ожидании теста.
+     */
+    static String print(UnpackStmt stmt) {
+        SExprPrinter printer = new SExprPrinter();
+        StringBuilder sb = new StringBuilder("(unpack ").append(switch (stmt.style()) {
+            case POSITIONAL -> "*";
+            case NAMED -> "**";
+            case PAIRWISE -> "пары";
+        }).append(" (");
+        for (int i = 0; i < stmt.targets().size(); i++) {
+            sb.append(i == 0 ? "" : " ").append(printer.target(stmt.targets().get(i)));
+        }
+        sb.append(") (");
+        for (int i = 0; i < stmt.sources().size(); i++) {
+            sb.append(i == 0 ? "" : " ").append(printer.source(stmt.sources().get(i)));
+        }
+        return sb.append("))").toString();
+    }
+
+    private String target(UnpackTarget target) {
+        return switch (target.kind()) {
+            case VALUE -> visit(target.target(), null);
+            case HOLE -> "_";
+            case REST -> "(* " + (target.writes() ? visit(target.target(), null) : "_") + ")";
+            case REST_NAMED -> "(** " + (target.writes() ? visit(target.target(), null) : "_") + ")";
+        };
+    }
+
+    private String source(Argument source) {
+        StringBuilder sb = new StringBuilder();
+        arguments(sb, List.of(source), null);
+        return sb.toString().strip();
     }
 
     @Override

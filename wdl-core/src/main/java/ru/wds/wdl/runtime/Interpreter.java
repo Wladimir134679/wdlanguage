@@ -283,6 +283,50 @@ public final class Interpreter
     }
 
     /**
+     * Распаковка: {@code x, y = *point}, {@code host, port, **rest = **config},
+     * {@code a, b = b, a}.
+     * <p>
+     * <b>Порядок здесь и есть смысл конструкции.</b> Сначала вычисляется правая часть,
+     * потом значения раскладываются по целям — и только после этого начинается запись.
+     * Отсюда само собой получается и обмен {@code a, b = b, a}, и то, что ошибка
+     * на середине не оставляет половину имён перезаписанными: писать нечего, пока
+     * не готово всё.
+     * <p>
+     * Источник вычисляется <b>ровно один раз</b>: маркер относится ко всему выражению,
+     * а не к первому его звену, поэтому {@code x, y = *reacts[i].center()} — это один
+     * вызов, а не по вызову на имя.
+     * <p>
+     * Что значат {@code *} и {@code **}, знает {@link Unpack} и только он. Куда писать
+     * — {@link #resolvePlace}, тот же самый, что у обычного присваивания: своего
+     * понятия цели у распаковки нет.
+     */
+    @Override
+    public Void visitUnpack(UnpackStmt stmt, ExecutionContext context) {
+        List<Value> sources = new ArrayList<>(stmt.sources().size());
+        for (Argument source : stmt.sources()) {
+            sources.add(valueOf(source.value(), context));
+        }
+        List<Value> values = switch (stmt.style()) {
+            case POSITIONAL -> Unpack.positional(stmt, sources.get(0), stmt.source().span());
+            case NAMED -> Unpack.named(stmt, sources.get(0), stmt.source().span());
+            case PAIRWISE -> Unpack.pairwise(stmt, sources, stmt.span());
+        };
+
+        // Места считаются отдельным проходом и тоже до записи: 'grid[next()], x = *pair'
+        // обязано звать next() один раз и до того, как что-нибудь изменится.
+        List<Place> places = new ArrayList<>(stmt.targets().size());
+        for (UnpackTarget target : stmt.targets()) {
+            places.add(target.writes() ? resolvePlace(target.target(), context) : null);
+        }
+        for (int i = 0; i < places.size(); i++) {
+            if (places.get(i) != null) {
+                places.get(i).write(values.get(i));
+            }
+        }
+        return null;
+    }
+
+    /**
      * Блок создаёт область видимости — как и вызов функции ({@link UserFunction}),
      * и по тому же самому правилу.
      * <p>
@@ -390,7 +434,7 @@ public final class Interpreter
             case ArrayValue array -> {
                 int size = array.size();
                 for (int i = 0; i < size && i < array.size(); i++) {
-                    if (iteration(stmt, context, array.get(i))) {
+                    if (iteration(stmt, context, IntValue.of(i), array.get(i))) {
                         return null;
                     }
                 }
@@ -398,14 +442,20 @@ public final class Interpreter
             case StringValue string -> {
                 String text = string.value();
                 for (int i = 0; i < text.length(); i++) {
-                    if (iteration(stmt, context, StringValue.of(String.valueOf(text.charAt(i))))) {
+                    if (iteration(stmt, context, IntValue.of(i),
+                            StringValue.of(String.valueOf(text.charAt(i))))) {
                         return null;
                     }
                 }
             }
+            // У объекта с одним именем перебираются ключи, а не значения, — так было
+            // и так остаётся: значение по ключу всегда рядом (o[k]), а обратной
+            // операции не существует. Второе имя ничего в этом не меняет, оно лишь
+            // избавляет от второй строки: 'for (k, v in o)' — это тот же ключ плюс o[k].
             case MapValue object -> {
                 for (Value key : List.copyOf(object.entries().keySet())) {
-                    if (iteration(stmt, context, key)) {
+                    if (iteration(stmt, context, key,
+                            stmt.withKey() ? object.get(key) : key)) {
                         return null;
                     }
                 }
@@ -414,6 +464,13 @@ public final class Interpreter
             // целыми: у '0.5..2.5' нет ответа на вопрос, какие числа он содержит
             // «по одному», а выдумывать его за автора незачем.
             case RangeValue range -> {
+                if (stmt.withKey()) {
+                    // Первое имя — то, чем обращаются, а диапазон по ключу не читается
+                    // вовсе: у него только члены. Номер прохода здесь и есть значение.
+                    throw new WdlRuntimeError(ErrorKind.TYPE, stmt.key().span(),
+                            "у диапазона нет ключа: номер прохода здесь и есть значение —"
+                                    + " оставьте одно имя, '" + stmt.value() + "'");
+                }
                 if (!range.from().isInteger() || !range.to().isInteger()) {
                     throw new WdlRuntimeError(ErrorKind.TYPE, stmt.iterable().span(),
                             "перебрать можно диапазон с целыми границами, а здесь " + range
@@ -424,7 +481,7 @@ public final class Interpreter
                 // Пустой диапазон (5..1) даёт ноль проходов — это и есть ответ
                 // для 'for (i in 0..n - 1)' при n == 0.
                 for (long i = range.from().asLong(); i <= to; i++) {
-                    if (iteration(stmt, context, IntValue.of(i))) {
+                    if (iteration(stmt, context, null, IntValue.of(i))) {
                         return null;
                     }
                     if (i == Long.MAX_VALUE) {
@@ -1455,11 +1512,34 @@ public final class Interpreter
      *
      * @return {@code true}, если цикл прерван
      */
-    private boolean iteration(ForEachStmt stmt, ExecutionContext context, Value element) {
+    /**
+     * Один проход перебора.
+     * <p>
+     * Область — своя на каждый проход, и это не мелочь: замыкание, созданное в теле,
+     * захватывает значение <b>своего</b> прохода, а не последнее. Пропуск {@code _}
+     * имени не заводит вовсе — ни ключ, ни значение.
+     *
+     * @param key     чем обращаются к источнику: номер, ключ объекта; у диапазона
+     *                ключа нет, и сюда приходит {@code null} — но и второго имени
+     *                там не бывает, это проверено выше
+     * @param element что лежит по этому ключу
+     */
+    private boolean iteration(ForEachStmt stmt, ExecutionContext context,
+                              Value key, Value element) {
         checkInterrupted(stmt.span());
         ExecutionContext step = context.nested();
-        step.scope().define(stmt.name(), element);
+        if (stmt.withKey()) {
+            define(step, stmt.key(), key);
+        }
+        define(step, stmt.value(), element);
         return runLoopBody(stmt.body(), step);
+    }
+
+    /** Заводит переменную прохода; пропуск не заводит ничего. */
+    private static void define(ExecutionContext step, UnpackTarget name, Value value) {
+        if (name.writes()) {
+            step.scope().define(((VariableExpr) name.target()).name(), value);
+        }
     }
 
     /**

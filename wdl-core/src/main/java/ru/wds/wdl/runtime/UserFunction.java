@@ -115,9 +115,13 @@ public final class UserFunction implements FunctionValue {
     private static Signature signatureOf(FunctionExpr declaration) {
         List<Signature.Param> params = new ArrayList<>(declaration.params().size());
         for (FunctionExpr.Param param : declaration.params()) {
-            params.add(param.hasDefault()
-                    ? Signature.Param.lazy(param.name())
-                    : Signature.Param.required(param.name()));
+            if (param.isHole()) {
+                params.add(Signature.Param.hole());
+            } else {
+                params.add(param.hasDefault()
+                        ? Signature.Param.lazy(param.name())
+                        : Signature.Param.required(param.name()));
+            }
         }
         return Signature.of(params,
                 declaration.rest() == null ? null : declaration.rest().name(),
@@ -242,6 +246,11 @@ public final class UserFunction implements FunctionValue {
             // Пропуск бывает и в середине — именованный вызов может задать третий
             // параметр, не задав второго, — поэтому спрашивается «заполнена ли позиция»,
             // а не «хватило ли длины списка».
+            // Дырка '_' позицию занимает, но в область не кладётся: тело её не видит,
+            // и повторов дырок поэтому бывает сколько угодно — им нечем столкнуться.
+            if (params.get(i).isHole()) {
+                continue;
+            }
             local.define(params.get(i).name(), arguments.has(i)
                     ? arguments.get(i)
                     // Значение по умолчанию считается заново на каждом вызове: снимок,

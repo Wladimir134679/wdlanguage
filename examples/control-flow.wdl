@@ -59,6 +59,20 @@ println()
 settings = {color: "белый", size: 10}
 for (key in settings) println(key, " = ", settings[key])
 
+// Второе имя в 'for' — это ключ и значение, а не распаковка элемента. Первое имя
+// всегда то, ЧЕМ обращаются: settings[key], cart[i], "wdl"[i] — отсюда и то, что
+// объект даёт ключ, а массив и строка номер.
+for (key, value in settings) println(key, " = ", value)
+for (i, item in cart) println(i, ": ", item.name)
+for (i, letter in "wdl") println(i, letter)
+
+// Ключ не нужен — на его месте пропуск '_'
+for (_, value in settings) print(value, " ")
+println()
+
+// У диапазона ключа нет: номер прохода там и есть значение, поэтому
+// for (i, n in 0..10) — ошибка, а не «индекс и число»
+
 // break прерывает цикл, continue — только текущий проход
 for (item in cart) {
     if (item.price < 5) continue

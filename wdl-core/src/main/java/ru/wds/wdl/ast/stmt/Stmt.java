@@ -16,7 +16,7 @@ import ru.wds.wdl.ast.visitor.StmtVisitor;
  * который имел в виду {@code ==}».
  */
 public sealed interface Stmt extends Node
-        permits ExprStmt, AssignStmt, BlockStmt, IfStmt, WhileStmt, ForStmt, ForEachStmt,
+        permits ExprStmt, AssignStmt, UnpackStmt, BlockStmt, IfStmt, WhileStmt, ForStmt, ForEachStmt,
                 BreakStmt, ContinueStmt, ConstDeclStmt, DefDeclStmt, ClassDeclStmt, TraitDeclStmt,
                 ImportStmt, ReturnStmt, YieldStmt, ThrowStmt, TryStmt, DeferStmt, UseStmt,
                 DecoratedStmt, ExtendStmt, ErrorStmt {

@@ -302,6 +302,19 @@ public final class NativeClass implements ClassValue {
     }
 
     @Override
+    public List<String> fieldNames() {
+        // Только хранимые: параметр без поля (см. Field#stored) в объекте не лежит,
+        // и распаковка по позициям взяла бы у него пустоту вместо значения.
+        List<String> names = new ArrayList<>(fields.size());
+        for (Field field : fields) {
+            if (field.stored) {
+                names.add(field.name);
+            }
+        }
+        return List.copyOf(names);
+    }
+
+    @Override
     public List<String> propertyNames() {
         return List.copyOf(properties.keySet());
     }

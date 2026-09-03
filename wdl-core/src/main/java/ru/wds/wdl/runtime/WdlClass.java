@@ -162,6 +162,13 @@ final class WdlClass implements ClassValue {
         return List.copyOf(properties.keySet());
     }
 
+    @Override
+    public List<String> fieldNames() {
+        // Таблица формы уже плоская и уже в объявленном порядке — «родитель, трейты,
+        // сам класс», — а дырки в неё не попали: у них нет имени. См. resolve.ClassShape.
+        return List.copyOf(shape.fields().keySet());
+    }
+
     ClassShape shape() {
         return shape;
     }
@@ -462,7 +469,11 @@ final class WdlClass implements ClassValue {
             values[i] = arguments.has(i)
                     ? arguments.get(i)
                     : interpreter.visit(param.defaultValue(), inner);
-            local.define(param.name(), values[i]);
+            // Дырка позицию заняла, но имени не завела: ни поля (см. ClassShape),
+            // ни переменной, видной конструктору.
+            if (!param.isHole()) {
+                local.define(param.name(), values[i]);
+            }
         }
         return values;
     }

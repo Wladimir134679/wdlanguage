@@ -233,6 +233,13 @@ public final class Lexer {
             pos++;
         }
         String word = text.substring(start, pos);
+        // Пропуск читается здесь, а не таблицей ключевых слов: '_' пишется буквами
+        // имени, но именем не является, и в OPERATORS ему тоже не место. Проверка
+        // одна на весь лексер — ровно потому, что таких слов ровно одно.
+        if (word.equals(TokenType.HOLE.text())) {
+            add(TokenType.HOLE, start);
+            return;
+        }
         TokenType keyword = KEYWORDS.get(word);
         if (keyword != null) {
             add(keyword, start);

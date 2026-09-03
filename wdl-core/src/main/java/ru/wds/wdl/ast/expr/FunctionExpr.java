@@ -120,12 +120,25 @@ public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifie
      * отчего общий изменяемый список копит значения между вызовами. Массивы и объекты
      * здесь тоже изменяемые, так что снимок значения принёс бы ту же ловушку — да ещё
      * и в виде изменяемого состояния внутри узла дерева, который обязан оставаться данными.
+     * <p>
+     * <b>Параметр-дырка</b> {@code _} — тот же {@code Param} с именем {@link #HOLE},
+     * а не отдельный вид. Отдельным он был бы, если бы у него было своё поведение;
+     * его нет: дырка так же занимает позицию, так же считается в
+     * {@linkplain ru.wds.wdl.value.Arity числе аргументов} и так же принимает значение.
+     * Отличие ровно одно и целиком отрицательное — имени у неё нет, поэтому в область
+     * она не кладётся, полем класса не становится и по имени её не передать.
+     * Спутать дырку с обычным именем нельзя по построению: {@code _} лексер отдаёт
+     * {@link ru.wds.wdl.lexer.TokenType#HOLE}, и в {@code Param} такое имя может
+     * поставить только разбор дырки.
      *
-     * @param name         имя параметра
+     * @param name         имя параметра или {@link #HOLE} у дырки
      * @param defaultValue значение по умолчанию или {@code null}, если параметр обязателен
      * @param span         место имени в исходнике
      */
     public record Param(String name, Expr defaultValue, Span span) {
+
+        /** Имя параметра-дырки. Обычным именем оно быть не может — см. javadoc записи. */
+        public static final String HOLE = "_";
 
         public Param {
             Objects.requireNonNull(name, "name");
@@ -135,6 +148,16 @@ public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifie
         /** Обязательный параметр — без значения по умолчанию. */
         public Param(String name, Span span) {
             this(name, null, span);
+        }
+
+        /** Параметр-дырка: {@code def onClick(_, event)}. Значения по умолчанию у неё нет. */
+        public static Param hole(Span span) {
+            return new Param(HOLE, null, span);
+        }
+
+        /** Дырка ли это — то есть надо ли забыть значение сразу после связывания. */
+        public boolean isHole() {
+            return HOLE.equals(name);
         }
 
         public boolean hasDefault() {

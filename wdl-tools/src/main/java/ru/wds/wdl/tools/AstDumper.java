@@ -67,6 +67,23 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         return visit(stmt.value(), depth + 1);
     }
 
+    /**
+     * Распаковка: вид записи виден отдельной строкой, потому что {@code x, y = *v},
+     * {@code x, y = **v} и {@code x, y = a, b} — три разных дерева при почти
+     * одинаковом тексте.
+     */
+    @Override
+    public Void visitUnpack(UnpackStmt stmt, Integer depth) {
+        line(depth, "распаковка " + switch (stmt.style()) {
+            case POSITIONAL -> "по позициям '*'";
+            case NAMED -> "по именам '**'";
+            case PAIRWISE -> "попарно";
+        } + ", целей: " + stmt.targets().size(), stmt.span());
+        stmt.targets().forEach(target -> line(depth + 1, "цель " + target, target.span()));
+        stmt.sources().forEach(source -> visit(source.value(), depth + 1));
+        return null;
+    }
+
     @Override
     public Void visitBlock(BlockStmt stmt, Integer depth) {
         line(depth, "блок, инструкций: " + stmt.statements().size()
@@ -112,7 +129,9 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
 
     @Override
     public Void visitForEach(ForEachStmt stmt, Integer depth) {
-        line(depth, "перебор 'for ... in', переменная " + stmt.name(), stmt.span());
+        line(depth, "перебор 'for ... in', " + (stmt.withKey()
+                ? "ключ " + stmt.key() + ", значение " + stmt.value()
+                : "переменная " + stmt.value()), stmt.span());
         visit(stmt.iterable(), depth + 1);
         return visit(stmt.body(), depth + 1);
     }

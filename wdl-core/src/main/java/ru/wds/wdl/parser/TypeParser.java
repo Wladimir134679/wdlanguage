@@ -807,7 +807,7 @@ final class TypeParser {
 
     /**
      * Список параметров, возможно со значениями по умолчанию и остатками:
-     * {@code (a, b = 10, *args, **named)}.
+     * {@code (a, b = 10, *args, **named)}, а также с пропусками: {@code (_, event)}.
      * Запятая после последнего разрешена — как в массивах и аргументах.
      *
      * @param callSignature задаёт ли список число аргументов вызова или создания.
@@ -834,6 +834,8 @@ final class TypeParser {
                 } else if (declared != null) {
                     rest = declared;
                 }
+            } else if (cursor.check(TokenType.HOLE)) {
+                addHole(params, cursor.advance(), callSignature, rest, namedRest);
             } else if (cursor.check(TokenType.WORD)) {
                 Token name = cursor.advance();
                 // Значение по умолчанию — обычное выражение, а не литерал: запятая
@@ -906,7 +908,7 @@ final class TypeParser {
             return null;
         }
         for (FunctionExpr.Param existing : params) {
-            if (existing.name().equals(name.text())) {
+            if (!existing.isHole() && existing.name().equals(name.text())) {
                 diagnostics.error(name.span(), "параметр '" + name.text() + "' уже объявлен");
                 return null;
             }
@@ -933,11 +935,53 @@ final class TypeParser {
      * Число аргументов при этом остаётся одним отрезком ({@link ru.wds.wdl.value.Arity})
      * — до тех пор, пока не объявлен {@code *args}.
      */
+    /**
+     * Параметр-дырка: {@code def onClick(_, event)}.
+     * <p>
+     * Позицию она занимает наравне с обычным параметром — иначе обработчик, чью
+     * сигнатуру диктует не автор, дырку и не выразил бы, — а вот имени у неё нет,
+     * и отсюда все три отличия от {@link #addParameter}: одноимённость не проверяется
+     * (повторов дырок бывает сколько угодно), значение по умолчанию запрещено
+     * (нечему умолчаться: значение всё равно выбрасывается), полем класса дырка
+     * не становится ({@code resolve.ClassShape}).
+     * <p>
+     * В заголовке трейта дырка запрещена, и это не тот же запрет, что у остатка.
+     * Там параметр — не позиция, а поле или требование к классу; дырка же и есть
+     * «позиция без имени», то есть ровно то, чего в заголовке трейта не бывает.
+     */
+    private void addHole(List<FunctionExpr.Param> params, Token hole, boolean callSignature,
+                         FunctionExpr.Rest rest, FunctionExpr.Rest namedRest) {
+        if (cursor.match(TokenType.ASSIGN)) {
+            // Выражение всё равно разбирается — по той же причине, что у остатка:
+            // иначе список порвётся и к одной ошибке добавится вторая.
+            parser.expression(0);
+            diagnostics.error(hole.span(), "у пропуска '_' не может быть значения"
+                    + " по умолчанию: значение дырки всё равно выбрасывается");
+        }
+        if (!callSignature) {
+            diagnostics.error(hole.span(), "в заголовке трейта пропуск '_' не имеет смысла:"
+                    + " параметр там — это поле или требование к классу, а у дырки нет имени");
+            return;
+        }
+        if (rest != null || namedRest != null) {
+            FunctionExpr.Rest after = rest != null ? rest : namedRest;
+            String stars = rest != null ? "*" : "**";
+            diagnostics.error(hole.span(), "пропуск '_' не может идти после остаточного"
+                    + " параметра '" + stars + after.name() + "'");
+            return;
+        }
+        if (!params.isEmpty() && params.get(params.size() - 1).hasDefault()) {
+            diagnostics.error(hole.span(), "пропуск '_' без значения по умолчанию"
+                    + " не может идти после параметра со значением по умолчанию");
+        }
+        params.add(FunctionExpr.Param.hole(hole.span()));
+    }
+
     private void addParameter(List<FunctionExpr.Param> params, Token name, Expr defaultValue,
                               boolean callSignature, FunctionExpr.Rest rest,
                               FunctionExpr.Rest namedRest) {
         for (FunctionExpr.Param existing : params) {
-            if (existing.name().equals(name.text())) {
+            if (!existing.isHole() && existing.name().equals(name.text())) {
                 diagnostics.error(name.span(), "параметр '" + name.text() + "' уже объявлен");
                 return;
             }
