@@ -1,6 +1,6 @@
 package ru.wds.wdl.runtime.members;
 
-import ru.wds.wdl.runtime.Operations;
+import ru.wds.wdl.runtime.Overloading;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.MemberSet;
 import ru.wds.wdl.value.Value;
@@ -33,7 +33,7 @@ public final class RangeMembers {
                 .property("to", (receiver, context, span) -> self(receiver).to())
                 .property("empty", (receiver, context, span) -> BoolValue.of(self(receiver).empty()))
                 .method("contains", Arity.exactly(1), (receiver, context, arguments, span) ->
-                        BoolValue.of(Operations.contains(self(receiver), arguments.get(0), span)))
+                        BoolValue.of(Overloading.contains(self(receiver), arguments.get(0), span, context)))
                 .build();
     }
 

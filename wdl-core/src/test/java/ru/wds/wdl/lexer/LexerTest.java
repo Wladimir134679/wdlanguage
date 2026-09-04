@@ -245,6 +245,71 @@ class LexerTest {
                 tokens.stream().map(Token::type).toList());
     }
 
+    // --- имя в обратных кавычках --------------------------------------------
+
+    @Test
+    @DisplayName("обратные кавычки дают обычное имя с пометкой: текст без кавычек")
+    void quotedName() {
+        List<Token> tokens = lex("`+` `<=>` `hello world` `class`");
+
+        assertEquals(List.of(TokenType.WORD, TokenType.WORD, TokenType.WORD, TokenType.WORD),
+                tokens.stream().map(Token::type).toList());
+        assertEquals("+|<=>|hello world|class", texts("`+` `<=>` `hello world` `class`"));
+        assertTrue(tokens.stream().allMatch(Token::quoted), "все четыре имени в кавычках");
+        // Обычное имя пометки не несёт: по ней разбор и отличает объявление оператора.
+        assertFalse(lex("plus").get(0).quoted());
+    }
+
+    @Test
+    @DisplayName("место имени в кавычках включает сами кавычки")
+    void quotedNameSpan() {
+        Token name = lex("`+`").get(0);
+
+        assertEquals(0, name.span().start());
+        assertEquals(3, name.span().end());
+    }
+
+    @Test
+    @DisplayName("незакрытая кавычка обрывается на конце строки, следующая строка цела")
+    void unterminatedQuotedName() {
+        String code = "def `+ (right)\nb = 2";
+        Diagnostics diagnostics = diagnose(code);
+        List<Token> tokens = Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertTrue(diagnostics.renderAll().contains("не закрыта обратная кавычка"),
+                diagnostics.renderAll());
+        // Имени не появилось вовсе: дописывать за автора несуществующее имя значило бы
+        // породить вторую ошибку там, где виновата первая.
+        assertEquals(List.of(TokenType.DEF, TokenType.WORD, TokenType.ASSIGN,
+                        TokenType.INT, TokenType.EOF),
+                tokens.stream().map(Token::type).toList());
+    }
+
+    @Test
+    @DisplayName("пустое имя в кавычках — ошибка, но разбор идёт дальше")
+    void emptyQuotedName() {
+        String code = "`` b = 2";
+        Diagnostics diagnostics = diagnose(code);
+        List<Token> tokens = Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertTrue(diagnostics.renderAll().contains("пустое имя в обратных кавычках"),
+                diagnostics.renderAll());
+        assertEquals(List.of(TokenType.WORD, TokenType.ASSIGN, TokenType.INT, TokenType.EOF),
+                tokens.stream().map(Token::type).toList());
+    }
+
+    @Test
+    @DisplayName("одинокая кавычка в конце файла — та же ошибка, а не крах")
+    void danglingQuote() {
+        String code = "a = 1\n`";
+        Diagnostics diagnostics = diagnose(code);
+        List<Token> tokens = Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertTrue(diagnostics.renderAll().contains("не закрыта обратная кавычка"),
+                diagnostics.renderAll());
+        assertEquals(TokenType.EOF, tokens.get(tokens.size() - 1).type());
+    }
+
     @Test
     @DisplayName("каждая ошибка сообщается один раз, разбор идёт до конца файла")
     void collectsEveryError() {

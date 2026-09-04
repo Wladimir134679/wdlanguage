@@ -197,7 +197,7 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
         // не форму, а поведение — то есть не то, за что отвечает парсер.
         StringBuilder sb = new StringBuilder("(");
         expr.modifiers().forEach(modifier -> sb.append(modifier.text()).append('-'));
-        sb.append("def ").append(expr.title());
+        sb.append("def ").append(expr.writtenName());
         expr.params().forEach(param -> sb.append(' ').append(param.hasDefault()
                 ? "(" + param.name() + " " + visit(param.defaultValue(), context) + ")"
                 : param.name()));

@@ -29,6 +29,15 @@ import ru.wds.wdl.value.Value;
  * переводит результат в {@code double}: молча заворачивать разряды хуже, чем
  * потерять точность, потому что заворот не видно, а потерю точности видно.
  * <p>
+ * <b>Каждая операция умеет ответить «не умею», не бросая.</b> Это
+ * {@link #tryBinary} и {@link #tryUnary}: они возвращают {@code null} ровно там,
+ * где иначе полетела бы ошибка <i>типов</i>, — и никогда там, где ошибка честная.
+ * {@code p / 0} по-прежнему говорит «деление на ноль», а не «у Point нет оператора
+ * '/'»: ловить бросок целиком было бы дешевле в коде и хуже для читателя, потому что
+ * настоящая причина спряталась бы за общим ответом. На этой паре стоит перегрузка
+ * операторов: член у класса спрашивается там, где ядро ответило {@code null}, —
+ * то есть ровно там, где оно и раньше сдавалось.
+ * <p>
  * Методы статические и чистые: состояния у операций нет.
  */
 public final class Operations {
@@ -42,27 +51,41 @@ public final class Operations {
      * принимается до вычисления, а здесь оба значения уже готовы.
      */
     public static Value binary(BinaryOp op, Value left, Value right, Span span) {
+        Value result = tryBinary(op, left, right, span);
+        return result != null ? result : unsupported(op, left, right, span);
+    }
+
+    /**
+     * То же самое, но с ответом {@code null} вместо ошибки типов.
+     * <p>
+     * {@code null} значит ровно одно: <b>ядро для таких типов операции не знает</b>.
+     * Всё, что ядро знает и на чём честно останавливается, — деление на ноль,
+     * побитовая операция над вещественным, поиск строки в строке по числу — бросается
+     * отсюда так же, как из {@link #binary}. Разница между «не умею» и «умею, и вот
+     * что не так» и есть причина, по которой этот метод отвечает значением, а не
+     * ловит собственное исключение.
+     */
+    public static Value tryBinary(BinaryOp op, Value left, Value right, Span span) {
         return switch (op) {
-            case ADD -> add(left, right, span);
-            case SUBTRACT -> arithmetic(op, left, right, span);
-            case MULTIPLY -> arithmetic(op, left, right, span);
+            case ADD -> add(left, right);
+            case SUBTRACT, MULTIPLY -> arithmetic(op, left, right);
             case DIVIDE -> divide(left, right, span);
             case REMAINDER -> remainder(left, right, span);
 
             case EQUAL -> BoolValue.of(equal(left, right));
             case NOT_EQUAL -> BoolValue.of(!equal(left, right));
-            case LESS, LESS_EQUAL, GREATER, GREATER_EQUAL -> compare(op, left, right, span);
+            case LESS, LESS_EQUAL, GREATER, GREATER_EQUAL -> compare(op, left, right);
             case IS -> BoolValue.of(is(op, left, right, span));
             case NOT_IS -> BoolValue.of(!is(op, left, right, span));
 
             // Принадлежность: 'in' спрашивает у правого, 'has' — у левого, а отрицания
             // отличаются от них только знаком ответа. Реализация при этом одна.
-            case IN -> BoolValue.of(contains(right, left, span));
-            case NOT_IN -> BoolValue.of(!contains(right, left, span));
-            case HAS -> BoolValue.of(contains(left, right, span));
-            case NOT_HAS -> BoolValue.of(!contains(left, right, span));
+            case IN -> membership(right, left, span, false);
+            case NOT_IN -> membership(right, left, span, true);
+            case HAS -> membership(left, right, span, false);
+            case NOT_HAS -> membership(left, right, span, true);
 
-            case RANGE -> range(left, right, span);
+            case RANGE -> range(left, right);
 
             case BIT_AND, BIT_OR, BIT_XOR, SHIFT_LEFT, SHIFT_RIGHT, SHIFT_RIGHT_UNSIGNED ->
                     bitwise(op, left, right, span);
@@ -72,14 +95,52 @@ public final class Operations {
         };
     }
 
+    /**
+     * Ошибка «операция не применима к таким типам» — та же, что бросало ядро всегда.
+     * <p>
+     * Отдельным методом, потому что бросить её должен и тот, кто сперва спросил
+     * у значений оператор и не нашёл: сообщение обязано остаться прежним, а значит
+     * и собираться в одном месте.
+     */
+    public static Value unsupported(BinaryOp op, Value left, Value right, Span span) {
+        throw switch (op) {
+            case RANGE -> typeError(span, op, left, right, "границы диапазона — числа");
+            case BIT_AND, BIT_OR, BIT_XOR, SHIFT_LEFT, SHIFT_RIGHT, SHIFT_RIGHT_UNSIGNED ->
+                    typeError(span, op, left, right, "побитовые операции работают только с целыми числами");
+            case IN, NOT_IN -> notContainer(right, span);
+            case HAS, NOT_HAS -> notContainer(left, span);
+            default -> typeError(span, op, left, right);
+        };
+    }
+
     public static Value unary(UnaryOp op, Value value, Span span) {
+        Value result = tryUnary(op, value, span);
+        return result != null ? result : unsupported(op, value, span);
+    }
+
+    /** Унарная операция с ответом {@code null} вместо ошибки типов — см. {@link #tryBinary}. */
+    public static Value tryUnary(UnaryOp op, Value value, Span span) {
         return switch (op) {
-            case NEGATE -> negate(value, span);
-            case PLUS -> requireNumber(value, span, "унарный '+'");
+            case NEGATE -> negate(value);
+            case PLUS -> value instanceof NumberValue ? value : null;
             // Отрицание работает с любым значением: истинность определена для всех типов.
             case NOT -> BoolValue.of(!value.isTruthy());
-            case COMPLEMENT -> IntValue.of(~requireInteger(value, span, "'~'"));
+            case COMPLEMENT -> complement(value, span);
         };
+    }
+
+    /** Ошибка унарной операции — тем же текстом, каким она была всегда. */
+    public static Value unsupported(UnaryOp op, Value value, Span span) {
+        String what = switch (op) {
+            case NEGATE -> "унарный '-'";
+            case PLUS -> "унарный '+'";
+            case COMPLEMENT -> "'~'";
+            case NOT -> throw new IllegalArgumentException("'!' применим к любому значению");
+        };
+        throw new WdlRuntimeError(ErrorKind.TYPE, span, what
+                + (op == UnaryOp.COMPLEMENT ? " применим только к целым числам, а здесь "
+                        : " применим только к числам, а здесь ")
+                + value.type().title() + " (" + value + ")");
     }
 
     // --- сложение и прочая арифметика ----------------------------------------
@@ -88,10 +149,14 @@ public final class Operations {
      * Сложение — единственная операция с тремя разными смыслами, и порядок проверок
      * здесь важен. Числа складываются; если хоть один операнд строка — получается
      * конкатенация ({@code "итого: " + 5}); два массива дают новый массив.
-     * Всё остальное — ошибка: {@code null + 1} почти наверняка означает, что выше
-     * что-то пошло не так, и молчать об этом нельзя.
+     * Всё остальное ядру неизвестно: {@code null + 1} почти наверняка означает, что
+     * выше что-то пошло не так, и молчать об этом нельзя.
+     * <p>
+     * <b>Строка съедает {@code +} насовсем.</b> Ядро справляется с любым значением
+     * справа от строки, значит член {@code `+`} у класса строку никогда не увидит;
+     * своё представление — это {@code display}, а не оператор.
      */
-    private static Value add(Value left, Value right, Span span) {
+    private static Value add(Value left, Value right) {
         if (left instanceof NumberValue a && right instanceof NumberValue b) {
             if (a.isInteger() && b.isInteger()) {
                 try {
@@ -108,12 +173,13 @@ public final class Operations {
         if (left instanceof ArrayValue a && right instanceof ArrayValue b) {
             return ArrayValue.concat(a, b);
         }
-        throw typeError(span, BinaryOp.ADD, left, right);
+        return null;
     }
 
-    private static Value arithmetic(BinaryOp op, Value left, Value right, Span span) {
-        NumberValue a = number(left, right, op, span, true);
-        NumberValue b = number(left, right, op, span, false);
+    private static Value arithmetic(BinaryOp op, Value left, Value right) {
+        if (!(left instanceof NumberValue a) || !(right instanceof NumberValue b)) {
+            return null;
+        }
         if (a.isInteger() && b.isInteger()) {
             try {
                 long x = a.asLong();
@@ -139,10 +205,14 @@ public final class Operations {
      * <p>
      * Деление на ноль — всегда ошибка, в том числе для вещественных: {@code inf}
      * в середине расчёта обнаруживается через десяток строк и уже без объяснения причины.
+     * <b>Бросается она и отсюда</b>: ноль — это не «ядро не умеет делить такие типы»,
+     * и превращать его в вопрос «а нет ли у класса оператора '/'» значило бы спрятать
+     * настоящую причину.
      */
     private static Value divide(Value left, Value right, Span span) {
-        NumberValue a = number(left, right, BinaryOp.DIVIDE, span, true);
-        NumberValue b = number(left, right, BinaryOp.DIVIDE, span, false);
+        if (!(left instanceof NumberValue a) || !(right instanceof NumberValue b)) {
+            return null;
+        }
         if (a.isInteger() && b.isInteger()) {
             long x = a.asLong();
             long y = b.asLong();
@@ -163,8 +233,9 @@ public final class Operations {
     }
 
     private static Value remainder(Value left, Value right, Span span) {
-        NumberValue a = number(left, right, BinaryOp.REMAINDER, span, true);
-        NumberValue b = number(left, right, BinaryOp.REMAINDER, span, false);
+        if (!(left instanceof NumberValue a) || !(right instanceof NumberValue b)) {
+            return null;
+        }
         if (b.asDouble() == 0.0) {
             throw new WdlRuntimeError(ErrorKind.ARITHMETIC, span, "остаток от деления на ноль");
         }
@@ -174,8 +245,10 @@ public final class Operations {
         return FloatValue.of(a.asDouble() % b.asDouble());
     }
 
-    private static Value negate(Value value, Span span) {
-        NumberValue number = requireNumberValue(value, span, "унарный '-'");
+    private static Value negate(Value value) {
+        if (!(value instanceof NumberValue number)) {
+            return null;
+        }
         if (number.isInteger()) {
             try {
                 return IntValue.of(Math.negateExact(number.asLong()));
@@ -184,6 +257,18 @@ public final class Operations {
             }
         }
         return FloatValue.of(-number.asDouble());
+    }
+
+    /**
+     * Побитовое дополнение. Не число — ядро не умеет ({@code null}); число, но
+     * вещественное — умеет и отказывает, называя причину: отбрасывать дробную часть
+     * молча здесь хуже всего.
+     */
+    private static Value complement(Value value, Span span) {
+        if (!(value instanceof NumberValue number)) {
+            return null;
+        }
+        return IntValue.of(~requireInteger(number, span, "'~'"));
     }
 
     // --- сравнения -----------------------------------------------------------
@@ -209,12 +294,15 @@ public final class Operations {
 
     /**
      * Упорядочивание. Сравнивать можно числа между собой и строки между собой;
-     * всё прочее — ошибка. Строки сравниваются по кодовым точкам: это предсказуемо
-     * и не зависит от локали, а сортировка по правилам языка — задача стандартной
-     * библиотеки, где можно указать, какого именно языка.
+     * всё прочее ядру неизвестно. Строки сравниваются по кодовым точкам: это
+     * предсказуемо и не зависит от локали, а сортировка по правилам языка — задача
+     * стандартной библиотеки, где можно указать, какого именно языка.
      */
-    private static Value compare(BinaryOp op, Value left, Value right, Span span) {
-        int result = order(op, left, right, span);
+    private static Value compare(BinaryOp op, Value left, Value right) {
+        Integer result = ordering(left, right);
+        if (result == null) {
+            return null;
+        }
         return BoolValue.of(switch (op) {
             case LESS -> result < 0;
             case LESS_EQUAL -> result <= 0;
@@ -234,10 +322,15 @@ public final class Operations {
      * такое расхождение нечем.
      */
     public static int order(Value left, Value right, Span span) {
-        return order(BinaryOp.LESS, left, right, span);
+        Integer result = ordering(left, right);
+        if (result == null) {
+            throw typeError(span, BinaryOp.LESS, left, right);
+        }
+        return result;
     }
 
-    private static int order(BinaryOp op, Value left, Value right, Span span) {
+    /** Порядок или {@code null}, если ядро такие значения упорядочивать не умеет. */
+    public static Integer ordering(Value left, Value right) {
         if (left instanceof NumberValue a && right instanceof NumberValue b) {
             return (a.isInteger() && b.isInteger())
                     ? Long.compare(a.asLong(), b.asLong())
@@ -246,7 +339,7 @@ public final class Operations {
         if (left instanceof StringValue a && right instanceof StringValue b) {
             return a.value().compareTo(b.value());
         }
-        throw typeError(span, op, left, right);
+        return null;
     }
 
     /**
@@ -265,6 +358,8 @@ public final class Operations {
      * инструкцией {@code instanceof}. Так у оператора остаётся ровно один механизм —
      * не два (класс и тип), — и чужая реализация {@code ClassValue}, которую напишет
      * приложение, отвечает на {@code is} по-своему, не трогая ни этот метод, ни язык.
+     * Отсюда же следует, что {@code is} не перегружается: механизм расширения у него
+     * уже есть, и второй заводить незачем.
      */
     private static boolean is(BinaryOp op, Value left, Value right, Span span) {
         return switch (right) {
@@ -283,9 +378,9 @@ public final class Operations {
      * осмысленно, но порядок строк зависит от того, о чём спросить, и молчаливого
      * ответа тут быть не должно.
      */
-    private static Value range(Value left, Value right, Span span) {
+    private static Value range(Value left, Value right) {
         if (!(left instanceof NumberValue from) || !(right instanceof NumberValue to)) {
-            throw typeError(span, BinaryOp.RANGE, left, right, "границы диапазона — числа");
+            return null;
         }
         return RangeValue.of(from, to);
     }
@@ -310,6 +405,31 @@ public final class Operations {
      * @param item      что ищем
      */
     public static boolean contains(Value container, Value item, Span span) {
+        Boolean found = lookup(container, item, span);
+        if (found == null) {
+            throw notContainer(container, span);
+        }
+        return found;
+    }
+
+    /** Ответ оператора принадлежности или {@code null}, если контейнер ядру неизвестен. */
+    private static Value membership(Value container, Value item, Span span, boolean negated) {
+        Boolean found = lookup(container, item, span);
+        return found == null ? null : BoolValue.of(negated != found);
+    }
+
+    /**
+     * Поиск или {@code null} — «искать в таком ядро не умеет».
+     * <p>
+     * Неподходящий <b>предмет</b> при подходящем контейнере — ошибка, а не
+     * {@code null}: искать в строке число можно только по ошибке выше, и назвать
+     * её надо здесь, а не после безуспешного поиска члена.
+     */
+    public static Boolean tryContains(Value container, Value item, Span span) {
+        return lookup(container, item, span);
+    }
+
+    private static Boolean lookup(Value container, Value item, Span span) {
         return switch (container) {
             case ArrayValue array -> {
                 for (Value element : array.items()) {
@@ -340,10 +460,14 @@ public final class Operations {
                 }
                 yield range.contains(number);
             }
-            default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
-                    "искать можно в массиве, строке, объекте или диапазоне, а здесь "
-                            + container.type().title() + " (" + container + ")");
+            default -> null;
         };
+    }
+
+    private static WdlRuntimeError notContainer(Value container, Span span) {
+        return new WdlRuntimeError(ErrorKind.TYPE, span,
+                "искать можно в массиве, строке, объекте или диапазоне, а здесь "
+                        + container.type().title() + " (" + container + ")");
     }
 
     // --- биты ----------------------------------------------------------------
@@ -355,7 +479,7 @@ public final class Operations {
      */
     private static Value bitwise(BinaryOp op, Value left, Value right, Span span) {
         if (!(left instanceof NumberValue a) || !(right instanceof NumberValue b)) {
-            throw typeError(span, op, left, right, "побитовые операции работают только с целыми числами");
+            return null;
         }
         if (!a.isInteger() || !b.isInteger()) {
             // Оба операнда числа, и говорить «не применима к типам число и число» бессмысленно:
@@ -379,29 +503,9 @@ public final class Operations {
 
     // --- проверки и ошибки ---------------------------------------------------
 
-    private static NumberValue number(Value left, Value right, BinaryOp op, Span span, boolean wantLeft) {
-        Value value = wantLeft ? left : right;
-        if (value instanceof NumberValue number) {
-            return number;
-        }
-        throw typeError(span, op, left, right);
-    }
-
-    private static Value requireNumber(Value value, Span span, String what) {
-        return requireNumberValue(value, span, what);
-    }
-
-    private static NumberValue requireNumberValue(Value value, Span span, String what) {
-        if (value instanceof NumberValue number) {
-            return number;
-        }
-        throw new WdlRuntimeError(ErrorKind.TYPE, span, what + " применим только к числам, а здесь "
-                + value.type().title() + " (" + value + ")");
-    }
-
-    private static long requireInteger(Value value, Span span, String what) {
-        if (value instanceof NumberValue number && number.isInteger()) {
-            return number.asLong();
+    private static long requireInteger(NumberValue value, Span span, String what) {
+        if (value.isInteger()) {
+            return value.asLong();
         }
         throw new WdlRuntimeError(ErrorKind.TYPE, span, what + " применим только к целым числам, а здесь "
                 + value.type().title() + " (" + value + ")");

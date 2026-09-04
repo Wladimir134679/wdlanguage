@@ -72,8 +72,16 @@ public record TraitDeclStmt(
      *                 требованию не нужно — оно живёт в теле метода, которого здесь нет;
      *                 а вот число аргументов от него зависит: с остатком верхней границы
      *                 у него нет
+     * @param mirror   требуется ли зеркальный оператор: {@code mirror def `+`(left)}.
+     *                 Признаком, а не мангленным именем, — {@code name} обязан отражать
+     *                 текст, ровно как у {@link FunctionExpr}
      */
     public record Requirement(String name, List<FunctionExpr.Param> params, boolean variadic,
-                              Span span) {
+                              boolean mirror, Span span) {
+
+        /** Обычное требование: {@code def report()}. */
+        public Requirement(String name, List<FunctionExpr.Param> params, boolean variadic, Span span) {
+            this(name, params, variadic, false, span);
+        }
     }
 }

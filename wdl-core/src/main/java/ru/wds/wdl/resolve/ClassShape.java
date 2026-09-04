@@ -71,8 +71,11 @@ public final class ClassShape implements Shape {
             ownProperties.put(property.name(), new PropertySlot(property.name(), property, this));
         }
         place(collectedFields, collectedProperties, ownFields, ownProperties);
+        // Ключ — имя члена, а не написание: у зеркального оператора оно мангленное,
+        // и прямой '+' с зеркальным '+' занимают в таблице разные ячейки.
         for (FunctionExpr method : declaration.methods()) {
-            collectedMethods.put(method.name(), new MethodSlot(method.name(), method, this));
+            collectedMethods.put(method.memberName(),
+                    new MethodSlot(method.memberName(), method, this));
         }
         this.fields = Collections.unmodifiableMap(collectedFields);
         this.methods = Collections.unmodifiableMap(collectedMethods);

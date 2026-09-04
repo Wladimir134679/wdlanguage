@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.expr;
 
+import ru.wds.wdl.ast.op.Overloads;
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.source.Span;
 
@@ -70,6 +71,25 @@ public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifie
     /** Помечена ли функция {@code synchronized} — вопрос, который задают чаще всего. */
     public boolean isSynchronized() {
         return modifiers.contains(Modifier.SYNCHRONIZED);
+    }
+
+    /** Помечена ли функция {@code mirror}: оператор, получатель которого стоит справа. */
+    public boolean isMirror() {
+        return modifiers.contains(Modifier.MIRROR);
+    }
+
+    /**
+     * Имя, под которым член лежит в таблице методов.
+     * <p>
+     * Обычно это само имя. Мангленное оно у двух видов операторов: у зеркального
+     * ({@code `+`} и {@code mirror `+`} — разные члены одного класса) и у унарного
+     * ({@code def `-`()} рядом с {@code def `-`(right)} — тоже разные). Манглинг живёт
+     * одной функцией на весь проект ({@link Overloads#key}) именно поэтому: разойтись
+     * двум спискам правил не с чем, а {@link #name()} остаётся честным — таким,
+     * как в тексте.
+     */
+    public String memberName() {
+        return Overloads.key(name, isMirror(), params.isEmpty() && rest == null);
     }
 
     /** Собирает ли функция лишние аргументы — то есть безгранично ли число аргументов. */
@@ -173,6 +193,21 @@ public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifie
     /** Имя для сообщений: у анонимной — просто {@code def}. */
     public String title() {
         return name != null ? name : "def";
+    }
+
+    /**
+     * Как имя записано в исходнике: у оператора — в обратных кавычках.
+     * <p>
+     * Нужно тем, кто печатает дерево обратно — дамперу и форматтеру: {@code (def +)}
+     * и {@code (def `+`)} это разные записи, и вторая — та, которую человек написал.
+     * Флага в узле для этого не заводится: имя оператора не бывает обычным именем,
+     * лексер таких не выдаёт, поэтому ответ даёт сам список — {@link Overloads}.
+     */
+    public String writtenName() {
+        if (name == null) {
+            return "def";
+        }
+        return Overloads.isBinary(name) || Overloads.isUnary(name) ? "`" + name + "`" : name;
     }
 
     @Override

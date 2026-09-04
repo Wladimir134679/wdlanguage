@@ -276,7 +276,7 @@ public final class Interpreter
         Value value = valueOf(stmt.value(), context);
         if (stmt.op().isCompound()) {
             BinaryOp operation = stmt.op().base();
-            value = Operations.binary(operation, place.read(), value, stmt.span());
+            value = binary(operation, place.read(), value, stmt.span(), context);
         }
         place.write(value);
         return null;
@@ -1576,9 +1576,15 @@ public final class Interpreter
         return value;
     }
 
+    /**
+     * Унарная операция: ядро, потом член без параметров у самого значения.
+     * <p>
+     * Унарный отличается от бинарного арностью, а не именем, — {@code def `-`()}
+     * рядом с {@code def `-`(right)} законны и не мешают друг другу.
+     */
     @Override
     public Value visitUnary(UnaryExpr expr, ExecutionContext context) {
-        return Operations.unary(expr.op(), valueOf(expr.operand(), context), expr.span());
+        return Overloading.unary(expr.op(), valueOf(expr.operand(), context), expr.span(), context);
     }
 
     /**
@@ -1601,7 +1607,19 @@ public final class Interpreter
             return left.isTruthy() ? left : valueOf(expr.right(), context);
         }
         Value right = valueOf(expr.right(), context);
-        return Operations.binary(expr.op(), left, right, expr.span());
+        return binary(expr.op(), left, right, expr.span(), context);
+    }
+
+    /**
+     * Бинарная операция: сперва ядро, и только если оно не умеет — оператор у значений.
+     * <p>
+     * Само правило и все его исключения живут в {@link Overloading}, а не здесь:
+     * оператор спрашивает не только вычисление выражения, но и сортировка массива,
+     * и члены {@code contains} с {@code has}. Разойтись им нельзя, значит и место
+     * у правила одно.
+     */
+    private Value binary(BinaryOp op, Value left, Value right, Span span, ExecutionContext context) {
+        return Overloading.binary(op, left, right, span, context);
     }
 
     @Override
@@ -1654,7 +1672,7 @@ public final class Interpreter
         boolean matched = branch.tails().isEmpty();
         for (CaseTail tail : branch.tails()) {
             Value right = valueOf(tail.right(), context);
-            if (Operations.binary(tail.op(), subject, right, tail.span()).isTruthy()) {
+            if (binary(tail.op(), subject, right, tail.span(), context).isTruthy()) {
                 matched = true;
                 break;
             }

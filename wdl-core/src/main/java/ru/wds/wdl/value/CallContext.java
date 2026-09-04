@@ -42,4 +42,16 @@ public interface CallContext {
     default ScriptThreads threads() {
         return ScriptThreads.unmanaged();
     }
+
+    /**
+     * Члены, добавленные запуску: {@code extend} и установленное приложением.
+     * <p>
+     * Нужны там, где значение спрашивают об операторе, — сортировке массива,
+     * члену {@code contains}, самому интерпретатору. Значение по умолчанию оставляет
+     * интерфейс реализуемым одной лямбдой: контекст без запуска ничего не добавлял,
+     * и искать в нём нечего.
+     */
+    default MemberLookup members() {
+        return MemberLookup.none();
+    }
 }

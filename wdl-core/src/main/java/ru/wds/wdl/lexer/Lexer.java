@@ -107,6 +107,8 @@ public final class Lexer {
                 word();
             } else if (current == '"') {
                 string();
+            } else if (current == '`') {
+                quotedName();
             } else if (!operator()) {
                 int start = pos++;
                 diagnostics.error(new Span(start, pos), "неизвестный символ " + describe(current));
@@ -279,6 +281,43 @@ public final class Lexer {
             diagnostics.error(new Span(start, pos), "строка не закрыта кавычкой");
         }
         add(TokenType.STRING, buffer.toString(), start);
+    }
+
+    /**
+     * Имя в обратных кавычках: {@code `+`}, {@code `class`}.
+     * <p>
+     * Лексер здесь не знает ни про операторы, ни про члены типов: кавычки — это
+     * <b>экранированное имя вообще</b>. Внутри лежит что угодно, кроме перевода
+     * строки и самой кавычки, а вопрос «бывает ли такое имя в этом месте» решает
+     * разбор — там, где у него есть ответ. Отсюда даром получается и будущее
+     * {@code `class`} для поля, открытого мостом в Java.
+     * <p>
+     * Незакрытая кавычка обрывается на конце строки — по той же причине, что и
+     * незакрытая строка: одна опечатка не должна съедать остаток файла. Токена при
+     * этом не появляется вовсе: дописывать за автора несуществующее имя значит
+     * породить вторую ошибку там, где виновата первая.
+     */
+    private void quotedName() {
+        int start = pos;
+        pos++; // открывающая кавычка
+        int from = pos;
+        while (pos < length && text.charAt(pos) != '`' && text.charAt(pos) != '\n') {
+            pos++;
+        }
+        String name = text.substring(from, pos);
+        if (pos >= length || text.charAt(pos) == '\n') {
+            diagnostics.error(new Span(start, pos), "не закрыта обратная кавычка: имя '" + name
+                    + "' не кончилось до конца строки");
+            return;
+        }
+        pos++; // закрывающая кавычка
+        if (name.isEmpty()) {
+            diagnostics.error(new Span(start, pos),
+                    "пустое имя в обратных кавычках: между кавычками должно быть имя");
+            return;
+        }
+        tokens.add(new Token(TokenType.WORD, name, new Span(start, pos), afterNewline, true));
+        afterNewline = false;
     }
 
     private void escape() {

@@ -71,7 +71,7 @@ public final class ScriptMember {
 
         @Override
         public String name() {
-            return declaration.name();
+            return declaration.memberName();
         }
 
         @Override

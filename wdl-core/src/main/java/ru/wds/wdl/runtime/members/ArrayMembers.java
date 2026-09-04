@@ -2,7 +2,7 @@ package ru.wds.wdl.runtime.members;
 
 import ru.wds.wdl.runtime.Args;
 import ru.wds.wdl.runtime.ErrorKind;
-import ru.wds.wdl.runtime.Operations;
+import ru.wds.wdl.runtime.Overloading;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
@@ -51,9 +51,12 @@ public final class ArrayMembers {
                     ArrayValue array = self(receiver);
                     return array.isEmpty() ? NullValue.NULL : array.get(array.size() - 1);
                 })
+                // Порядок берётся у той же цепочки, что стоит за 'a[0] < a[1]':
+                // ядро, потом член '<=>' у класса. Заведи сортировка своё сравнение —
+                // она разошлась бы с оператором на первом же массиве экземпляров.
                 .snapshot("sorted", (receiver, context, span) -> {
                     List<Value> items = new ArrayList<>(self(receiver).items());
-                    items.sort((left, right) -> Operations.order(left, right, span));
+                    items.sort((left, right) -> Overloading.order(left, right, span, context));
                     return ArrayValue.of(items);
                 })
                 .snapshot("reversed", (receiver, context, span) -> {
@@ -92,7 +95,7 @@ public final class ArrayMembers {
                 .method("indexOf", Arity.exactly(1), (receiver, context, arguments, span) -> {
                     List<Value> items = self(receiver).items();
                     for (int i = 0; i < items.size(); i++) {
-                        if (Operations.equal(items.get(i), arguments.get(0))) {
+                        if (Overloading.equal(items.get(i), arguments.get(0), span, context)) {
                             return IntValue.of(i);
                         }
                     }
@@ -102,7 +105,7 @@ public final class ArrayMembers {
                 // и оператор обязаны отвечать одинаково всегда, а не пока за ними
                 // следят.
                 .method("contains", Arity.exactly(1), (receiver, context, arguments, span) ->
-                        BoolValue.of(Operations.contains(self(receiver), arguments.get(0), span)))
+                        BoolValue.of(Overloading.contains(self(receiver), arguments.get(0), span, context)))
                 .method("join", Arity.between(0, 1), (receiver, context, arguments, span) -> {
                     Args args = args("join", arguments, context, span);
                     String separator = args.has(0) ? args.string(0, "разделитель") : "";
@@ -122,7 +125,7 @@ public final class ArrayMembers {
                 .method("sort", Arity.exactly(0), (receiver, context, arguments, span) -> {
                     ArrayValue array = self(receiver);
                     List<Value> items = new ArrayList<>(array.items());
-                    items.sort((left, right) -> Operations.order(left, right, span));
+                    items.sort((left, right) -> Overloading.order(left, right, span, context));
                     array.replaceAll(items);
                     return array;
                 })

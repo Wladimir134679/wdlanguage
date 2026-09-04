@@ -16,8 +16,9 @@ import java.util.Objects;
  * @param text         значение для литералов и имён, лексема для остальных
  * @param span         интервал в исходнике
  * @param afterNewline перед токеном был перевод строки
+ * @param quoted       имя было записано в обратных кавычках
  */
-public record Token(TokenType type, String text, Span span, boolean afterNewline) {
+public record Token(TokenType type, String text, Span span, boolean afterNewline, boolean quoted) {
 
     public Token {
         Objects.requireNonNull(type, "type");
@@ -25,8 +26,12 @@ public record Token(TokenType type, String text, Span span, boolean afterNewline
         Objects.requireNonNull(span, "span");
     }
 
+    public Token(TokenType type, String text, Span span, boolean afterNewline) {
+        this(type, text, span, afterNewline, false);
+    }
+
     public Token(TokenType type, String text, Span span) {
-        this(type, text, span, false);
+        this(type, text, span, false, false);
     }
 
     public boolean is(TokenType expected) {
@@ -46,8 +51,27 @@ public record Token(TokenType type, String text, Span span, boolean afterNewline
         return afterNewline;
     }
 
+    /**
+     * Было ли имя записано в обратных кавычках: {@code `+`}, {@code `class`}.
+     * <p>
+     * Флаг, а не отдельный вид токена, — по той же причине, что и
+     * {@link #afterNewline()}: везде, где парсер ждёт имя, стоит проверка на
+     * {@link TokenType#WORD}, и заводить второй вид значило бы дописать альтернативу
+     * в каждое такое место. Кавычки при этом ничего не значат для лексера — это
+     * <b>экранированное имя вообще</b>, а не «имя оператора»: допустимо ли
+     * {@code `+`} именно здесь, решает разбор члена типа, где у вопроса есть смысл.
+     * <p>
+     * Сам флаг нужен двоим: форматтеру — чтобы вернуть кавычки в текст, — и разбору
+     * члена, который по нему понимает, что перед ним объявление оператора.
+     */
+    @Override
+    public boolean quoted() {
+        return quoted;
+    }
+
     @Override
     public String toString() {
-        return text.isEmpty() ? type.name() : type.name() + "(" + text + ")";
+        String value = quoted ? "`" + text + "`" : text;
+        return text.isEmpty() ? type.name() : type.name() + "(" + value + ")";
     }
 }

@@ -10,6 +10,7 @@ import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.expr.LiteralExpr;
 import ru.wds.wdl.ast.expr.VariableExpr;
 import ru.wds.wdl.ast.expr.Modifier;
+import ru.wds.wdl.ast.op.Overloads;
 import ru.wds.wdl.ast.stmt.BlockStmt;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.ErrorStmt;
@@ -26,6 +27,7 @@ import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.source.Span;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -55,6 +57,8 @@ final class TypeParser {
      */
     private static final String PROPERTY = "property";
     private static final String EXTEND = "extend";
+    /** Слово перед {@code def} у оператора, получатель которого стоит справа. */
+    static final String MIRROR = "mirror";
     private static final String GET = "get";
     private static final String SET = "set";
 
@@ -350,17 +354,22 @@ final class TypeParser {
         private final List<TraitDeclStmt.Requirement> requirements = new ArrayList<>();
         private final List<PropertyDecl> properties = new ArrayList<>();
 
+        /**
+         * Занято ли имя. Сравнение идёт по <b>ключу члена</b>, а не по написанию:
+         * {@code def `+`(right)} и {@code mirror def `+`(left)} — два разных члена
+         * одного класса, и ячейки у них разные.
+         */
         private boolean taken(String name) {
             if (constructor != null && constructor.name().equals(name)) {
                 return true;
             }
             for (FunctionExpr method : methods) {
-                if (method.name().equals(name)) {
+                if (method.memberName().equals(name)) {
                     return true;
                 }
             }
             for (TraitDeclStmt.Requirement requirement : requirements) {
-                if (requirement.name().equals(name)) {
+                if (key(requirement).equals(name)) {
                     return true;
                 }
             }
@@ -410,7 +419,11 @@ final class TypeParser {
      */
     private void member(Members members, boolean hasParent, boolean isClass) {
         Token start = cursor.peek();
-        Set<Modifier> modifiers = Set.of();
+        Set<Modifier> modifiers = EnumSet.noneOf(Modifier.class);
+        if (isMirror()) {
+            cursor.advance();
+            modifiers.add(Modifier.MIRROR);
+        }
         if (cursor.check(TokenType.SYNCHRONIZED)) {
             cursor.advance();
             if (isProperty()) {
@@ -426,7 +439,7 @@ final class TypeParser {
                 cursor.synchronize();
                 return;
             }
-            modifiers = Set.of(Modifier.SYNCHRONIZED);
+            modifiers.add(Modifier.SYNCHRONIZED);
         }
         if (isProperty()) {
             property(members, hasParent, isClass);
@@ -448,6 +461,10 @@ final class TypeParser {
             return;
         }
         Token name = cursor.advance();
+        if (!operatorName(name, modifiers)) {
+            cursor.synchronize();
+            return;
+        }
 
         if (cursor.check(TokenType.DOT)) {
             factory(members, start, name, isClass, modifiers);
@@ -461,6 +478,9 @@ final class TypeParser {
 
         Params header = parameters("имени " + (isConstructor ? "конструктора" : "метода")
                 + " '" + name.text() + "'", true, true);
+        if (name.quoted()) {
+            operatorArity(name, header, modifiers);
+        }
         List<FunctionExpr.Param> params = header.params();
         if (isConstructor && !(params.isEmpty() && header.rest() == null && header.namedRest() == null)) {
             diagnostics.error(name.span(), "конструктор не принимает параметров: "
@@ -474,12 +494,14 @@ final class TypeParser {
                         + "требование без тела бывает только в трейте");
                 return;
             }
-            if (members.taken(name.text())) {
+            TraitDeclStmt.Requirement requirement = new TraitDeclStmt.Requirement(name.text(),
+                    params, header.rest() != null, modifiers.contains(Modifier.MIRROR),
+                    start.span().to(name.span()));
+            if (members.taken(key(requirement))) {
                 diagnostics.error(name.span(), duplicate(name.text()));
                 return;
             }
-            members.requirements.add(new TraitDeclStmt.Requirement(name.text(), params,
-                    header.rest() != null, start.span().to(name.span())));
+            members.requirements.add(requirement);
             return;
         }
 
@@ -494,7 +516,7 @@ final class TypeParser {
             members.constructor = function;
             return;
         }
-        if (members.taken(name.text())) {
+        if (members.taken(function.memberName())) {
             diagnostics.error(name.span(), duplicate(name.text()));
             return;
         }
@@ -515,6 +537,126 @@ final class TypeParser {
         return cursor.check(TokenType.WORD)
                 && PROPERTY.equals(cursor.peek().text())
                 && cursor.peek(1).type() == TokenType.WORD;
+    }
+
+    /**
+     * Начинается ли член со слова {@code mirror}.
+     * <p>
+     * Контекстное слово, как {@link #PROPERTY} и {@link #EXTEND}, и по той же
+     * записанной причине: отбирать у чужих скриптов имя ради одной конструкции —
+     * плохая сделка. Спутать не с чем, слово значимо только вплотную перед
+     * {@code def} (или перед {@code synchronized def}); метод, названный
+     * {@code mirror}, по-прежнему объявляется — он начинается с {@code def}.
+     * <p>
+     * {@code synchronized} здесь не образец: он был токеном лексера ещё до того,
+     * как это правило появилось.
+     */
+    private boolean isMirror() {
+        return cursor.check(TokenType.WORD)
+                && !cursor.peek().quoted()
+                && MIRROR.equals(cursor.peek().text())
+                && (cursor.peek(1).type() == TokenType.DEF
+                        || cursor.peek(1).type() == TokenType.SYNCHRONIZED);
+    }
+
+    /**
+     * Проверяет имя члена: обычное оно или оператор в обратных кавычках.
+     * <p>
+     * <b>Проверка стоит при разборе, а не при выполнении.</b> И имя оператора,
+     * и его допустимость известны прямо по тексту, а узнавать об опечатке в
+     * {@code `=<`} на первом же вычислении незачем. Промах здесь почти всегда значит
+     * одно из двух — написана производная запись ({@code `!=`}, {@code `<`},
+     * {@code `has`}) или оператор, который не перегружается в принципе, — поэтому
+     * {@link Overloads} отвечает причиной, а не общим «такого оператора нет».
+     *
+     * @return {@code false}, если разбирать этот член дальше нечего
+     */
+    private boolean operatorName(Token name, Set<Modifier> modifiers) {
+        String text = name.text();
+        if (!name.quoted()) {
+            if (modifiers.contains(Modifier.MIRROR)) {
+                diagnostics.error(name.span(), "'mirror' бывает только у оператора: "
+                        + "у метода '" + text + "' сторон нет");
+                return false;
+            }
+            return true;
+        }
+        if (cursor.check(TokenType.DOT)) {
+            diagnostics.error(name.span(), "фабрика оператором не бывает: имя в обратных "
+                    + "кавычках объявляет оператор, а он принадлежит значению, а не классу");
+            return false;
+        }
+        String derived = Overloads.derived(text);
+        if (derived != null) {
+            diagnostics.error(name.span(), "оператор '" + text + "' не объявляют: " + derived);
+            return false;
+        }
+        String forbidden = Overloads.forbidden(text);
+        if (forbidden != null) {
+            diagnostics.error(name.span(), "оператор '" + text + "' не перегружается: " + forbidden);
+            return false;
+        }
+        if (!Overloads.isBinary(text) && !Overloads.isUnary(text)) {
+            diagnostics.error(name.span(), "'" + text + "' — не оператор: в обратных кавычках "
+                    + "у члена типа стоит имя оператора. Список — docs/expressions.md");
+            return false;
+        }
+        if (modifiers.contains(Modifier.MIRROR) && !Overloads.isBinary(text)) {
+            diagnostics.error(name.span(), "'mirror' бывает только у бинарного оператора: "
+                    + "у унарного один операнд, и переворачивать нечего");
+            return false;
+        }
+        if (modifiers.contains(Modifier.MIRROR) && !Overloads.allowsMirror(text)) {
+            diagnostics.error(name.span(), "у оператора '" + text + "' не бывает 'mirror': "
+                    + "'x in c' и 'c has x' — одна и та же запись с разных сторон");
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Проверяет форму заголовка оператора: бинарный — один параметр, унарный — ни одного.
+     * <p>
+     * <b>Арность и есть различие</b> между {@code `-`} как вычитанием и {@code `-`}
+     * как сменой знака: больше их различать нечем, и незачем. Ни остатка, ни значения
+     * по умолчанию у оператора не бывает — операндов у выражения ровно столько,
+     * сколько написано в тексте, и «необязательный правый операнд» смысла не имеет.
+     */
+    private void operatorArity(Token name, Params header, Set<Modifier> modifiers) {
+        String text = name.text();
+        boolean plain = header.rest() == null && header.namedRest() == null
+                && header.params().stream().noneMatch(FunctionExpr.Param::hasDefault);
+        int count = header.params().size();
+        if (plain && count == 1 && Overloads.isBinary(text)) {
+            return;
+        }
+        if (plain && count == 0 && Overloads.isUnary(text)) {
+            if (modifiers.contains(Modifier.MIRROR)) {
+                diagnostics.error(name.span(), "'mirror' бывает только у бинарного оператора: "
+                        + "у унарного один операнд, и переворачивать нечего");
+            }
+            return;
+        }
+        diagnostics.error(name.span(), arityMessage(text));
+    }
+
+    /** Ключ требования в таблице членов — тем же правилом, что у метода. */
+    private static String key(TraitDeclStmt.Requirement requirement) {
+        return Overloads.key(requirement.name(), requirement.mirror(),
+                requirement.params().isEmpty() && !requirement.variadic());
+    }
+
+    private static String arityMessage(String text) {
+        if (Overloads.isBinary(text) && Overloads.isUnary(text)) {
+            return "у оператора '" + text + "' либо один параметр — слева получатель, "
+                    + "справа единственный аргумент, — либо ни одного: тогда он унарный";
+        }
+        if (Overloads.isBinary(text)) {
+            return "у оператора '" + text + "' один параметр: слева получатель, "
+                    + "справа единственный аргумент";
+        }
+        return "у оператора '" + text + "' параметров не бывает: он применяется "
+                + "к одному операнду, и это получатель";
     }
 
     /**

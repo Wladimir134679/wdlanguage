@@ -302,6 +302,18 @@ public final class ExecutionContext implements CallContext {
         return scope;
     }
 
+    /**
+     * Надстройка членов этого запуска — то, что добавили {@code extend} и приложение.
+     * <p>
+     * Отдаётся через {@link CallContext} затем, что оператор класса спрашивают
+     * не только из интерпретатора: {@code a.sort()} обязан упорядочивать тем же
+     * {@code `<=>`}, что и {@code a[0] < a[1]}.
+     */
+    @Override
+    public ru.wds.wdl.value.MemberLookup members() {
+        return run.members();
+    }
+
     /** Сеанс, которому принадлежит это место выполнения. */
     public Run run() {
         return run;

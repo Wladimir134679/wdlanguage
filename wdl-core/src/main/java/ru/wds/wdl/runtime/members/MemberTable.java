@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime.members;
 
+import ru.wds.wdl.value.MemberLookup;
 import ru.wds.wdl.value.MemberRegistry;
 import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
@@ -32,11 +33,12 @@ import java.util.concurrent.ConcurrentMap;
  * все массивы разом), у класса — само значение класса: два класса {@code Point}
  * из разных модулей расширяются независимо, и общее имя их не роднит.
  */
-public final class MemberTable implements MemberRegistry {
+public final class MemberTable implements MemberRegistry, MemberLookup {
 
     private final ConcurrentMap<Object, ConcurrentMap<String, Member>> added = new ConcurrentHashMap<>();
 
     /** Добавленный член или {@code null}. Основание здесь не ищется — оно спрашивается раньше. */
+    @Override
     public Member added(Object key, String name) {
         ConcurrentMap<String, Member> members = added.get(key);
         return members == null ? null : members.get(name);
@@ -50,6 +52,7 @@ public final class MemberTable implements MemberRegistry {
      * промах ведёт к обходу: обход идёт по расширенным классам, а их единицы,
      * тогда как промах по данным — обычное дело.
      */
+    @Override
     public Member addedForClass(ClassValue owner, String name) {
         Member exact = added(owner, name);
         if (exact != null || added.isEmpty()) {

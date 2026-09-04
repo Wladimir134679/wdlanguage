@@ -233,7 +233,8 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         }
         stmt.methods().forEach(method -> visit(method, depth + 1));
         for (TraitDeclStmt.Requirement requirement : stmt.requirements()) {
-            line(depth + 1, "требуется метод " + requirement.name()
+            line(depth + 1, (requirement.mirror() ? "требуется зеркальный оператор `" : "требуется метод ")
+                    + requirement.name() + (requirement.mirror() ? "`" : "")
                     + "(" + header(requirement.params()) + ")", requirement.span());
         }
         properties(stmt.properties(), depth + 1);
@@ -530,7 +531,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         String modifiers = expr.modifiers().stream()
                 .map(Modifier::text)
                 .collect(Collectors.joining(" ", "", " "));
-        line(depth, "функция " + modifiers.stripLeading() + expr.title()
+        line(depth, "функция " + modifiers.stripLeading() + expr.writtenName()
                 + "(" + header(expr.params(), expr.rest(), expr.namedRest()) + ")" + arrow, expr);
         defaults(expr.params(), depth + 1);
         return visit(expr.body(), depth + 1);

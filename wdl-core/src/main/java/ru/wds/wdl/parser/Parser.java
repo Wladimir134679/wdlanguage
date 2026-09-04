@@ -46,6 +46,17 @@ import static ru.wds.wdl.parser.TokenCursor.describe;
  */
 public final class Parser {
 
+    /**
+     * Отказ на оператор, объявленный вне тела типа.
+     * <p>
+     * Локальных операторов в языке нет намеренно: чтобы прочитать любое {@code a + b}
+     * в файле, пришлось бы знать всю цепочку областей над ним, а каждое сложение
+     * начиналось бы с прохода по ней. {@code extend} даёт ту же власть, и найти
+     * его можно грепом.
+     */
+    private static final String LOCAL_OPERATOR = "оператор объявляется в теле класса, "
+            + "трейта или расширения: локальных операторов в языке нет";
+
     private final Diagnostics diagnostics;
     private final TokenCursor cursor;
     private final ParseState state;
@@ -122,6 +133,13 @@ public final class Parser {
         // по типу: для лексера это обычное имя.
         if (types.isExtend()) {
             return types.extendDeclaration(topLevel);
+        }
+        // 'mirror' — тоже контекстное слово, и здесь оно значит только одно: человек
+        // пишет оператор не там, где операторы объявляются. Сказать об этом надо
+        // на самом слове, иначе разбор увидит имя 'mirror' отдельной инструкцией
+        // и пожалуется на то, что она ничего не делает, — то есть не на причину.
+        if (isMirrorAhead()) {
+            diagnostics.error(cursor.advance().span(), LOCAL_OPERATOR);
         }
         return switch (cursor.peek().type()) {
             case LBRACE -> block();
@@ -816,6 +834,9 @@ public final class Parser {
         Set<Modifier> modifiers = modifiers();
         cursor.advance();                 // def
         Token name = cursor.advance();    // имя
+        if (name.quoted()) {
+            diagnostics.error(name.span(), LOCAL_OPERATOR);
+        }
         FunctionExpr function = functionRest(start, name.text(), modifiers);
         if (function.body() instanceof ReturnStmt returned && returned.value() instanceof ErrorExpr) {
             // Тело после '=>' не разобралось, и об этом уже сказано. Дальше по строке
@@ -845,6 +866,20 @@ public final class Parser {
      * выражение или ошибка» принимается раньше, по форме записи, — здесь остаётся
      * только собрать набор. Набором, а не признаком, — см. {@link Modifier}.
      */
+    /**
+     * Стоит ли здесь слово {@code mirror} перед объявлением функции.
+     * <p>
+     * Модификатор бывает только у члена типа, поэтому {@link TypeParser} разбирает
+     * его сам; парсеру верхнего уровня слово нужно ровно для того, чтобы отказать.
+     */
+    private boolean isMirrorAhead() {
+        return cursor.check(TokenType.WORD)
+                && !cursor.peek().quoted()
+                && TypeParser.MIRROR.equals(cursor.peek().text())
+                && (cursor.peek(1).type() == TokenType.DEF
+                        || cursor.peek(1).type() == TokenType.SYNCHRONIZED);
+    }
+
     private Set<Modifier> modifiers() {
         if (!cursor.check(TokenType.SYNCHRONIZED)) {
             return Set.of();
@@ -1710,6 +1745,14 @@ public final class Parser {
             }
             case WORD -> {
                 cursor.advance();
+                // Кавычки — способ записать имя, которое иначе не написать, и такое имя
+                // бывает только у члена типа. Переменной с ним не бывает: имя оператора
+                // принадлежит значению, а не области видимости.
+                if (token.quoted()) {
+                    diagnostics.error(token.span(), "имя в обратных кавычках бывает только "
+                            + "у члена типа и в обращении");
+                    return new ErrorExpr(token.span());
+                }
                 return new VariableExpr(token.text(), token.span());
             }
             // Пропуск ничего не хранит, поэтому и прочитать его нельзя. Ошибка здесь,

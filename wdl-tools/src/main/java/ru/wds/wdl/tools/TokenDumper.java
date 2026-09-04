@@ -42,12 +42,16 @@ public final class TokenDumper {
     /**
      * Для строк показываем экранированный вид: иначе перевод строки внутри литерала
      * разъедет всю таблицу, а именно на таких значениях и ловятся ошибки лексера.
+     * <p>
+     * Имя в обратных кавычках печатается с ними: текст токена кавычек не содержит,
+     * и без них {@code --tokens} на объявлении оператора показывал бы обычное имя —
+     * то есть врал бы ровно про то, ради чего дамп и смотрят.
      */
     private static String displayValue(Token token) {
         if (token.type() == TokenType.STRING) {
             return '"' + escape(token.text()) + '"';
         }
-        return token.text();
+        return token.quoted() ? '`' + token.text() + '`' : token.text();
     }
 
     private static String escape(String value) {

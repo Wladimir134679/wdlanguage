@@ -3,6 +3,7 @@ package ru.wds.wdl.resolve;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.PropertyDecl;
 import ru.wds.wdl.ast.stmt.TraitDeclStmt;
+import ru.wds.wdl.ast.op.Overloads;
 import ru.wds.wdl.value.PropertyRequirement;
 import ru.wds.wdl.value.Requirement;
 
@@ -54,14 +55,15 @@ public final class ScriptTraitShape implements TraitShape {
 
         List<Requirement> requirements = new ArrayList<>(declaration.requirements().size());
         for (TraitDeclStmt.Requirement requirement : declaration.requirements()) {
-            requirements.add(new Requirement(requirement.name(),
+            requirements.add(new Requirement(Overloads.key(requirement.name(), requirement.mirror(),
+                    requirement.params().isEmpty() && !requirement.variadic()),
                     ClassShape.arityOf(requirement.params(), requirement.variadic())));
         }
         this.requiredMethods = List.copyOf(requirements);
 
         Map<String, MethodSlot> table = new LinkedHashMap<>();
         for (FunctionExpr method : declaration.methods()) {
-            table.put(method.name(), new MethodSlot(method.name(), method, this));
+            table.put(method.memberName(), new MethodSlot(method.memberName(), method, this));
         }
         this.methods = Collections.unmodifiableMap(table);
 
