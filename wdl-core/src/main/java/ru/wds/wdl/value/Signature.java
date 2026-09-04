@@ -6,7 +6,10 @@ import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.StringValue;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -60,11 +63,48 @@ public final class Signature {
         private final Kind kind;
         /** Готовое значение по умолчанию; заполнено только у {@link Kind#CONSTANT}. */
         private final Value constant;
+        /**
+         * Аннотации параметра — данные, приписанные ему записью {@code @{min: 0}}.
+         * <p>
+         * Ключ здесь, а не вторым списком «аннотации по номеру параметра»: описание
+         * параметра строится из {@link Param} и ниоткуда больше, а параллельный список
+         * пришлось бы держать в соответствии по индексу — и индексы разъезжаются
+         * на дырках, остатках и наследовании заголовка.
+         */
+        private final Map<Value, Value> annotations;
 
-        private Param(String name, Kind kind, Value constant) {
+        private Param(String name, Kind kind, Value constant, Map<Value, Value> annotations) {
             this.name = Objects.requireNonNull(name, "name");
             this.kind = kind;
             this.constant = constant;
+            this.annotations = annotations;
+        }
+
+        private Param(String name, Kind kind, Value constant) {
+            this(name, kind, constant, Map.of());
+        }
+
+        /**
+         * Тот же параметр с аннотациями.
+         * <p>
+         * Отдельным методом, а не полем в каждой фабрике: аннотации знают ровно двое —
+         * {@code runtime.UserFunction} и {@code runtime.WdlClass}, — а фабрик у параметра
+         * восемь, и добавлять аргумент в каждую значило бы править все места создания
+         * ради двух.
+         */
+        public Param withAnnotations(Map<Value, Value> annotations) {
+            Objects.requireNonNull(annotations, "annotations");
+            // Копия с сохранением порядка: аннотации читают перебором, и порядок там
+            // тот, в котором их написали. Map.copyOf этого не обещает.
+            return annotations.isEmpty()
+                    ? this
+                    : new Param(name, kind, constant,
+                            Collections.unmodifiableMap(new LinkedHashMap<>(annotations)));
+        }
+
+        /** Аннотации параметра; у ненаписанных — пустая карта, а не {@code null}. */
+        public Map<Value, Value> annotations() {
+            return annotations;
         }
 
         /** Обязательный: аргумент передать придётся. */

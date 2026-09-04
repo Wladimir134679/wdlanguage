@@ -9,6 +9,7 @@ import ru.wds.wdl.resolve.ScriptTraitShape;
 import ru.wds.wdl.value.PropertyRequirement;
 import ru.wds.wdl.value.Requirement;
 import ru.wds.wdl.value.TraitValue;
+import ru.wds.wdl.value.Value;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -39,19 +40,35 @@ final class WdlTrait implements DeclaredTrait {
      * разбором, поэтому класса, от которого его считать, у слота нет.
      */
     private final Map<String, PropertySlot> properties;
+    /**
+     * Аннотации трейта и его членов, уже вычисленные. Приходят готовыми от того,
+     * у кого есть область объявления, — см. {@link TypeAnnotations}.
+     */
+    private final TypeAnnotations annotations;
 
     WdlTrait(ScriptTraitShape shape, Environment closure, Unit unit) {
+        this(shape, closure, unit, TypeAnnotations.NONE);
+    }
+
+    WdlTrait(ScriptTraitShape shape, Environment closure, Unit unit, TypeAnnotations annotations) {
         this.shape = Objects.requireNonNull(shape, "shape");
         this.closure = Objects.requireNonNull(closure, "closure");
         this.unit = Objects.requireNonNull(unit, "unit");
+        this.annotations = Objects.requireNonNull(annotations, "annotations");
 
         Map<String, Method> table = new LinkedHashMap<>();
         for (MethodSlot slot : shape.methods().values()) {
             // super внутри метода трейта запрещён разбором, поэтому его класса здесь нет.
-            table.put(slot.name(), new Method(slot.declaration(), closure, unit, null));
+            table.put(slot.name(), new Method(slot.declaration(), closure, unit, null,
+                    annotations.method(slot.name())));
         }
         this.methods = Collections.unmodifiableMap(table);
         this.properties = shape.properties();
+    }
+
+    /** Аннотации свойства трейта: класс, подмешавший его, собирает своё значение свойства. */
+    Map<Value, Value> propertyAnnotations(String name) {
+        return annotations.property(name);
     }
 
     Map<String, PropertySlot> properties() {
@@ -83,6 +100,11 @@ final class WdlTrait implements DeclaredTrait {
     @Override
     public String name() {
         return shape.name();
+    }
+
+    @Override
+    public Map<Value, Value> annotations() {
+        return annotations.own().own();
     }
 
     /** Интроспекция: ключи таблиц трейта — методы и свойства, объявленные с телом. */

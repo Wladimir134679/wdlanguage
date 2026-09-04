@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.expr.Annotations;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.source.Span;
@@ -28,6 +29,8 @@ import java.util.Objects;
  * {@code field} — обычным именем, которое заводит область вызова, как {@code this};
  * ключевым словом его делать нельзя, да и незачем.
  *
+ * @param annotations данные, приписанные свойству: {@code @{computed: true}}. Лежат
+ *                здесь, а не в аксессоре: аннотируют имя, а не способ его чтения
  * @param initial выражение начального значения скрытого поля или {@code null},
  *                если свойство вычисляемое. Вычисляется при создании экземпляра —
  *                там же и тогда же, когда значения по умолчанию полей трейта
@@ -35,12 +38,13 @@ import java.util.Objects;
  *                запрещено, а у трейта это требование (см. {@link Accessor})
  * @param setter  запись или {@code null}: свойство только для чтения
  */
-public record PropertyDecl(String name, Span nameSpan, Expr initial,
+public record PropertyDecl(String name, Span nameSpan, Annotations annotations, Expr initial,
                            Accessor getter, Accessor setter,
                            PropertyStyle style, Span span) {
 
     public PropertyDecl {
         Objects.requireNonNull(name, "name");
+        annotations = annotations == null ? Annotations.NONE : annotations;
         Objects.requireNonNull(style, "style");
     }
 

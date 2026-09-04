@@ -21,6 +21,16 @@ import ru.wds.wdl.module.Unit;
  *                  Shape, а не родителя круга. У метода из трейта — {@code null}:
  *                  трейт не знает, в какой класс его подмешают, и {@code super} там
  *                  запрещён разбором
+ * @param annotations аннотации метода, уже вычисленные. Едут вместе с методом,
+ *                  а не лежат в классе, который его нашёл: унаследованный метод
+ *                  сохраняет данные того объявления, где он написан, — ровно как
+ *                  область и файл
  */
-record Method(FunctionExpr declaration, Environment closure, Unit unit, WdlClass superFrom) {
+record Method(FunctionExpr declaration, Environment closure, Unit unit, WdlClass superFrom,
+              DeclaredAnnotations annotations) {
+
+    /** Метод без аннотаций: конструктор, аксессор свойства, член, добавленный {@code extend}. */
+    Method(FunctionExpr declaration, Environment closure, Unit unit, WdlClass superFrom) {
+        this(declaration, closure, unit, superFrom, DeclaredAnnotations.NONE);
+    }
 }

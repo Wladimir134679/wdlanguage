@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.expr.Annotations;
 import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
@@ -40,11 +41,15 @@ import java.util.Objects;
  * @param namedRest   именованный остаток {@code **named} или {@code null}
  * @param parent      родитель или {@code null}; родитель ровно один — из-за конструктора,
  *                    а не из-за конфликтов имён
+ * @param annotations данные, приписанные классу: {@code @{table: "users"}}. Аннотации
+ *                    заголовка лежат не здесь, а в самих {@link FunctionExpr.Param}:
+ *                    заголовок — это поля, и данные о поле должны лежать вместе с полем
  * @param constructor тело {@code def Point()} или {@code null}
  */
 public record ClassDeclStmt(
         String name,
         Span nameSpan,
+        Annotations annotations,
         List<FunctionExpr.Param> params,
         FunctionExpr.Rest rest,
         FunctionExpr.Rest namedRest,
@@ -58,6 +63,7 @@ public record ClassDeclStmt(
 
     public ClassDeclStmt {
         Objects.requireNonNull(name, "name");
+        annotations = annotations == null ? Annotations.NONE : annotations;
         Objects.requireNonNull(params, "params");
         Objects.requireNonNull(traits, "traits");
         Objects.requireNonNull(methods, "methods");

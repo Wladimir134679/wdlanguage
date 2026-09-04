@@ -84,9 +84,25 @@ final class WdlClass implements ClassValue {
      * которого ({@code bridge.NativeClass}) никакого интерпретатора нет и не будет.
      */
     private final Interpreter interpreter;
+    /**
+     * Аннотации класса и его членов, уже вычисленные.
+     * <p>
+     * <b>В форме класса их нет и не будет.</b> Форма решает тождество ({@code c is Shape})
+     * и сравнивается в {@code conformsTo}, а два класса с разными аннотациями различны
+     * и без них. Отсюда же следует, когда аннотации вычисляются: <b>после</b> проверки
+     * на повторное использование значения — если класс тот же самый, объект уже есть
+     * и считать заново нечего.
+     */
+    private final TypeAnnotations annotations;
 
     WdlClass(ClassShape shape, Environment closure, Unit unit, WdlClass parent,
              List<WdlTrait> traits, Run run, Interpreter interpreter) {
+        this(shape, closure, unit, parent, traits, run, interpreter, TypeAnnotations.NONE);
+    }
+
+    WdlClass(ClassShape shape, Environment closure, Unit unit, WdlClass parent,
+             List<WdlTrait> traits, Run run, Interpreter interpreter,
+             TypeAnnotations annotations) {
         this.shape = Objects.requireNonNull(shape, "shape");
         this.closure = Objects.requireNonNull(closure, "closure");
         this.unit = Objects.requireNonNull(unit, "unit");
@@ -94,6 +110,7 @@ final class WdlClass implements ClassValue {
         this.traits = List.copyOf(traits);
         this.run = Objects.requireNonNull(run, "run");
         this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
+        this.annotations = Objects.requireNonNull(annotations, "annotations");
 
         Map<String, Method> table = new LinkedHashMap<>();
         // Методы родителя и трейтов приходят вместе со своими юнитами: унаследованный
@@ -106,7 +123,8 @@ final class WdlClass implements ClassValue {
         }
         for (MethodSlot slot : shape.methods().values()) {
             if (slot.declaredIn() == shape) {
-                table.put(slot.name(), new Method(slot.declaration(), closure, unit, this));
+                table.put(slot.name(), new Method(slot.declaration(), closure, unit, this,
+                        annotations.method(slot.name())));
             }
         }
         this.methods = Collections.unmodifiableMap(table);
@@ -120,13 +138,14 @@ final class WdlClass implements ClassValue {
                 // super внутри аксессора трейта запрещён разбором — класса здесь нет,
                 // ровно как у метода трейта.
                 declared.put(slot.name(), new WdlProperty(slot.declaration(), trait.closure(),
-                        trait.unit(), null, run, interpreter));
+                        trait.unit(), null, run, interpreter,
+                        trait.propertyAnnotations(slot.name())));
             }
         }
         for (PropertySlot slot : shape.properties().values()) {
             if (slot.owner() == shape) {
                 declared.put(slot.name(), new WdlProperty(slot.declaration(), closure, unit,
-                        this, run, interpreter));
+                        this, run, interpreter, annotations.property(slot.name())));
             }
         }
         this.properties = Collections.unmodifiableMap(declared);
@@ -202,6 +221,25 @@ final class WdlClass implements ClassValue {
      * два разных значения. Для языка это ничего не меняет: функции и без того
      * сравниваются по ссылке.
      */
+    /**
+     * Контракт метода без экземпляра: то же, что увидел бы связанный метод, только
+     * собранное из того же объявления. Второго списка правил тут нет — сигнатуру
+     * строит та же функция, что и у {@link UserFunction}.
+     */
+    @Override
+    public Signature methodSignature(String name) {
+        Method method = methods.get(name);
+        return method == null
+                ? null
+                : UserFunction.signatureOf(method.declaration(), method.annotations());
+    }
+
+    @Override
+    public Map<Value, Value> methodAnnotations(String name) {
+        Method method = methods.get(name);
+        return method == null ? Map.of() : method.annotations().own();
+    }
+
     @Override
     public FunctionValue method(InstanceObjectValue instance, String name) {
         Method method = methods.get(name);
@@ -218,6 +256,9 @@ final class WdlClass implements ClassValue {
      */
     private FunctionValue bind(InstanceObjectValue container, Method method) {
         InstanceObjectValue self = container.identity();
+        // Аннотации переезжают в связанное значение: 'p.save.annotations' обязан
+        // отвечать тем же, чем ответит объявление метода, — иначе связывание
+        // с экземпляром молча теряло бы данные.
         return new UserFunction(method.declaration(),
                 new InstanceScope(self, (WdlClass) self.owner(), method), method.unit(),
                 run, interpreter,
@@ -227,7 +268,8 @@ final class WdlClass implements ClassValue {
                 // Связанное значение создаётся на каждом чтении 'p.push', поэтому
                 // собственный замок здесь был бы новым при каждом обращении и не защищал
                 // бы ничего.
-                method.declaration().isSynchronized() ? self.guard() : null);
+                method.declaration().isSynchronized() ? self.guard() : null,
+                method.annotations());
     }
 
     /**
@@ -525,6 +567,11 @@ final class WdlClass implements ClassValue {
     }
 
     @Override
+    public Map<Value, Value> annotations() {
+        return annotations.own().own();
+    }
+
+    @Override
     public Arity arity() {
         return shape.arity();
     }
@@ -537,10 +584,14 @@ final class WdlClass implements ClassValue {
     @Override
     public Signature signature() {
         List<Signature.Param> params = new ArrayList<>(shape.params().size());
-        for (FunctionExpr.Param param : shape.params()) {
-            params.add(param.hasDefault()
+        for (int i = 0; i < shape.params().size(); i++) {
+            FunctionExpr.Param param = shape.params().get(i);
+            Signature.Param declared = param.hasDefault()
                     ? Signature.Param.lazy(param.name())
-                    : Signature.Param.required(param.name()));
+                    : Signature.Param.required(param.name());
+            // Заголовок класса — это его поля, поэтому аннотация параметра и есть
+            // аннотация поля: второго места для неё язык не заводит.
+            params.add(declared.withAnnotations(annotations.own().param(i)));
         }
         return Signature.of(params, shape.restName(), shape.namedRestName());
     }

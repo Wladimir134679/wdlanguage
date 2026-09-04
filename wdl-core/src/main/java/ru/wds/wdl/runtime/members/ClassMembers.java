@@ -1,7 +1,11 @@
 package ru.wds.wdl.runtime.members;
 
+import ru.wds.wdl.runtime.Args;
+import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.MemberSet;
+import ru.wds.wdl.value.Property;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.StringValue;
@@ -36,6 +40,8 @@ public final class ClassMembers {
                     ClassValue parent = self(receiver).parentClass();
                     return parent == null ? NullValue.NULL : parent;
                 })
+                .snapshot("annotations", (receiver, context, span) ->
+                        Introspection.annotations(self(receiver).annotations()))
                 .snapshot("traits", (receiver, context, span) ->
                         Introspection.traits(self(receiver).traits()))
                 .snapshot("methods", (receiver, context, span) ->
@@ -48,6 +54,24 @@ public final class ClassMembers {
                         Introspection.params(self(receiver).signature()))
                 .property("arity", (receiver, context, span) ->
                         Introspection.arity(self(receiver).arity()))
+                // Метод и свойство — методы, а не свойства: у них есть аргумент.
+                // Отдают описание, а не значение: несвязанного метода в языке нет,
+                // а за свойством стоит код, который без экземпляра выполнять нечем.
+                .method("method", Arity.exactly(1), (receiver, context, arguments, span) -> {
+                    String name = Args.of("Class.method", arguments, context, span)
+                            .string(0, "имя метода");
+                    Signature signature = self(receiver).methodSignature(name);
+                    return signature == null
+                            ? NullValue.NULL
+                            : Introspection.method(name, signature,
+                                    self(receiver).methodAnnotations(name));
+                })
+                .method("property", Arity.exactly(1), (receiver, context, arguments, span) -> {
+                    Property property = self(receiver).property(
+                            Args.of("Class.property", arguments, context, span)
+                                    .string(0, "имя свойства"));
+                    return property == null ? NullValue.NULL : Introspection.property(property);
+                })
                 .build();
     }
 

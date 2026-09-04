@@ -41,7 +41,10 @@ import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.ValueType;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
@@ -788,9 +791,14 @@ public final class Interpreter
                 scripted.add(declaredTrait);
             }
         }
+        // Аннотации считаются здесь, а не раньше: выше стоит проверка на повторное
+        // использование значения, и у прежнего класса объект уже есть — считать
+        // нечего и не для чего.
+        TypeAnnotations annotations = typeAnnotations(stmt.annotations(), stmt.params(),
+                stmt.methods(), stmt.properties(), stmt.factories(), context);
         WdlClass declared = new WdlClass(shape, context.scope(), context.unit(), parent, scripted,
-                context.run(), this);
-        installFactories(declared, context);
+                context.run(), this, annotations);
+        installFactories(declared, annotations, context);
         checkNotConstant(stmt.name(), stmt.nameSpan(), context);
         context.scope().define(stmt.name(), declared);
         return declared;
@@ -802,7 +810,9 @@ public final class Interpreter
                 && existing.shape() == shape) {
             return existing;
         }
-        WdlTrait declared = new WdlTrait(shape, context.scope(), context.unit());
+        WdlTrait declared = new WdlTrait(shape, context.scope(), context.unit(),
+                typeAnnotations(stmt.annotations(), stmt.params(), stmt.methods(),
+                        stmt.properties(), List.of(), context));
         checkNotConstant(stmt.name(), stmt.nameSpan(), context);
         context.scope().define(stmt.name(), declared);
         return declared;
@@ -978,13 +988,15 @@ public final class Interpreter
      * а не особый вид члена, и снаружи ровно то же самое делает присваивание
      * {@code User.of = def(...)}.
      */
-    private void installFactories(WdlClass declared, ExecutionContext context) {
+    private void installFactories(WdlClass declared, TypeAnnotations annotations,
+                                  ExecutionContext context) {
         for (ClassDeclStmt.Factory factory : declared.shape().factories()) {
             // Фабрика — функция на классе, а не метод: экземпляра ещё нет, значит
             // и замка экземпляра быть не может. Замок у неё свой, как у обычной функции.
             declared.statics().put(factory.name(), new UserFunction(factory.function(),
                     declared.closure(), declared.unit(), context.run(), this,
-                    factory.function().isSynchronized() ? new ReentrantLock() : null));
+                    factory.function().isSynchronized() ? new ReentrantLock() : null,
+                    annotations.method(factory.function().memberName())));
         }
     }
 
@@ -1884,20 +1896,80 @@ public final class Interpreter
                 () -> declared.instantiate(arguments, context, expr.span()));
     }
 
+    /**
+     * Литерал массива вместе с раскрытием: {@code [*head, 3, *1..2]}.
+     * <p>
+     * Раскрывается массив и диапазон — ровно то же, что раскрывает {@code f(*values)}:
+     * одна пара символов, одно значение. Диапазон обязан быть с целыми границами
+     * по той же причине, что и в {@code for}: шаг перебора равен единице, а какие
+     * числа лежат в {@code 0.5..2.5} «по одному», не знает никто.
+     */
     @Override
     public Value visitArray(ArrayExpr expr, ExecutionContext context) {
         List<Value> items = new ArrayList<>(expr.elements().size());
-        for (Expr element : expr.elements()) {
-            items.add(valueOf(element, context));
+        for (ArrayExpr.Element element : expr.elements()) {
+            Value value = valueOf(element.value(), context);
+            if (!element.isSpread()) {
+                items.add(value);
+                continue;
+            }
+            spreadInto(items, value, element.span());
         }
         return ArrayValue.of(items);
     }
 
+    /** Раскрытие одного контейнера в элементы массива. */
+    private static void spreadInto(List<Value> items, Value value, Span span) {
+        switch (value) {
+            case ArrayValue array -> items.addAll(array.items());
+            case RangeValue range -> {
+                if (!range.from().isInteger() || !range.to().isInteger()) {
+                    throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                            "раскрыть можно диапазон с целыми границами, а здесь " + range
+                                    + ": шаг раскрытия равен единице");
+                }
+                long to = range.to().asLong();
+                for (long i = range.from().asLong(); i <= to; i++) {
+                    items.add(IntValue.of(i));
+                    if (i == Long.MAX_VALUE) {
+                        break;
+                    }
+                }
+            }
+            default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                    "раскрыть в элементы можно массив или диапазон, а здесь "
+                            + value.type().title() + " (" + value.display() + ")");
+        }
+    }
+
+    /**
+     * Литерал объекта вместе с раскрытием: {@code {**defaults, timeout: 60}}.
+     * <p>
+     * <b>Последний победил</b>, хотя в вызове та же коллизия — ошибка. Разойтись
+     * здесь можно потому, что причина запрета в вызове тут не действует: там
+     * {@code f(*arr, **map)} собирает два независимых источника, и порядок их
+     * объединения читателю не виден, а в литерале он написан автором слева направо
+     * и переопределение — ровно то, зачем сливают.
+     * <p>
+     * Экземпляр класса раскрывается, в отличие от {@code f(**instance)}: в литерале
+     * имён параметров нет вовсе, и {@code {**user}} — это «поля объектом», обычная
+     * операция. По той же причине ключ здесь любой: совпадать ему не с чем.
+     */
     @Override
     public Value visitObject(ObjectExpr expr, ExecutionContext context) {
         MapValue object = new MapValue();
         for (ObjectExpr.Entry entry : expr.entries()) {
-            object.put(valueOf(entry.key(), context), valueOf(entry.value(), context));
+            if (!entry.isSpread()) {
+                object.put(valueOf(entry.key(), context), valueOf(entry.value(), context));
+                continue;
+            }
+            Value value = valueOf(entry.value(), context);
+            if (!(value instanceof MapValue source)) {
+                throw new WdlRuntimeError(ErrorKind.TYPE, entry.span(),
+                        "раскрыть в пары можно только объект, а здесь "
+                                + value.type().title() + " (" + value.display() + ")");
+            }
+            source.entries().forEach(object::put);
         }
         return object;
     }
@@ -1916,7 +1988,140 @@ public final class Interpreter
         // два замыкания и два замка: у них разное захваченное состояние, и защищать
         // их одним замком было бы неправдой.
         return new UserFunction(expr, context.scope(), context.unit(), context.run(), this,
-                expr.isSynchronized() ? new ReentrantLock() : null);
+                expr.isSynchronized() ? new ReentrantLock() : null,
+                // Аннотации считаются здесь же и один раз — до того, как отработает
+                // первый декоратор. Иначе '@[deco] @{a: 1}' и '@{a: 1} @[deco]'
+                // значили бы разное, а разницы в записи читатель не заметит.
+                declaredAnnotations(expr, context));
+    }
+
+    // --- аннотации -----------------------------------------------------------
+
+    /**
+     * Аннотации объявления функции и её параметров — уже значениями.
+     * <p>
+     * Ничего не написано — общая пустая карта: литерал функции вычисляется на каждом
+     * вызове объемлющей, и лишней аллокации на этом пути быть не должно.
+     */
+    private DeclaredAnnotations declaredAnnotations(FunctionExpr expr, ExecutionContext context) {
+        Map<Value, Value> own = annotationValues(expr.annotations(), context);
+        List<Map<Value, Value>> params = paramAnnotations(expr.params(), context);
+        return own.isEmpty() && params.isEmpty()
+                ? DeclaredAnnotations.NONE
+                : new DeclaredAnnotations(own, params);
+    }
+
+    /**
+     * Аннотации параметров по позициям заголовка.
+     * <p>
+     * Ни одной не написано — пустой список, а не столько же пустых карт, сколько
+     * параметров: спрашивают о них по номеру, и {@link DeclaredAnnotations#param(int)}
+     * на коротком списке отвечает то же самое.
+     */
+    private List<Map<Value, Value>> paramAnnotations(List<FunctionExpr.Param> params,
+                                                     ExecutionContext context) {
+        boolean any = false;
+        for (FunctionExpr.Param param : params) {
+            any |= param.annotations().written();
+        }
+        if (!any) {
+            return List.of();
+        }
+        List<Map<Value, Value>> collected = new ArrayList<>(params.size());
+        for (FunctionExpr.Param param : params) {
+            collected.add(annotationValues(param.annotations(), context));
+        }
+        return List.copyOf(collected);
+    }
+
+    /**
+     * Считает один набор блоков {@code @{...}} в неизменяемую карту.
+     * <p>
+     * <b>Дубликат ключа — ошибка, а не «последний победил».</b> В литерале объекта
+     * наоборот, и расхождение намеренное: там порядок написан автором слева направо
+     * и переопределение — то, зачем сливают, а здесь блоки независимы, порядок их
+     * записи для читателя ничего не значит, и молчаливый выбор одного из двух
+     * поставил бы смысл программы в зависимость от него. Литеральные ключи ловит
+     * разбор; сюда доходят вычисляемые.
+     */
+    private Map<Value, Value> annotationValues(Annotations annotations, ExecutionContext context) {
+        if (!annotations.written()) {
+            return Map.of();
+        }
+        Map<Value, Value> collected = new LinkedHashMap<>();
+        for (ObjectExpr.Entry entry : annotations.entries()) {
+            if (!entry.isSpread()) {
+                putAnnotation(collected, valueOf(entry.key(), context),
+                        valueOf(entry.value(), context), entry.span());
+                continue;
+            }
+            Value value = valueOf(entry.value(), context);
+            if (!(value instanceof MapValue source)) {
+                throw new WdlRuntimeError(ErrorKind.TYPE, entry.span(),
+                        "раскрыть в аннотации можно только объект, а здесь "
+                                + value.type().title() + " (" + value.display() + ")");
+            }
+            for (Map.Entry<Value, Value> pair : source.entries().entrySet()) {
+                putAnnotation(collected, pair.getKey(), pair.getValue(), entry.span());
+            }
+        }
+        return Collections.unmodifiableMap(collected);
+    }
+
+    /**
+     * Аннотации объявления типа и всех его членов разом.
+     * <p>
+     * Собираются здесь, где есть область объявления, и уходят в значение уже готовыми:
+     * иначе {@link WdlClass} пришлось бы считать чужие выражения в конструкторе,
+     * то есть в момент, когда самого класса ещё нет.
+     * <p>
+     * Ключ у метода и у фабрики — имя в таблице ({@code FunctionExpr#memberName()}),
+     * потому что по нему их и находят: у зеркального и унарного оператора имя в тексте
+     * с ним расходится, и второй список правил манглинга языку не нужен.
+     */
+    private TypeAnnotations typeAnnotations(Annotations own, List<FunctionExpr.Param> params,
+                                            List<FunctionExpr> methods,
+                                            List<PropertyDecl> properties,
+                                            List<ClassDeclStmt.Factory> factories,
+                                            ExecutionContext context) {
+        Map<String, DeclaredAnnotations> byMember = new LinkedHashMap<>();
+        for (FunctionExpr method : methods) {
+            collectMember(byMember, method, context);
+        }
+        for (ClassDeclStmt.Factory factory : factories) {
+            collectMember(byMember, factory.function(), context);
+        }
+        Map<String, Map<Value, Value>> byProperty = new LinkedHashMap<>();
+        for (PropertyDecl property : properties) {
+            if (property.annotations().written()) {
+                byProperty.put(property.name(), annotationValues(property.annotations(), context));
+            }
+        }
+        Map<Value, Value> ownValues = annotationValues(own, context);
+        List<Map<Value, Value>> paramValues = paramAnnotations(params, context);
+        if (ownValues.isEmpty() && paramValues.isEmpty()
+                && byMember.isEmpty() && byProperty.isEmpty()) {
+            return TypeAnnotations.NONE;
+        }
+        return new TypeAnnotations(new DeclaredAnnotations(ownValues, paramValues),
+                Map.copyOf(byMember), Map.copyOf(byProperty));
+    }
+
+    private void collectMember(Map<String, DeclaredAnnotations> collected, FunctionExpr member,
+                               ExecutionContext context) {
+        DeclaredAnnotations annotations = declaredAnnotations(member, context);
+        if (!annotations.isEmpty()) {
+            collected.put(member.memberName(), annotations);
+        }
+    }
+
+    private static void putAnnotation(Map<Value, Value> collected, Value key, Value value,
+                                      Span span) {
+        if (collected.putIfAbsent(key, value) != null) {
+            throw new WdlRuntimeError(ErrorKind.DECLARATION, span, "ключ аннотации "
+                    + key + " указан дважды: блоки сливаются в один объект,"
+                    + " а порядок их записи ничего не значит");
+        }
     }
 
     /**

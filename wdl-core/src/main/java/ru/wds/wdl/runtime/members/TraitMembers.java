@@ -27,6 +27,8 @@ public final class TraitMembers {
     public static MemberSet set() {
         return MemberSet.builder()
                 .property("name", (receiver, context, span) -> StringValue.of(self(receiver).name()))
+                .snapshot("annotations", (receiver, context, span) ->
+                        Introspection.annotations(self(receiver).annotations()))
                 .snapshot("methods", (receiver, context, span) ->
                         Introspection.names(self(receiver).methodNames()))
                 .snapshot("properties", (receiver, context, span) ->

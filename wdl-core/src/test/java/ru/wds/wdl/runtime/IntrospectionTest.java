@@ -199,4 +199,62 @@ class IntrospectionTest {
         // одноимённый член. Проверяется на встроенном дескрипторе Module.
         assertTrue(errorOf("println(Module.nope)").getMessage().contains("нет члена 'nope'"));
     }
+
+    // --- метод и свойство по имени -------------------------------------------
+
+    @Test
+    @DisplayName("Cls.method отдаёт описание, а не функцию: несвязанного метода в языке нет")
+    void methodByName() {
+        assertEquals("save [\"force\"] {\"transactional\": true}", run("""
+                class User(id) {
+                    @{transactional: true}
+                    def save(force = false) {}
+                }
+                m = User.method("save")
+                names = []
+                for (p in m.params) names.push(p["name"])
+                println(m.name, " ", names, " ", m.annotations)
+                """));
+    }
+
+    @Test
+    @DisplayName("Cls.property отдаёт {name, readonly, annotations}")
+    void propertyByName() {
+        assertEquals("label true {\"computed\": true} false", run("""
+                class Rect(w) {
+                    @{computed: true}
+                    property label => w
+                    property size = 0 {
+                        def get() => field
+                        def set(value) { field = value }
+                    }
+                }
+                p = Rect.property("label")
+                println(p.name, " ", p["readonly"], " ", p.annotations, " ",
+                        Rect.property("size")["readonly"])
+                """));
+    }
+
+    @Test
+    @DisplayName("нет такого члена — null, а не ошибка: это вопрос, а не обращение")
+    void unknownMemberIsNull() {
+        assertEquals("null null", run("""
+                class Empty(x) {}
+                println(Empty.method("nope"), " ", Empty.property("nope"))
+                """));
+    }
+
+    @Test
+    @DisplayName("метод, доставшийся от родителя, описывается тем же ответом")
+    void inheritedMethodIsDescribed() {
+        assertEquals("report {\"base\": true}", run("""
+                class Base(x) {
+                    @{base: true}
+                    def report() {}
+                }
+                class Child(x) : Base(x) {}
+                m = Child.method("report")
+                println(m.name, " ", m.annotations)
+                """));
+    }
 }

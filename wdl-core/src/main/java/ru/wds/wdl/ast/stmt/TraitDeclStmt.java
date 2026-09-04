@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.expr.Annotations;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.source.Span;
 
@@ -44,6 +45,7 @@ import java.util.Objects;
 public record TraitDeclStmt(
         String name,
         Span nameSpan,
+        Annotations annotations,
         List<FunctionExpr.Param> params,
         List<FunctionExpr> methods,
         List<Requirement> requirements,
@@ -52,6 +54,7 @@ public record TraitDeclStmt(
 
     public TraitDeclStmt {
         Objects.requireNonNull(name, "name");
+        annotations = annotations == null ? Annotations.NONE : annotations;
         Objects.requireNonNull(params, "params");
         Objects.requireNonNull(methods, "methods");
         Objects.requireNonNull(requirements, "requirements");
@@ -72,16 +75,24 @@ public record TraitDeclStmt(
      *                 требованию не нужно — оно живёт в теле метода, которого здесь нет;
      *                 а вот число аргументов от него зависит: с остатком верхней границы
      *                 у него нет
+     * @param annotations данные, приписанные требованию. Значения у требования нет,
+     *                 поэтому прочитать их из скрипта пока нечем; в дереве они лежат
+     *                 затем же, зачем там лежит всё остальное, — их видят инструменты
      * @param mirror   требуется ли зеркальный оператор: {@code mirror def `+`(left)}.
      *                 Признаком, а не мангленным именем, — {@code name} обязан отражать
      *                 текст, ровно как у {@link FunctionExpr}
      */
-    public record Requirement(String name, List<FunctionExpr.Param> params, boolean variadic,
+    public record Requirement(String name, Annotations annotations,
+                              List<FunctionExpr.Param> params, boolean variadic,
                               boolean mirror, Span span) {
+
+        public Requirement {
+            annotations = annotations == null ? Annotations.NONE : annotations;
+        }
 
         /** Обычное требование: {@code def report()}. */
         public Requirement(String name, List<FunctionExpr.Param> params, boolean variadic, Span span) {
-            this(name, params, variadic, false, span);
+            this(name, Annotations.NONE, params, variadic, false, span);
         }
     }
 }

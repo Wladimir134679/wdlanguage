@@ -40,6 +40,18 @@ class NativeClassTest {
     // --- заголовок -----------------------------------------------------------
 
     @Test
+    @DisplayName("у класса от приложения annotations — пустой объект, а не null")
+    void nativeClassHasNoAnnotations() {
+        NativeClass type = NativeClass.named("Plain")
+                .param("text", StringValue.of(""))
+                .build();
+        assertTrue(type.annotations().isEmpty());
+        // И у параметра тоже: писать аннотации в нативном заголовке пока негде,
+        // а «неизвестно» и «пусто» здесь не различаются.
+        assertTrue(type.signature().params().get(0).annotations().isEmpty());
+    }
+
+    @Test
     @DisplayName("параметр без поля получает значение по умолчанию и при позиционном вызове")
     void paramDefaultsApplyPositionally() {
         List<Value> seen = new ArrayList<>();

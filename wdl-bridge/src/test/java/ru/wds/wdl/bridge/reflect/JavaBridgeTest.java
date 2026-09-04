@@ -79,6 +79,16 @@ class JavaBridgeTest {
     }
 
     @Test
+    @DisplayName("У типа, открытого мостом, annotations — пустой объект")
+    void bridgedTypeHasNoAnnotations() {
+        // Java-аннотации сюда не переносятся и не будут: чужая модель метаданных
+        // протекла бы в язык, а разбирать её пришлось бы каждому потребителю.
+        JavaBridge bridge = JavaBridge.open().expose(Counter.class).build();
+        assertEquals("{}" + NL, run("println(Counter.annotations)", bridge,
+                Map.of("c", new Counter("счёт"))));
+    }
+
+    @Test
     @DisplayName("Печать обёртки — это toString объекта")
     void printingUsesToString() {
         JavaBridge bridge = JavaBridge.open().expose(Counter.class).build();

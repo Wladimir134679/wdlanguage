@@ -7,7 +7,9 @@ import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.InstanceObjectValue;
+import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.MapValue;
+import ru.wds.wdl.value.types.RangeValue;
 import ru.wds.wdl.value.types.StringValue;
 
 import java.util.ArrayList;
@@ -155,20 +157,46 @@ final class Binder {
             switch (argument.kind()) {
                 case POSITIONAL -> slots.add(new Slot(null, argument.span(), value));
                 case NAMED -> slots.add(new Slot(argument.name(), argument.span(), value));
-                case SPREAD -> {
-                    if (!(value instanceof ArrayValue array)) {
-                        throw new WdlRuntimeError(ErrorKind.TYPE, argument.span(),
-                                "раскрыть в аргументы можно только массив, а здесь "
-                                        + value.type().title() + " (" + value.display() + ")");
-                    }
-                    for (Value item : array.items()) {
-                        slots.add(new Slot(null, argument.span(), item));
-                    }
-                }
+                case SPREAD -> spread(slots, argument, value);
                 case NAMED_SPREAD -> namedSpread(slots, argument, value, callee);
             }
         }
         return slots;
+    }
+
+    /**
+     * Раскрытие в позиционные аргументы.
+     * <p>
+     * Массив и диапазон — то же самое, что раскрывает литерал массива: одна пара
+     * символов значит одно и то же везде, иначе {@code *} пришлось бы читать
+     * с оглядкой на то, где он написан. Границы диапазона обязаны быть целыми
+     * по той же причине, что и в переборе: шаг равен единице.
+     */
+    private static void spread(List<Slot> slots, Argument argument, Value value) {
+        switch (value) {
+            case ArrayValue array -> {
+                for (Value item : array.items()) {
+                    slots.add(new Slot(null, argument.span(), item));
+                }
+            }
+            case RangeValue range -> {
+                if (!range.from().isInteger() || !range.to().isInteger()) {
+                    throw new WdlRuntimeError(ErrorKind.TYPE, argument.span(),
+                            "раскрыть можно диапазон с целыми границами, а здесь " + range
+                                    + ": шаг раскрытия равен единице");
+                }
+                long to = range.to().asLong();
+                for (long i = range.from().asLong(); i <= to; i++) {
+                    slots.add(new Slot(null, argument.span(), IntValue.of(i)));
+                    if (i == Long.MAX_VALUE) {
+                        break;
+                    }
+                }
+            }
+            default -> throw new WdlRuntimeError(ErrorKind.TYPE, argument.span(),
+                    "раскрыть в аргументы можно массив или диапазон, а здесь "
+                            + value.type().title() + " (" + value.display() + ")");
+        }
     }
 
     /**

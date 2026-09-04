@@ -109,10 +109,22 @@ final class DefaultValues {
                 VariableExpr inCallee = findUse(created.callee(), names);
                 yield inCallee != null ? inCallee : inArguments(names, created.arguments());
             }
-            case ArrayExpr array -> firstUse(names, array.elements());
+            case ArrayExpr array -> {
+                // Раскрытие — такое же выражение, как элемент: '[*a]' ссылается на 'a'
+                // ровно так же, как '[a]'.
+                for (ArrayExpr.Element element : array.elements()) {
+                    VariableExpr use = findUse(element.value(), names);
+                    if (use != null) {
+                        yield use;
+                    }
+                }
+                yield null;
+            }
             case ObjectExpr object -> {
                 for (ObjectExpr.Entry entry : object.entries()) {
-                    VariableExpr use = firstUse(names, entry.key(), entry.value());
+                    VariableExpr use = entry.isSpread()
+                            ? findUse(entry.value(), names)
+                            : firstUse(names, entry.key(), entry.value());
                     if (use != null) {
                         yield use;
                     }

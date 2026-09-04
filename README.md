@@ -56,6 +56,8 @@
 * [Функции](docs/functions.md) — объявление, `=>`, `return`, анонимные функции,
   значения параметров по умолчанию, именованные аргументы, вариативные параметры
   `*args`/`**named` и раскрытие `f(*array)`, замыкания, области видимости вызова.
+  Раскрытие `*` и `**` работает и в литералах: `[*head, 3]`, `{**defaults, timeout: 60}` —
+  см. [выражения](docs/expressions.md).
 * [Единое обращение](docs/access.md) — почему точка и квадратные скобки это одна операция.
 * [Члены значений](docs/members.md) — `text.size`, `a.sort()`, `213.toString()`,
   интроспекция функции и класса, путь в обход данных через дескриптор, `extend`.
@@ -64,6 +66,9 @@
   остаток в заголовке `*args`/`**named`.
 * [Декораторы](docs/decorators.md) — `@[выражение](аргументы)`, метаданные первым
   аргументом, порядок применения, `like`, обёртка для класса через наследника.
+* [Аннотации](docs/annotations.md) — `@{ключ: значение}` на объявлении, методе,
+  свойстве и параметре, слияние блоков, чтение членом `annotations`, чем отличаются
+  от декоратора.
 * [Потоки](docs/threads.md) — модель памяти, `synchronized`, модуль `sys.thread`:
   потоки, пул, замок, счётчик, канал, защёлка.
 * [Метрики](docs/metrics.md) — время стадий конвейера: флаг `--metrics` в консоли,
@@ -89,6 +94,7 @@
 ./gradlew :wdl-cli:run --args="examples/class-varargs.wdl"        # остаток в заголовке класса
 ./gradlew :wdl-cli:run --args="examples/properties.wdl"           # свойства: get/set, скрытое поле
 ./gradlew :wdl-cli:run --args="examples/decorators.wdl"           # декораторы: @[...], like
+./gradlew :wdl-cli:run --args="examples/annotations.wdl"          # аннотации: @{...}, annotations
 ./gradlew :wdl-cli:run --args="examples/threads.wdl"              # потоки и synchronized
 ./gradlew :wdl-cli:run --args="examples/threads_pool.wdl"         # пул, канал, защёлка
 ./gradlew :wdl-cli:run --args="--metrics examples/modules/plain.wdl" # время стадий
@@ -164,7 +170,11 @@ $ wdl examples/hello.wdl
 `Object.size(box)`; свои члены — `extend Array { ... }` из скрипта и `MemberRegistry`
 из приложения — [docs/members.md](docs/members.md)),
 декораторы (`@[выражение](аргументы)` на функции, классе и трейте; метаданные
-первым аргументом, модуль `sys.meta`, встроенная `like`), ошибки и ресурсы (иерархия `Exception`, `throw`,
+первым аргументом, модуль `sys.meta`, встроенная `like`),
+аннотации (`@{ключ: значение}` на функции, классе, трейте, методе, свойстве, фабрике
+и параметре; блоки сливаются в один объект, читаются снимком через `annotations`,
+рядом с ними `Cls.method(имя)` и `Cls.property(имя)` — [docs/annotations.md](docs/annotations.md)),
+ошибки и ресурсы (иерархия `Exception`, `throw`,
 `try`/`catch`/`finally`, короткие формы `try?` и `try!`, `defer`, `use` с трейтом
 `Closeable`, путь по скрипту в сообщении) и модули (`import lib.math`, `import lib.math as m`,
 наследование и трейты через файлы, в том числе от того, что дало выражение —
@@ -210,10 +220,13 @@ Java-объект заворачивается тем же мостом (`bridge
 модуля пока нельзя. У `match` нет структурного сопоставления с извлечением имён
 (`case {type: "click", x, y}`), у диапазона — шага (`1..10 by 2`). У декораторов нет короткой формы `@reg` без скобок и нельзя
 повесить их на анонимную функцию в позиции выражения — и то и другое аддитивно
-и отложено до второй версии.
+и отложено до второй версии; на членах типа декораторов тоже пока нет, а вот
+аннотации там работают. Аннотации не вешаются на переменную и на файл, не наследуются
+классом и не переносятся мостом из Java-аннотаций.
 Подробности — в [docs/statements.md](docs/statements.md),
 [docs/control-flow.md](docs/control-flow.md), [docs/functions.md](docs/functions.md),
 [docs/classes.md](docs/classes.md), [docs/decorators.md](docs/decorators.md),
+[docs/annotations.md](docs/annotations.md),
 [docs/errors.md](docs/errors.md),
 [docs/modules.md](docs/modules.md), [docs/threads.md](docs/threads.md),
 [docs/metrics.md](docs/metrics.md) и [docs/expressions.md](docs/expressions.md).

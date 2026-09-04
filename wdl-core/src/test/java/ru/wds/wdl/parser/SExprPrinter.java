@@ -169,18 +169,49 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
         return sb.toString().strip();
     }
 
+    /** Раскрытие печатается своей формой: {@code [*a, 1]} → {@code (array (* a) 1)}. */
     @Override
     public String visitArray(ArrayExpr expr, Void context) {
         String elements = expr.elements().stream()
-                .map(element -> visit(element, context))
+                .map(element -> element.isSpread()
+                        ? "(* " + visit(element.value(), context) + ")"
+                        : visit(element.value(), context))
                 .collect(Collectors.joining(" "));
         return elements.isEmpty() ? "(array)" : "(array " + elements + ")";
     }
 
     @Override
     public String visitObject(ObjectExpr expr, Void context) {
-        String entries = expr.entries().stream()
-                .map(entry -> "(" + visit(entry.key(), context) + " " + visit(entry.value(), context) + ")")
+        return entries(expr.entries());
+    }
+
+    /**
+     * Аннотации: {@code @{a: 1} @{b: 2}} → {@code (@ ("a" 1) ("b" 2))}.
+     * <p>
+     * Блоки слиты в один список — ровно так, как их видит выполнение: разница между
+     * «одним блоком» и «двумя» смысла не имеет, и ожидание теста не должно её знать.
+     */
+    static String print(Annotations annotations) {
+        if (!annotations.written()) {
+            return "";
+        }
+        SExprPrinter printer = new SExprPrinter();
+        StringBuilder sb = new StringBuilder("(@");
+        for (ObjectExpr.Entry entry : annotations.entries()) {
+            sb.append(' ').append(entry.isSpread()
+                    ? "(** " + printer.visit(entry.value(), null) + ")"
+                    : "(" + printer.visit(entry.key(), null) + " "
+                            + printer.visit(entry.value(), null) + ")");
+        }
+        return sb.append(')').toString();
+    }
+
+    /** {@code {**o, a: 1}} → {@code (object (** o) ("a" 1))}. */
+    private String entries(List<ObjectExpr.Entry> list) {
+        String entries = list.stream()
+                .map(entry -> entry.isSpread()
+                        ? "(** " + visit(entry.value(), null) + ")"
+                        : "(" + visit(entry.key(), null) + " " + visit(entry.value(), null) + ")")
                 .collect(Collectors.joining(" "));
         return entries.isEmpty() ? "(object)" : "(object " + entries + ")";
     }
@@ -198,9 +229,12 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
         StringBuilder sb = new StringBuilder("(");
         expr.modifiers().forEach(modifier -> sb.append(modifier.text()).append('-'));
         sb.append("def ").append(expr.writtenName());
-        expr.params().forEach(param -> sb.append(' ').append(param.hasDefault()
-                ? "(" + param.name() + " " + visit(param.defaultValue(), context) + ")"
-                : param.name()));
+        // Аннотации — часть заголовка, поэтому и в форме дерева они видны отдельным
+        // словом: без этого '@{a: 1} def f()' и 'def f()' совпали бы.
+        if (expr.annotations().written()) {
+            sb.append(' ').append(print(expr.annotations()));
+        }
+        expr.params().forEach(param -> sb.append(' ').append(param(param, context)));
         // Остаток печатается своей формой: без неё '(def f a)' у 'def f(a)' и 'def f(*a)'
         // совпали бы, а это разные заголовки.
         if (expr.rest() != null) {
@@ -210,6 +244,16 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
             sb.append(" (** ").append(expr.namedRest().name()).append(')');
         }
         return sb.append(')').toString();
+    }
+
+    /** Один параметр: со значением по умолчанию — парой, с аннотациями — под {@code (@ ...)}. */
+    private String param(FunctionExpr.Param param, Void context) {
+        String written = param.hasDefault()
+                ? "(" + param.name() + " " + visit(param.defaultValue(), context) + ")"
+                : param.name();
+        return param.annotations().written()
+                ? "(" + print(param.annotations()) + " " + written + ")"
+                : written;
     }
 
     /** {@code try? f()} → {@code (try? (call f))}: форма записи здесь и есть смысл. */

@@ -15,6 +15,7 @@ import ru.wds.wdl.value.types.NullValue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -74,16 +75,30 @@ public final class UserFunction implements FunctionValue {
      * от {@code WdlClass.bind} — замок <b>экземпляра</b>, общий для всех его методов.
      */
     private final ReentrantLock guard;
+    /**
+     * Аннотации объявления, уже вычисленные: значение, а не дерево.
+     * <p>
+     * Считает их тот, у кого есть область объявления, — {@code Interpreter} при проходе
+     * литерала функции. Здесь они только лежат: поле заполнено при создании и дальше
+     * не меняется, поэтому и безопасно в любом числе потоков без всякого замка.
+     */
+    private final DeclaredAnnotations annotations;
 
     public UserFunction(FunctionExpr declaration, Environment closure, Unit unit, Run run,
                  Interpreter interpreter, ReentrantLock guard) {
+        this(declaration, closure, unit, run, interpreter, guard, DeclaredAnnotations.NONE);
+    }
+
+    UserFunction(FunctionExpr declaration, Environment closure, Unit unit, Run run,
+                 Interpreter interpreter, ReentrantLock guard, DeclaredAnnotations annotations) {
         this.declaration = Objects.requireNonNull(declaration, "declaration");
         this.closure = Objects.requireNonNull(closure, "closure");
         this.unit = Objects.requireNonNull(unit, "unit");
         this.run = Objects.requireNonNull(run, "run");
         this.interpreter = Objects.requireNonNull(interpreter, "interpreter");
+        this.annotations = Objects.requireNonNull(annotations, "annotations");
         this.arity = arityOf(declaration);
-        this.signature = signatureOf(declaration);
+        this.signature = signatureOf(declaration, annotations);
         this.guard = guard;
     }
 
@@ -112,16 +127,22 @@ public final class UserFunction implements FunctionValue {
      * которое считается в области вызова и видит параметры левее себя. Подставить его
      * снаружи, до входа в функцию, значило бы посчитать его не там и не тогда.
      */
-    private static Signature signatureOf(FunctionExpr declaration) {
+    static Signature signatureOf(FunctionExpr declaration, DeclaredAnnotations annotations) {
         List<Signature.Param> params = new ArrayList<>(declaration.params().size());
-        for (FunctionExpr.Param param : declaration.params()) {
+        for (int i = 0; i < declaration.params().size(); i++) {
+            FunctionExpr.Param param = declaration.params().get(i);
+            Signature.Param declared;
             if (param.isHole()) {
-                params.add(Signature.Param.hole());
+                declared = Signature.Param.hole();
             } else {
-                params.add(param.hasDefault()
+                declared = param.hasDefault()
                         ? Signature.Param.lazy(param.name())
-                        : Signature.Param.required(param.name()));
+                        : Signature.Param.required(param.name());
             }
+            // Аннотации навешиваются здесь, потому что описание параметра строится
+            // из контракта и ниоткуда больше: второй список «по номеру» разъехался бы
+            // с этим на первой же дырке.
+            params.add(declared.withAnnotations(annotations.param(i)));
         }
         return Signature.of(params,
                 declaration.rest() == null ? null : declaration.rest().name(),
@@ -153,6 +174,11 @@ public final class UserFunction implements FunctionValue {
     @Override
     public Signature signature() {
         return signature;
+    }
+
+    @Override
+    public Map<Value, Value> annotations() {
+        return annotations.own();
     }
 
     /**

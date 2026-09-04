@@ -39,6 +39,11 @@ import java.util.stream.Collectors;
  * @param modifiers слова перед {@code def}: сейчас там бывает только
  *                  {@link Modifier#SYNCHRONIZED}. Набором, а не признаком, — почему
  *                  именно так, разобрано в {@link Modifier}
+ * @param annotations данные, приписанные объявлению: {@code @{route: "/users"}}.
+ *                  Лежат в самом объявлении, а не в обёртке над инструкцией, потому
+ *                  что нужны и методу класса, до которого {@code DecoratedStmt}
+ *                  не дотягивается. У анонимной функции их не бывает — привязывать
+ *                  их там не к чему, и это проверяется здесь
  * @param params    параметры в порядке записи. <b>Только те, у которых есть позиция</b>:
  *                  остатки лежат отдельно, потому что этот список читают как «параметр
  *                  номер такой-то» — поле класса, значение по умолчанию, аргумент родителю
@@ -49,23 +54,40 @@ import java.util.stream.Collectors;
  * @param span      место в исходнике: от первого слова заголовка до конца тела
  */
 public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifiers,
-                           List<Param> params, Rest rest, Rest namedRest, Stmt body,
-                           BodyStyle style, Span span) implements Expr {
+                           Annotations annotations, List<Param> params, Rest rest,
+                           Rest namedRest, Stmt body, BodyStyle style, Span span)
+        implements Expr {
 
     public FunctionExpr {
         modifiers = modifiers == null || modifiers.isEmpty()
                 ? Set.of()
                 : Collections.unmodifiableSet(EnumSet.copyOf(modifiers));
+        annotations = annotations == null ? Annotations.NONE : annotations;
         params = List.copyOf(Objects.requireNonNull(params, "params"));
         Objects.requireNonNull(body, "body");
         Objects.requireNonNull(style, "style");
         Objects.requireNonNull(span, "span");
+        if (anonymous && annotations.written()) {
+            // Запрет '@{a: 1} f = def (x) => x' получается по построению: проверять
+            // его в каждом посетителе не придётся.
+            throw new IllegalArgumentException("у анонимной функции нет объявления, "
+                    + "к которому можно привязать аннотации: " + span);
+        }
     }
 
     /** Объявление под именем: {@code def f()}, метод, фабрика. */
     public FunctionExpr(String name, Set<Modifier> modifiers, List<Param> params,
                         Rest rest, Rest namedRest, Stmt body, BodyStyle style, Span span) {
-        this(name, name == null, modifiers, params, rest, namedRest, body, style, span);
+        this(name, name == null, modifiers, Annotations.NONE, params, rest, namedRest,
+                body, style, span);
+    }
+
+    /** То же с аннотациями: {@code @{a: 1} def f()}. */
+    public FunctionExpr(String name, Set<Modifier> modifiers, Annotations annotations,
+                        List<Param> params, Rest rest, Rest namedRest, Stmt body,
+                        BodyStyle style, Span span) {
+        this(name, name == null, modifiers, annotations, params, rest, namedRest,
+                body, style, span);
     }
 
     /** Помечена ли функция {@code synchronized} — вопрос, который задают чаще всего. */
@@ -151,28 +173,40 @@ public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifie
      * {@link ru.wds.wdl.lexer.TokenType#HOLE}, и в {@code Param} такое имя может
      * поставить только разбор дырки.
      *
+     * <b>Аннотации параметра лежат здесь же.</b> Заголовок класса — это его поля,
+     * поэтому {@code class User(@{column: "id"} id)} и {@code def total(@{min: 0} price)}
+     * — одна и та же запись в одном и том же узле; второго места для «данных о поле»
+     * язык не заводит.
+     *
      * @param name         имя параметра или {@link #HOLE} у дырки
+     * @param annotations  данные, приписанные параметру, или {@link Annotations#NONE}
      * @param defaultValue значение по умолчанию или {@code null}, если параметр обязателен
      * @param span         место имени в исходнике
      */
-    public record Param(String name, Expr defaultValue, Span span) {
+    public record Param(String name, Annotations annotations, Expr defaultValue, Span span) {
 
         /** Имя параметра-дырки. Обычным именем оно быть не может — см. javadoc записи. */
         public static final String HOLE = "_";
 
         public Param {
             Objects.requireNonNull(name, "name");
+            annotations = annotations == null ? Annotations.NONE : annotations;
             Objects.requireNonNull(span, "span");
+        }
+
+        /** Параметр без аннотаций: {@code def f(a, b = 10)}. */
+        public Param(String name, Expr defaultValue, Span span) {
+            this(name, Annotations.NONE, defaultValue, span);
         }
 
         /** Обязательный параметр — без значения по умолчанию. */
         public Param(String name, Span span) {
-            this(name, null, span);
+            this(name, Annotations.NONE, null, span);
         }
 
         /** Параметр-дырка: {@code def onClick(_, event)}. Значения по умолчанию у неё нет. */
         public static Param hole(Span span) {
-            return new Param(HOLE, null, span);
+            return new Param(HOLE, Annotations.NONE, null, span);
         }
 
         /** Дырка ли это — то есть надо ли забыть значение сразу после связывания. */

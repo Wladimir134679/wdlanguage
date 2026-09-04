@@ -402,4 +402,30 @@ class ParserTest {
         assertTrue(diagnose("f(**options, *values)").renderAll()
                 .contains("после раскрытия объекта '**' раскрытие массива не имеет позиции"));
     }
+
+    // --- раскрытие в литералах -----------------------------------------------
+
+    @Test
+    @DisplayName("раскрытие в литерале массива — своя форма элемента")
+    void spreadInArrayLiteral() {
+        assertEquals("(array (* head) 3)", tree("[*head, 3]"));
+        assertEquals("(array 1 (* (.. 2 3)))", tree("[1, *2..3]"));
+        assertEquals("(array (* a) (* b))", tree("[*a, *b]"));
+    }
+
+    @Test
+    @DisplayName("раскрытие в литерале объекта — своя форма записи")
+    void spreadInObjectLiteral() {
+        assertEquals("(object (** defaults) (\"timeout\" 60))", tree("{**defaults, timeout: 60}"));
+        assertEquals("(object (** a) (** b))", tree("{**a, **b}"));
+    }
+
+    @Test
+    @DisplayName("перепутанная звёздочка названа прямо: у массива нет ключей, у объекта — позиций")
+    void spreadFormMismatch() {
+        assertTrue(diagnose("[**options]").renderAll()
+                .contains("у элементов массива ключей нет"));
+        assertTrue(diagnose("{*values}").renderAll()
+                .contains("у объекта позиций нет"));
+    }
 }

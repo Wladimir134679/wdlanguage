@@ -9,6 +9,7 @@ import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -30,9 +31,13 @@ import java.util.Objects;
  * @param unit      файл, где свойство написано, — по той же причине, что у метода
  * @param superFrom класс, чей родитель служит стартом для {@code super} внутри
  *                  аксессора; у свойства из трейта — {@code null}
+ * @param annotations аннотации свойства, уже вычисленные. Едут вместе со свойством
+ *                  по той же причине, что у {@link Method}: унаследованное свойство
+ *                  сохраняет данные своего объявления
  */
 record WdlProperty(PropertyDecl declaration, Environment closure, Unit unit,
-                   WdlClass superFrom, Run run, Interpreter interpreter) implements Property {
+                   WdlClass superFrom, Run run, Interpreter interpreter,
+                   Map<Value, Value> annotations) implements Property {
 
     WdlProperty {
         Objects.requireNonNull(declaration, "declaration");
@@ -40,6 +45,7 @@ record WdlProperty(PropertyDecl declaration, Environment closure, Unit unit,
         Objects.requireNonNull(unit, "unit");
         Objects.requireNonNull(run, "run");
         Objects.requireNonNull(interpreter, "interpreter");
+        annotations = annotations == null ? Map.of() : annotations;
     }
 
     @Override

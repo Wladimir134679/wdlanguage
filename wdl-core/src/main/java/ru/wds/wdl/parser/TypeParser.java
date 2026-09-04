@@ -1,6 +1,7 @@
 package ru.wds.wdl.parser;
 
 import ru.wds.wdl.ast.expr.AccessExpr;
+import ru.wds.wdl.ast.expr.Annotations;
 import ru.wds.wdl.ast.expr.AccessStyle;
 import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.BodyStyle;
@@ -153,6 +154,11 @@ final class TypeParser {
      * Читать такое объявление можно слева направо, не зная никаких правил линеаризации.
      */
     Stmt classDeclaration() {
+        return classDeclaration(Annotations.NONE);
+    }
+
+    /** То же под аннотациями: {@code @{table: "users"} class User(id) { ... }}. */
+    Stmt classDeclaration(Annotations annotations) {
         Token keyword = cursor.advance(); // class
         Token name = expectTypeName("класса");
         if (name == null) {
@@ -175,9 +181,9 @@ final class TypeParser {
 
         Members members = typeBody(name.text(), parent != null, true);
         Span span = keyword.span().to(cursor.lastSpan());
-        return new ClassDeclStmt(name.text(), name.span(), params, header.rest(), header.namedRest(),
-                parent, traits, members.constructor, members.methods, members.factories,
-                members.properties, span);
+        return new ClassDeclStmt(name.text(), name.span(), annotations, params, header.rest(),
+                header.namedRest(), parent, traits, members.constructor, members.methods,
+                members.factories, members.properties, span);
     }
 
     /**
@@ -188,6 +194,11 @@ final class TypeParser {
      * объявлений для него не значит ничего.
      */
     Stmt traitDeclaration() {
+        return traitDeclaration(Annotations.NONE);
+    }
+
+    /** То же под аннотациями: {@code @{since: "0.4"} trait Printable { ... }}. */
+    Stmt traitDeclaration(Annotations annotations) {
         Token keyword = cursor.advance(); // trait
         Token name = expectTypeName("трейта");
         if (name == null) {
@@ -207,7 +218,7 @@ final class TypeParser {
 
         Members members = typeBody(name.text(), false, false);
         Span span = keyword.span().to(cursor.lastSpan());
-        return new TraitDeclStmt(name.text(), name.span(), params,
+        return new TraitDeclStmt(name.text(), name.span(), annotations, params,
                 members.methods, members.requirements, members.properties, span);
     }
 
@@ -419,6 +430,7 @@ final class TypeParser {
      */
     private void member(Members members, boolean hasParent, boolean isClass) {
         Token start = cursor.peek();
+        Annotations annotations = memberAnnotations();
         Set<Modifier> modifiers = EnumSet.noneOf(Modifier.class);
         if (isMirror()) {
             cursor.advance();
@@ -442,7 +454,16 @@ final class TypeParser {
             modifiers.add(Modifier.SYNCHRONIZED);
         }
         if (isProperty()) {
-            property(members, hasParent, isClass);
+            property(members, annotations, hasParent, isClass);
+            return;
+        }
+        if (cursor.check(TokenType.AT)) {
+            // Декоратор на члене — не «здесь допустимы только функции и свойства»:
+            // человек написал ровно то, что язык обещает разрешить, просто пока не тут.
+            diagnostics.error(cursor.peek().span(), "декораторы на членах типа пока"
+                    + " не поддержаны: '@[...]' вешается на объявление верхнего уровня."
+                    + " Данные о члене пишутся аннотацией — '@{ключ: значение}'");
+            cursor.synchronize();
             return;
         }
         if (!cursor.check(TokenType.DEF)) {
@@ -467,7 +488,7 @@ final class TypeParser {
         }
 
         if (cursor.check(TokenType.DOT)) {
-            factory(members, start, name, isClass, modifiers);
+            factory(members, start, name, isClass, modifiers, annotations);
             return;
         }
 
@@ -495,8 +516,8 @@ final class TypeParser {
                 return;
             }
             TraitDeclStmt.Requirement requirement = new TraitDeclStmt.Requirement(name.text(),
-                    params, header.rest() != null, modifiers.contains(Modifier.MIRROR),
-                    start.span().to(name.span()));
+                    annotations, params, header.rest() != null,
+                    modifiers.contains(Modifier.MIRROR), start.span().to(name.span()));
             if (members.taken(key(requirement))) {
                 diagnostics.error(name.span(), duplicate(name.text()));
                 return;
@@ -505,7 +526,7 @@ final class TypeParser {
             return;
         }
 
-        FunctionExpr function = new FunctionExpr(name.text(), modifiers, params,
+        FunctionExpr function = new FunctionExpr(name.text(), modifiers, annotations, params,
                 header.rest(), header.namedRest(), body,
                 bodyStyle(body), start.span().to(body.span()));
         if (isConstructor) {
@@ -521,6 +542,17 @@ final class TypeParser {
             return;
         }
         members.methods.add(function);
+    }
+
+    /**
+     * Аннотации перед членом типа: {@code @{transactional: true} def save() { ... }}.
+     * <p>
+     * Тем же разбором, что и на верхнем уровне: своей грамматики у аннотаций нет
+     * ни там, ни здесь. Декораторов тут не бывает — о них {@link #member} говорит
+     * отдельно.
+     */
+    private Annotations memberAnnotations() {
+        return parser.annotations();
     }
 
     /**
@@ -667,7 +699,8 @@ final class TypeParser {
      * только то, что внутри есть {@code this}, и оно включается тем же
      * {@link ParseState#allowSelf}.
      */
-    private void property(Members members, boolean hasParent, boolean isClass) {
+    private void property(Members members, Annotations annotations, boolean hasParent,
+                          boolean isClass) {
         Token keyword = cursor.advance(); // property
         Token name = cursor.advance();    // имя — проверено в isProperty
 
@@ -684,7 +717,7 @@ final class TypeParser {
             }
             Expr value = state.inFunctionBody(() -> parser.expression(0));
             Span span = keyword.span().to(value.span());
-            add(members, new PropertyDecl(name.text(), name.span(), initial,
+            add(members, new PropertyDecl(name.text(), name.span(), annotations, initial,
                     new PropertyDecl.Accessor(getterOf(value, name), value.span()), null,
                     PropertyStyle.ARROW, span), name);
             return;
@@ -696,12 +729,12 @@ final class TypeParser {
             cursor.synchronize();
             return;
         }
-        accessors(members, keyword, name, initial, hasParent, isClass);
+        accessors(members, keyword, name, annotations, initial, hasParent, isClass);
     }
 
     /** Блок аксессоров: {@code { def get() ... def set(value) ... }}. */
-    private void accessors(Members members, Token keyword, Token name, Expr initial,
-                           boolean hasParent, boolean isClass) {
+    private void accessors(Members members, Token keyword, Token name, Annotations annotations,
+                           Expr initial, boolean hasParent, boolean isClass) {
         cursor.advance(); // {
         PropertyDecl.Accessor getter = null;
         PropertyDecl.Accessor setter = null;
@@ -734,8 +767,8 @@ final class TypeParser {
                     + "свойство только для записи в языке не заводится");
             return;
         }
-        add(members, new PropertyDecl(name.text(), name.span(), initial, getter, setter,
-                PropertyStyle.BLOCK, span), name);
+        add(members, new PropertyDecl(name.text(), name.span(), annotations, initial,
+                getter, setter, PropertyStyle.BLOCK, span), name);
     }
 
     /** Разобранный аксессор вместе с тем, чем он оказался: {@code get} или {@code set}. */
@@ -852,7 +885,7 @@ final class TypeParser {
      * обычное присваивание. {@code this} внутри нет: экземпляра ещё не существует.
      */
     private void factory(Members members, Token start, Token owner, boolean isClass,
-                         Set<Modifier> modifiers) {
+                         Set<Modifier> modifiers, Annotations annotations) {
         cursor.advance(); // .
         if (!isClass) {
             diagnostics.error(owner.span(), "у трейта не бывает фабрик: "
@@ -884,8 +917,8 @@ final class TypeParser {
             }
         }
         members.factories.add(new ClassDeclStmt.Factory(name.text(),
-                new FunctionExpr(full, modifiers, header.params(), header.rest(), header.namedRest(),
-                        body, bodyStyle(body), start.span().to(body.span())),
+                new FunctionExpr(full, modifiers, annotations, header.params(), header.rest(),
+                        header.namedRest(), body, bodyStyle(body), start.span().to(body.span())),
                 start.span().to(body.span())));
     }
 
@@ -967,8 +1000,17 @@ final class TypeParser {
         FunctionExpr.Rest namedRest = null;
         while (!cursor.check(TokenType.RPAREN) && !cursor.check(TokenType.EOF)) {
             int before = cursor.position();
+            Annotations annotations = parser.annotations();
             if (cursor.check(TokenType.STAR) || cursor.check(TokenType.STARSTAR)) {
                 boolean named = cursor.check(TokenType.STARSTAR);
+                if (annotations.written()) {
+                    // Остаток не занимает позиции и полем класса не становится,
+                    // а значит и описания «вот этот параметр такой-то» у него быть
+                    // не может: описывать пришлось бы каждый собранный аргумент.
+                    diagnostics.error(annotations.span(), "у остаточного параметра"
+                            + " не бывает аннотаций: он не занимает позиции и полем"
+                            + " не становится — описывать в нём нечего");
+                }
                 cursor.advance(); // * или **
                 FunctionExpr.Rest declared = restParameter(named, params, rest, namedRest, allowRest);
                 if (declared != null && named) {
@@ -977,12 +1019,12 @@ final class TypeParser {
                     rest = declared;
                 }
             } else if (cursor.check(TokenType.HOLE)) {
-                addHole(params, cursor.advance(), callSignature, rest, namedRest);
+                addHole(params, cursor.advance(), annotations, callSignature, rest, namedRest);
             } else if (cursor.check(TokenType.WORD)) {
                 Token name = cursor.advance();
                 // Значение по умолчанию — обычное выражение, а не литерал: запятая
                 // оператором не является, поэтому список на нём не рвётся.
-                addParameter(params, name,
+                addParameter(params, name, annotations,
                         cursor.match(TokenType.ASSIGN) ? parser.expression(0) : null,
                         callSignature, rest, namedRest);
             } else {
@@ -1091,8 +1133,9 @@ final class TypeParser {
      * Там параметр — не позиция, а поле или требование к классу; дырка же и есть
      * «позиция без имени», то есть ровно то, чего в заголовке трейта не бывает.
      */
-    private void addHole(List<FunctionExpr.Param> params, Token hole, boolean callSignature,
-                         FunctionExpr.Rest rest, FunctionExpr.Rest namedRest) {
+    private void addHole(List<FunctionExpr.Param> params, Token hole, Annotations annotations,
+                         boolean callSignature, FunctionExpr.Rest rest,
+                         FunctionExpr.Rest namedRest) {
         if (cursor.match(TokenType.ASSIGN)) {
             // Выражение всё равно разбирается — по той же причине, что у остатка:
             // иначе список порвётся и к одной ошибке добавится вторая.
@@ -1116,10 +1159,11 @@ final class TypeParser {
             diagnostics.error(hole.span(), "пропуск '_' без значения по умолчанию"
                     + " не может идти после параметра со значением по умолчанию");
         }
-        params.add(FunctionExpr.Param.hole(hole.span()));
+        params.add(new FunctionExpr.Param(FunctionExpr.Param.HOLE, annotations, null, hole.span()));
     }
 
-    private void addParameter(List<FunctionExpr.Param> params, Token name, Expr defaultValue,
+    private void addParameter(List<FunctionExpr.Param> params, Token name,
+                              Annotations annotations, Expr defaultValue,
                               boolean callSignature, FunctionExpr.Rest rest,
                               FunctionExpr.Rest namedRest) {
         for (FunctionExpr.Param existing : params) {
@@ -1142,6 +1186,6 @@ final class TypeParser {
             diagnostics.error(name.span(), "параметр '" + name.text() + "' без значения по умолчанию"
                     + " не может идти после параметра со значением по умолчанию");
         }
-        params.add(new FunctionExpr.Param(name.text(), defaultValue, name.span()));
+        params.add(new FunctionExpr.Param(name.text(), annotations, defaultValue, name.span()));
     }
 }

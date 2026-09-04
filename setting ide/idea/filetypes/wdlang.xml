@@ -12,10 +12,15 @@
       <option name="HAS_STRING_ESCAPES" value="true" />
       <option name="LINE_COMMENT_AT_START" value="false" />
     </options>
-    <keywords keywords="as;break;case;class;const;continue;def;do;else;for;if;import;in;is;match;new;return;trait;while;with" ignore_case="false" />
-    <keywords2 keywords="abs;len;pow;print;println;sqrt;typeof" ignore_case="false" />
-    <keywords3 keywords="false;null;super;this;true" ignore_case="false" />
-    <keywords4 keywords="File;Random" ignore_case="false" />
+    <!-- Все зарезервированные слова из lexer/TokenType.java. Словесные операторы
+         in, is и has тоже здесь: лексер не позволяет использовать их как имена. -->
+    <keywords keywords="as;break;case;catch;class;const;continue;def;defer;do;else;finally;for;has;if;import;in;is;match;new;property;return;super;synchronized;this;throw;trait;try;use;while;with;yield" ignore_case="false" />
+    <!-- Функции, доступные в базовой среде и стандартной библиотеке CLI. -->
+    <keywords2 keywords="abs;len;like;pow;print;println;sqrt;typeof" ignore_case="false" />
+    <!-- Литеральные значения — не смешиваем их с управляющими словами. -->
+    <keywords3 keywords="false;null;true" ignore_case="false" />
+    <!-- Дескрипторы типов из прелюдии и классы стандартной библиотеки. -->
+    <keywords4 keywords="Array;Bool;Class;File;Function;Module;Null;Number;Object;Random;Range;String;Trait" ignore_case="false" />
   </highlighting>
   <extensionMap>
     <mapping ext="wdl" />

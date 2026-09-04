@@ -35,6 +35,16 @@ public interface Property {
     boolean writable();
 
     /**
+     * Аннотации свойства — данные, приписанные ему записью {@code @{computed: true}}.
+     * <p>
+     * По умолчанию пусто: у свойства от приложения и у члена встроенного типа
+     * аннотаций не бывает — писать их негде.
+     */
+    default java.util.Map<Value, Value> annotations() {
+        return java.util.Map.of();
+    }
+
+    /**
      * Читает: зовёт getter по этому экземпляру.
      * <p>
      * Приёмником служит сам объект, а не вид {@code super}, через который свойство

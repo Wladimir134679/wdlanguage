@@ -301,6 +301,16 @@ public final class NativeClass implements ClassValue {
         return List.copyOf(methods.keySet());
     }
 
+    /**
+     * Контракт метода без экземпляра — то же, что отдаёт связанный метод: имена
+     * параметров объявлены построителем, и рассказать о них можно, не создавая объекта.
+     */
+    @Override
+    public Signature methodSignature(String name) {
+        Entry entry = methods.get(name);
+        return entry == null ? null : entry.signature();
+    }
+
     @Override
     public List<String> fieldNames() {
         // Только хранимые: параметр без поля (см. Field#stored) в объекте не лежит,

@@ -42,6 +42,10 @@ public final class FunctionMembers {
                         Introspection.params(self(receiver).signature()))
                 .property("arity", (receiver, context, span) ->
                         Introspection.arity(self(receiver).arity()))
+                // Именно snapshot, а не property: объект изменяем, и запись в результат
+                // не должна портить объявление — та же причина, что у Cls.methods.
+                .snapshot("annotations", (receiver, context, span) ->
+                        Introspection.annotations(self(receiver).annotations()))
                 .property("rest", (receiver, context, span) -> {
                     String rest = self(receiver).signature().restName();
                     return rest == null ? NullValue.NULL : StringValue.of(rest);

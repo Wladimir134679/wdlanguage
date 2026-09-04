@@ -1,6 +1,7 @@
 package ru.wds.wdl.runtime.members;
 
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Property;
 import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
@@ -13,6 +14,7 @@ import ru.wds.wdl.value.types.StringValue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Как движок рассказывает о себе скрипту: общая форма ответов интроспекции.
@@ -54,9 +56,57 @@ final class Introspection {
             described.put("name", StringValue.of(param.name()));
             described.put("required", BoolValue.of(param.isRequired()));
             described.put("default", param.constant() != null ? param.constant() : NullValue.NULL);
+            // Аннотаций нет — пустой объект, а не null: различия «неизвестно» и «пусто»
+            // здесь нет, аннотация либо написана, либо не написана.
+            described.put("annotations", annotations(param.annotations()));
             params.add(described);
         }
         return ArrayValue.of(params);
+    }
+
+    /**
+     * Аннотации копией на каждое чтение.
+     * <p>
+     * Копией, а не хранимым объектом, и это <b>тип</b>, а не договорённость: объект
+     * в языке изменяем, и отдай мы его полем — {@code f.annotations["x"] = 1} менял бы
+     * само объявление. Та же причина, по которой снимками отдаются {@code Cls.methods}
+     * и {@code Cls.properties}; для линтера это заодно значит «не звать в цикле».
+     */
+    static Value annotations(Map<Value, Value> annotations) {
+        MapValue copy = new MapValue();
+        annotations.forEach(copy::put);
+        return copy;
+    }
+
+    /**
+     * Описание метода: {@code {name, params, annotations}}.
+     * <p>
+     * <b>Объект-описание, а не функция.</b> Несвязанный метод в языке значением
+     * не бывает: приёмника у него нет, а выдумать его за автора нельзя — и функция,
+     * падающая при вызове, была бы хуже честного описания. Связанный метод берётся
+     * у экземпляра тем же обращением, что всегда: {@code instance.save}.
+     */
+    static Value method(String name, Signature signature, Map<Value, Value> annotations) {
+        MapValue described = new MapValue();
+        described.put("name", StringValue.of(name));
+        described.put("params", params(signature));
+        described.put("annotations", annotations(annotations));
+        return described;
+    }
+
+    /**
+     * Описание свойства: {@code {name, readonly, annotations}}.
+     * <p>
+     * {@code readonly}, а не {@code writable}: спрашивают о свойстве почти всегда
+     * затем, чтобы не записать в него, — и утвердительный ответ на заданный вопрос
+     * читается лучше отрицания.
+     */
+    static Value property(Property property) {
+        MapValue described = new MapValue();
+        described.put("name", StringValue.of(property.name()));
+        described.put("readonly", BoolValue.of(!property.writable()));
+        described.put("annotations", annotations(property.annotations()));
+        return described;
     }
 
     /**

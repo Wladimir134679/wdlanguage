@@ -589,8 +589,8 @@ public final class Parser {
             return value;
         }
         // Анонимной она и остаётся: имя тут подставлено для сообщений, а не написано.
-        return new FunctionExpr(name, true, function.modifiers(), function.params(),
-                function.rest(), function.namedRest(), function.body(),
+        return new FunctionExpr(name, true, function.modifiers(), function.annotations(),
+                function.params(), function.rest(), function.namedRest(), function.body(),
                 function.style(), function.span());
     }
 
@@ -733,58 +733,161 @@ public final class Parser {
     }
 
     /**
-     * Объявление под декораторами: {@code @[timer]("ms") def command() { ... }}.
+     * Объявление под декораторами и аннотациями:
+     * {@code @{route: "/users"} @[timer]("ms") def command() { ... }}.
      * <p>
-     * Сначала собирается весь стек — декораторы идут подряд и разделителя между ними
-     * нет, — потом разбирается то, на что он повешен. Целью бывает только объявление:
-     * {@code def} с именем, {@code class}, {@code trait}. Декоратор на анонимной
-     * функции в позиции выражения — вторая версия: {@code f = timer(m.of(g))} пишется
-     * и сейчас, а новая ветка в префиксной позиции стоит дороже, чем экономит.
+     * Сначала собирается всё, что написано перед объявлением, — разделителя между
+     * записями нет и порядок их не значит ничего, — потом разбирается то, на что они
+     * повешены. Целью бывает только объявление: {@code def} с именем, {@code class},
+     * {@code trait}. Декоратор на анонимной функции в позиции выражения — вторая
+     * версия: {@code f = timer(m.of(g))} пишется и сейчас, а новая ветка в префиксной
+     * позиции стоит дороже, чем экономит.
+     * <p>
+     * <b>Аннотации и декораторы расходятся здесь же, и по-разному.</b> Декораторы
+     * уходят в {@link DecoratedStmt} — обёртку над инструкцией, то есть действие;
+     * аннотации уходят внутрь самого объявления, потому что они его часть. Отсюда
+     * само собой получается обещание языка: {@code @[deco] @{a: 1}} и
+     * {@code @{a: 1} @[deco]} значат одно и то же, а декоратор видит аннотации
+     * своей цели.
      */
     private Stmt decorated() {
         Token start = cursor.peek();
         List<Decorator> decorators = new ArrayList<>();
+        List<ObjectExpr.Entry> entries = new ArrayList<>();
+        List<Span> blocks = new ArrayList<>();
         while (cursor.check(TokenType.AT)) {
             // Продвижение гарантировано: '@' съедается первым же действием, что бы
             // дальше ни случилось, — поэтому страховки от вечного цикла тут не нужно.
+            if (cursor.peek(1).type() == TokenType.LBRACE) {
+                blocks.add(annotationBlock(entries));
+                continue;
+            }
             Decorator decorator = decorator();
             if (decorator != null) {
                 decorators.add(decorator);
             }
         }
-        if (decorators.isEmpty()) {
-            // Ни одного декоратора не разобралось, и об этом уже сказано. Дальше идёт
-            // объявление, и разобрать его всё равно надо: дерево возвращается всегда.
-            return declarationUnderDecorators(start);
+        Annotations annotations = blocks.isEmpty()
+                ? Annotations.NONE
+                : new Annotations(entries, blocks);
+        Stmt declaration = declarationUnderDecorators(start, annotations, !decorators.isEmpty());
+        if (decorators.isEmpty() || declaration instanceof ErrorStmt) {
+            // Либо декораторов не написали вовсе, либо ни один не разобрался и об этом
+            // уже сказано. Объявление разобрать всё равно надо: дерево возвращается всегда.
+            return declaration;
         }
-        Stmt declaration = declarationUnderDecorators(start);
-        return declaration instanceof ErrorStmt
-                ? declaration
-                : new DecoratedStmt(decorators, declaration, start.span().to(cursor.lastSpan()));
+        return new DecoratedStmt(decorators, declaration, start.span().to(cursor.lastSpan()));
     }
 
     /**
-     * То, на что повешен стек декораторов.
+     * Все идущие подряд блоки {@code @{...}} и ничего больше.
+     * <p>
+     * Нужно там, где декораторов не бывает: перед членом типа и перед параметром.
+     * Разбор один и тот же — иначе слияние блоков и поимка дубликата ключа
+     * разошлись бы по трём местам.
+     */
+    Annotations annotations() {
+        List<ObjectExpr.Entry> entries = new ArrayList<>();
+        List<Span> blocks = new ArrayList<>();
+        while (cursor.check(TokenType.AT) && cursor.peek(1).type() == TokenType.LBRACE) {
+            blocks.add(annotationBlock(entries));
+        }
+        return blocks.isEmpty() ? Annotations.NONE : new Annotations(entries, blocks);
+    }
+
+    /**
+     * Один блок аннотаций: {@code @{ключ: значение, ...}}.
+     * <p>
+     * Внутри — обычный литерал объекта, разобранный тем же кодом: своей грамматики
+     * у аннотаций нет и заводить её незачем. Записи всех блоков копятся в один список,
+     * потому что блоки сливаются в один объект.
+     * <p>
+     * Пустая {@code @{}} разрешена: запрещать нечего, а для потребителя она
+     * неотличима от отсутствия аннотаций.
+     *
+     * @return место блока целиком: от {@code @} до закрывающей скобки
+     */
+    private Span annotationBlock(List<ObjectExpr.Entry> entries) {
+        Token at = cursor.advance();     // @
+        cursor.advance();                // {
+        while (!cursor.check(TokenType.RBRACE) && !cursor.check(TokenType.EOF)) {
+            int before = cursor.position();
+            ObjectExpr.Entry entry = objectEntry();
+            checkDuplicateKey(entries, entry);
+            entries.add(entry);
+            if (cursor.match(TokenType.COMMA) || cursor.check(TokenType.RBRACE)) {
+                continue;
+            }
+            diagnostics.error(cursor.peek().span(),
+                    "ожидалась ',' или '}' в аннотации, найдено " + describe(cursor.peek()));
+            cursor.ensureProgress(before);
+        }
+        Token close = cursor.expect(TokenType.RBRACE, "закрывающую скобку '}' аннотации");
+        return at.span().to(close.span());
+    }
+
+    /**
+     * Дубликат ключа среди уже собранных записей.
+     * <p>
+     * <b>Ловится только литеральный ключ</b> — имя, строка, число. В общем случае ключ
+     * это выражение ({@code @{(KEY): 1}}), и совпадение известно лишь при выполнении;
+     * там же оно и ловится. Но подавляющее большинство ключей литеральны, и сказать
+     * о дубликате при разборе гораздо полезнее: ошибка приходит без запуска и видна
+     * будущему линтеру.
+     * <p>
+     * Место — второе вхождение, как у одноимённых параметров: исправлять придётся его.
+     */
+    private void checkDuplicateKey(List<ObjectExpr.Entry> collected, ObjectExpr.Entry entry) {
+        if (entry.isSpread() || !(entry.key() instanceof LiteralExpr added)) {
+            return;
+        }
+        for (ObjectExpr.Entry existing : collected) {
+            if (!existing.isSpread() && existing.key() instanceof LiteralExpr key
+                    && key.value().equals(added.value())) {
+                // Ключ печатается отладочным видом, в кавычках: '1' и "1" — разные ключи,
+                // и сообщение обязано их различать.
+                diagnostics.error(added.span(), "ключ аннотации " + added.value()
+                        + " указан дважды: блоки сливаются в один объект, а порядок их"
+                        + " записи ничего не значит — молчаливый выбор одного из двух"
+                        + " поставил бы смысл программы в зависимость от него");
+                return;
+            }
+        }
+    }
+
+    /**
+     * То, на что повешены декораторы и аннотации.
      * <p>
      * Отдельное сообщение здесь лучше общего «ожидалось выражение»: человек написал
-     * {@code @[...]} и явно собирался что-то объявить, поэтому назвать надо то, что
-     * тут бывает, а не то, чего не хватило разбору выражения.
+     * {@code @[...]} или {@code @{...}} и явно собирался что-то объявить, поэтому
+     * назвать надо то, что тут бывает, а не то, чего не хватило разбору выражения.
      */
-    private Stmt declarationUnderDecorators(Token start) {
+    private Stmt declarationUnderDecorators(Token start, Annotations annotations,
+                                            boolean decorated) {
         return switch (cursor.peek().type()) {
-            case DEF -> cursor.peek(1).type() == TokenType.WORD ? defDeclaration() : notADeclaration(start);
+            case DEF -> cursor.peek(1).type() == TokenType.WORD
+                    ? defDeclaration(annotations)
+                    : notADeclaration(start, annotations, decorated);
             case SYNCHRONIZED -> cursor.peek(1).type() == TokenType.DEF
                     && cursor.peek(2).type() == TokenType.WORD
-                    ? defDeclaration()
-                    : notADeclaration(start);
-            case CLASS -> types.classDeclaration();
-            case TRAIT -> types.traitDeclaration();
-            default -> notADeclaration(start);
+                    ? defDeclaration(annotations)
+                    : notADeclaration(start, annotations, decorated);
+            case CLASS -> types.classDeclaration(annotations);
+            case TRAIT -> types.traitDeclaration(annotations);
+            default -> notADeclaration(start, annotations, decorated);
         };
     }
 
-    private Stmt notADeclaration(Token start) {
-        diagnostics.error(cursor.peek().span(), "декоратор вешается на объявление: после него"
+    /**
+     * Назвать в сообщении надо то, что человек написал: цель у аннотации и декоратора
+     * одна, но советовать «уберите декоратор» тому, кто его не писал, — плохой совет.
+     */
+    private Stmt notADeclaration(Token start, Annotations annotations, boolean decorated) {
+        boolean both = decorated && annotations.written();
+        String what = both ? "декоратор и аннотация вешаются"
+                : annotations.written() ? "аннотация вешается" : "декоратор вешается";
+        diagnostics.error(cursor.peek().span(), what + " на объявление: после "
+                + (both ? "них" : "него")
                 + " ожидается 'def имя', 'class' или 'trait', найдено " + describe(cursor.peek()));
         cursor.synchronize();
         return new ErrorStmt(start.span().to(cursor.lastSpan()));
@@ -802,9 +905,11 @@ public final class Parser {
     private Decorator decorator() {
         Token at = cursor.advance(); // @
         if (!cursor.check(TokenType.LBRACKET)) {
-            diagnostics.error(cursor.peek().span(), "после '@' ожидалась '[': декоратор пишется"
-                    + " как '@[выражение]' — скобки говорят, что внутри выражение,"
-                    + " а не имя, и отделяют его от аргументов");
+            diagnostics.error(cursor.peek().span(), "после '@' ожидалась '[' или '{':"
+                    + " '@[выражение]' — это декоратор, действие в момент объявления,"
+                    + " а '@{ключ: значение}' — аннотация, данные о нём. Скобки"
+                    + " у декоратора говорят, что внутри выражение, а не имя,"
+                    + " и отделяют его от аргументов");
             return null;
         }
         cursor.advance(); // [
@@ -830,6 +935,11 @@ public final class Parser {
      * Имя и форма проверены в {@link #statement()}.
      */
     private Stmt defDeclaration() {
+        return defDeclaration(Annotations.NONE);
+    }
+
+    /** То же под аннотациями: {@code @{route: "/users"} def listUsers() { ... }}. */
+    private Stmt defDeclaration(Annotations annotations) {
         Token start = cursor.peek();
         Set<Modifier> modifiers = modifiers();
         cursor.advance();                 // def
@@ -837,7 +947,7 @@ public final class Parser {
         if (name.quoted()) {
             diagnostics.error(name.span(), LOCAL_OPERATOR);
         }
-        FunctionExpr function = functionRest(start, name.text(), modifiers);
+        FunctionExpr function = functionRest(start, name.text(), modifiers, annotations);
         if (function.body() instanceof ReturnStmt returned && returned.value() instanceof ErrorExpr) {
             // Тело после '=>' не разобралось, и об этом уже сказано. Дальше по строке
             // разбирать нечего: пропускаем её целиком, иначе тот же токен вызовет ту же
@@ -856,7 +966,7 @@ public final class Parser {
         Token start = cursor.peek();
         Set<Modifier> modifiers = modifiers();
         cursor.advance(); // def
-        return functionRest(start, null, modifiers);
+        return functionRest(start, null, modifiers, Annotations.NONE);
     }
 
     /**
@@ -895,7 +1005,8 @@ public final class Parser {
      * @param start первый токен заголовка: {@code def} или модификатор перед ним —
      *              место функции обязано начинаться там, где человек начал её писать
      */
-    private FunctionExpr functionRest(Token start, String name, Set<Modifier> modifiers) {
+    private FunctionExpr functionRest(Token start, String name, Set<Modifier> modifiers,
+                                      Annotations annotations) {
         TypeParser.Params header = types.parameters("'def'", true, true);
         return state.inFunctionBody(() -> {
             if (cursor.match(TokenType.FATARROW)) {
@@ -903,13 +1014,13 @@ public final class Parser {
                 // ReturnStmt, а сама форма записи остаётся в BodyStyle для форматтера.
                 Expr value = expression(0);
                 Stmt body = new ReturnStmt(value, value.span());
-                return new FunctionExpr(name, modifiers, header.params(), header.rest(),
-                        header.namedRest(), body, BodyStyle.ARROW,
+                return new FunctionExpr(name, modifiers, annotations, header.params(),
+                        header.rest(), header.namedRest(), body, BodyStyle.ARROW,
                         start.span().to(value.span()));
             }
             Stmt body = body(name != null ? "функции '" + name + "'" : "анонимной функции");
-            return new FunctionExpr(name, modifiers, header.params(), header.rest(),
-                    header.namedRest(), body, BodyStyle.STATEMENT,
+            return new FunctionExpr(name, modifiers, annotations, header.params(),
+                    header.rest(), header.namedRest(), body, BodyStyle.STATEMENT,
                     start.span().to(body.span()));
         });
     }
@@ -2033,13 +2144,21 @@ public final class Parser {
 
     // --- литералы коллекций --------------------------------------------------
 
-    /** Массив: {@code [1, 2, 3]}. Запятая после последнего элемента разрешена. */
+    /**
+     * Массив: {@code [1, 2, 3]} и {@code [*head, 3]}. Запятая после последнего элемента
+     * разрешена.
+     * <p>
+     * Раскрытие узнаётся по звёздочке — так же, как в списке аргументов: выражение
+     * с неё не начинается, префиксного {@code *} в языке нет. Пара символов одна
+     * и та же в вызове и в литерале намеренно: второй записи для того же действия
+     * язык не заводит.
+     */
     private Expr arrayLiteral() {
         Token open = cursor.advance(); // [
-        List<Expr> elements = new ArrayList<>();
+        List<ArrayExpr.Element> elements = new ArrayList<>();
         while (!cursor.check(TokenType.RBRACKET) && !cursor.check(TokenType.EOF)) {
             int before = cursor.position();
-            elements.add(expression(0));
+            elements.add(arrayElement());
             if (cursor.match(TokenType.COMMA) || cursor.check(TokenType.RBRACKET)) {
                 continue;
             }
@@ -2049,6 +2168,29 @@ public final class Parser {
         }
         Token close = cursor.expect(TokenType.RBRACKET, "закрывающую скобку ']'");
         return new ArrayExpr(elements, open.span().to(close.span()));
+    }
+
+    /**
+     * Один элемент массива: значение или раскрытие {@code *values}.
+     * <p>
+     * {@code **} здесь — почти наверняка перепутанная форма, и сказать об этом надо
+     * прямо: общее «ожидалось выражение» назвало бы симптом. Разбор при этом идёт
+     * дальше и элемент возвращается обычным — дерево должно остаться целым.
+     */
+    private ArrayExpr.Element arrayElement() {
+        Token star = cursor.peek();
+        if (star.type() == TokenType.STARSTAR) {
+            cursor.advance(); // **
+            Expr value = expression(0);
+            diagnostics.error(star.span().to(value.span()), "'**' раскрывает объект по ключам,"
+                    + " а у элементов массива ключей нет: здесь пишется '*'");
+            return ArrayExpr.Element.item(value);
+        }
+        if (star.type() == TokenType.STAR) {
+            cursor.advance(); // *
+            return ArrayExpr.Element.spread(star.span(), expression(0));
+        }
+        return ArrayExpr.Element.item(expression(0));
     }
 
     /**
@@ -2063,10 +2205,7 @@ public final class Parser {
         List<ObjectExpr.Entry> entries = new ArrayList<>();
         while (!cursor.check(TokenType.RBRACE) && !cursor.check(TokenType.EOF)) {
             int before = cursor.position();
-            Expr key = objectKey();
-            cursor.expect(TokenType.COLON, "двоеточие ':' после ключа объекта");
-            Expr value = expression(0);
-            entries.add(new ObjectExpr.Entry(key, value));
+            entries.add(objectEntry());
             if (cursor.match(TokenType.COMMA) || cursor.check(TokenType.RBRACE)) {
                 continue;
             }
@@ -2076,6 +2215,31 @@ public final class Parser {
         }
         Token close = cursor.expect(TokenType.RBRACE, "закрывающую скобку '}'");
         return new ObjectExpr(entries, open.span().to(close.span()));
+    }
+
+    /**
+     * Одна запись объекта: пара или раскрытие {@code **options}.
+     * <p>
+     * Одиночная {@code *} — перепутанная форма: раскрыть в объект можно только то,
+     * у чего есть ключи. Сообщение говорит об этом прямо, а запись всё равно
+     * возвращается парой, чтобы разбор не порвался на ровном месте.
+     */
+    private ObjectExpr.Entry objectEntry() {
+        Token star = cursor.peek();
+        if (star.type() == TokenType.STARSTAR) {
+            cursor.advance(); // **
+            return ObjectExpr.Entry.spread(star.span(), expression(0));
+        }
+        if (star.type() == TokenType.STAR) {
+            cursor.advance(); // *
+            Expr value = expression(0);
+            diagnostics.error(star.span().to(value.span()), "'*' раскрывает массив по позициям,"
+                    + " а у объекта позиций нет: здесь пишется '**'");
+            return ObjectExpr.Entry.spread(star.span(), value);
+        }
+        Expr key = objectKey();
+        cursor.expect(TokenType.COLON, "двоеточие ':' после ключа объекта");
+        return ObjectExpr.Entry.pair(key, expression(0));
     }
 
     /** Ключ пары объекта: имя без кавычек, ключевое слово или любое выражение. */

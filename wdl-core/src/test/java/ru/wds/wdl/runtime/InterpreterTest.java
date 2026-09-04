@@ -349,4 +349,43 @@ class InterpreterTest {
         // Одно и то же дерево, разные окружения — и никакого состояния между запусками.
         assertSame(shared, shared);
     }
+
+    // --- раскрытие в литералах -----------------------------------------------
+
+    @Test
+    @DisplayName("'*' в литерале массива раскрывает массив и диапазон")
+    void spreadInArrayLiteral() {
+        assertEquals("[1, 2, 3, 4]", show("[*[1, 2], 3, 4]"));
+        assertEquals("[0, 1, 2]", show("[*0..2]"));
+        assertEquals("[]", show("[*[]]"));
+        assertEquals("[1, 2, 1, 2]", show("[*[1, 2], *[1, 2]]"));
+    }
+
+    @Test
+    @DisplayName("'**' в литерале объекта сливает пары, и последний побеждает")
+    void spreadInObjectLiteral() {
+        assertEquals("{\"retries\": 3, \"timeout\": 60}",
+                show("{**{retries: 3, timeout: 30}, timeout: 60}"));
+        // Пара, написанная раньше раскрытия, тоже перекрывается: правило одно —
+        // побеждает написанный правее.
+        assertEquals("{\"timeout\": 30}", show("{timeout: 60, **{timeout: 30}}"));
+        assertEquals("{}", show("{**{}}"));
+    }
+
+    @Test
+    @DisplayName("ключ при раскрытии в литерал переносится любой, не только строка")
+    void spreadKeepsAnyKey() {
+        assertEquals("{1: \"a\"}", show("{**{(1): \"a\"}}"));
+    }
+
+    @Test
+    @DisplayName("раскрывать в литерал можно только подходящее")
+    void spreadTypeErrors() {
+        assertTrue(errorOf("[*\"текст\"]").getMessage()
+                .contains("раскрыть в элементы можно массив или диапазон, а здесь строка"));
+        assertTrue(errorOf("[*0.5..2.5]").getMessage()
+                .contains("раскрыть можно диапазон с целыми границами"));
+        assertTrue(errorOf("{**[1, 2]}").getMessage()
+                .contains("раскрыть в пары можно только объект, а здесь массив"));
+    }
 }

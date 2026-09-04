@@ -181,6 +181,8 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     public Void visitClassDecl(ClassDeclStmt stmt, Integer depth) {
         line(depth, "объявление класса " + stmt.name()
                 + "(" + header(stmt.params(), stmt.rest(), stmt.namedRest()) + ")", stmt.span());
+        annotations(stmt.annotations(), depth + 1);
+        paramAnnotations(stmt.params(), depth + 1);
         defaults(stmt.params(), depth + 1);
         if (stmt.hasParent()) {
             ClassDeclStmt.Superclass parent = stmt.parent();
@@ -225,6 +227,8 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     @Override
     public Void visitTraitDecl(TraitDeclStmt stmt, Integer depth) {
         line(depth, "объявление трейта " + stmt.name() + "(" + header(stmt.params()) + ")", stmt.span());
+        annotations(stmt.annotations(), depth + 1);
+        paramAnnotations(stmt.params(), depth + 1);
         defaults(stmt.params(), depth + 1);
         for (FunctionExpr.Param param : stmt.params()) {
             if (!param.hasDefault()) {
@@ -236,6 +240,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
             line(depth + 1, (requirement.mirror() ? "требуется зеркальный оператор `" : "требуется метод ")
                     + requirement.name() + (requirement.mirror() ? "`" : "")
                     + "(" + header(requirement.params()) + ")", requirement.span());
+            annotations(requirement.annotations(), depth + 2);
         }
         properties(stmt.properties(), depth + 1);
         return null;
@@ -251,6 +256,7 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         for (PropertyDecl property : properties) {
             line(depth, "свойство " + property.name()
                     + (property.hasBackingField() ? " со скрытым полем" : ""), property.span());
+            annotations(property.annotations(), depth + 1);
             if (property.hasBackingField()) {
                 line(depth + 1, "начальное значение", property.initial().span());
                 visit(property.initial(), depth + 2);
@@ -498,10 +504,18 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
         return null;
     }
 
+    /** Раскрытие печатается своей строкой: {@code [*a]} и {@code [a]} — разные деревья. */
     @Override
     public Void visitArray(ArrayExpr expr, Integer depth) {
         line(depth, "массив, элементов: " + expr.elements().size(), expr);
-        expr.elements().forEach(element -> visit(element, depth + 1));
+        for (ArrayExpr.Element element : expr.elements()) {
+            if (element.isSpread()) {
+                line(depth + 1, "раскрытие '*'", element.span());
+                visit(element.value(), depth + 2);
+            } else {
+                visit(element.value(), depth + 1);
+            }
+        }
         return null;
     }
 
@@ -509,6 +523,11 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     public Void visitObject(ObjectExpr expr, Integer depth) {
         line(depth, "объект, пар: " + expr.entries().size(), expr);
         for (ObjectExpr.Entry entry : expr.entries()) {
+            if (entry.isSpread()) {
+                line(depth + 1, "раскрытие '**'", entry.span());
+                visit(entry.value(), depth + 2);
+                continue;
+            }
             visit(entry.key(), depth + 1);
             visit(entry.value(), depth + 2);
         }
@@ -533,8 +552,44 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
                 .collect(Collectors.joining(" ", "", " "));
         line(depth, "функция " + modifiers.stripLeading() + expr.writtenName()
                 + "(" + header(expr.params(), expr.rest(), expr.namedRest()) + ")" + arrow, expr);
+        annotations(expr.annotations(), depth + 1);
+        paramAnnotations(expr.params(), depth + 1);
         defaults(expr.params(), depth + 1);
         return visit(expr.body(), depth + 1);
+    }
+
+    /**
+     * Аннотации объявления. Блоки печатаются слитно — так, как их видит выполнение:
+     * разница между «одним блоком» и «двумя» смысла не имеет ни для кого, кроме
+     * форматтера, а у него есть места блоков.
+     * <p>
+     * Ключ и значение — обычные выражения, поэтому идут поддеревьями: {@code @{since:
+     * version()}} должен быть виден целиком, ровно как значение по умолчанию.
+     */
+    private void annotations(Annotations annotations, int depth) {
+        if (!annotations.written()) {
+            return;
+        }
+        line(depth, "аннотации, записей: " + annotations.entries().size(), annotations.span());
+        for (ObjectExpr.Entry entry : annotations.entries()) {
+            if (entry.isSpread()) {
+                line(depth + 1, "раскрытие '**'", entry.span());
+                visit(entry.value(), depth + 2);
+                continue;
+            }
+            visit(entry.key(), depth + 1);
+            visit(entry.value(), depth + 2);
+        }
+    }
+
+    /** Аннотации параметров — отдельными поддеревьями, как и значения по умолчанию. */
+    private void paramAnnotations(List<FunctionExpr.Param> params, int depth) {
+        for (FunctionExpr.Param param : params) {
+            if (param.annotations().written()) {
+                line(depth, "аннотации параметра '" + param.name() + "'", param.span());
+                annotations(param.annotations(), depth + 1);
+            }
+        }
     }
 
     @Override
