@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.ast.expr.Annotations;
 import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.Expr;
@@ -61,6 +62,12 @@ public record ClassDeclStmt(
         List<PropertyDecl> properties,
         Span span) implements Stmt {
 
+    /** Та же инструкция с другим интервалом: см. {@link DefDeclStmt#withSpan}. */
+    public ClassDeclStmt withSpan(Span span) {
+        return new ClassDeclStmt(name, nameSpan, annotations, params, rest, namedRest, parent,
+                traits, constructor, methods, factories, properties, span);
+    }
+
     public ClassDeclStmt {
         Objects.requireNonNull(name, "name");
         annotations = annotations == null ? Annotations.NONE : annotations;
@@ -108,7 +115,7 @@ public record ClassDeclStmt(
      *
      * @param type выражение, дающее класс; чаще всего {@code VariableExpr}
      */
-    public record Superclass(Expr type, List<Argument> arguments, Span span) {
+    public record Superclass(Expr type, List<Argument> arguments, Span span) implements Fragment {
 
         public Superclass {
             Objects.requireNonNull(type, "type");
@@ -128,7 +135,7 @@ public record ClassDeclStmt(
      * аргументы. Трейту передавать нечего — конструктора у него нет, — поэтому
      * {@code with make()} однозначно означает «вызвать и подмешать результат».
      */
-    public record TraitRef(Expr type, Span span) {
+    public record TraitRef(Expr type, Span span) implements Fragment {
 
         public TraitRef {
             Objects.requireNonNull(type, "type");
@@ -147,8 +154,10 @@ public record ClassDeclStmt(
      * и ровно то же самое можно написать снаружи присваиванием. Форма нужна затем,
      * чтобы способ создания читался вместе с классом.
      *
-     * @param name короткое имя ({@code of}); полное — в {@code function.name()}
+     * @param name короткое имя ({@code of}); полное — в {@code function.name()}.
+     *             Отдельного места имени здесь нет и не нужно: написано оно один раз,
+     *             и его интервал лежит в {@code function.nameSpan()}
      */
-    public record Factory(String name, FunctionExpr function, Span span) {
+    public record Factory(String name, FunctionExpr function, Span span) implements Fragment {
     }
 }

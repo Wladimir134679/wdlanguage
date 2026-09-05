@@ -12,15 +12,23 @@ import java.util.Objects;
  * {@link ru.wds.wdl.source.Source}.
  *
  * @param severity серьёзность
+ * @param code     вид проблемы для машины или {@link DiagnosticCode#NONE};
+ *                 текст меняется свободно, код — нет
  * @param message  текст для человека, без имени файла и позиции — их добавит форматтер
  * @param span     интервал в исходнике, к которому относится сообщение
  */
-public record Diagnostic(Severity severity, String message, Span span) {
+public record Diagnostic(Severity severity, DiagnosticCode code, String message, Span span) {
 
     public Diagnostic {
         Objects.requireNonNull(severity, "severity");
+        code = code == null ? DiagnosticCode.NONE : code;
         Objects.requireNonNull(message, "message");
         Objects.requireNonNull(span, "span");
+    }
+
+    /** Сообщение без кода — то же самое, что было до появления кодов. */
+    public Diagnostic(Severity severity, String message, Span span) {
+        this(severity, DiagnosticCode.NONE, message, span);
     }
 
     @Override

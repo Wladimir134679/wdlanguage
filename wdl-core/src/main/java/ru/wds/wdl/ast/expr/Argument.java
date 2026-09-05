@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.expr;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.source.Span;
 
 import java.util.Objects;
@@ -32,7 +33,7 @@ import java.util.Objects;
  * @param nameSpan место имени или звёздочки в исходнике; {@code null} у позиционного
  * @param value    выражение аргумента; у раскрытия — выражение контейнера
  */
-public record Argument(Kind kind, String name, Span nameSpan, Expr value) {
+public record Argument(Kind kind, String name, Span nameSpan, Expr value) implements Fragment {
 
     /** Форма записи аргумента. */
     public enum Kind {

@@ -1,21 +1,15 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.ast.Node;
+import ru.wds.wdl.ast.Nodes;
 import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.VariableExpr;
-import ru.wds.wdl.ast.stmt.BlockStmt;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.ConstDeclStmt;
 import ru.wds.wdl.ast.stmt.DefDeclStmt;
-import ru.wds.wdl.ast.stmt.DeferStmt;
-import ru.wds.wdl.ast.stmt.ForEachStmt;
-import ru.wds.wdl.ast.stmt.ForStmt;
-import ru.wds.wdl.ast.stmt.IfStmt;
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.ast.stmt.TraitDeclStmt;
-import ru.wds.wdl.ast.stmt.TryStmt;
-import ru.wds.wdl.ast.stmt.UseStmt;
-import ru.wds.wdl.ast.stmt.WhileStmt;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
@@ -136,11 +130,12 @@ final class Declarations {
                 }
                 continue;
             }
-            Found inside = findIn(children(statement), name, false);
+            List<Stmt> nestedStatements = nested(statement);
+            Found inside = findIn(nestedStatements, name, false);
             if (inside != null) {
                 return inside;
             }
-            Found deeper = findIn(children(statement), name, true);
+            Found deeper = findIn(nestedStatements, name, true);
             if (deeper != null) {
                 return deeper;
             }
@@ -164,38 +159,30 @@ final class Declarations {
     }
 
     /**
-     * Вложенные инструкции — те, внутри которых объявление могло бы спрятаться.
-     * Тело функции сюда входит: {@code def} внутри {@code def} снаружи не виден,
-     * и это самая частая причина «имя определено, но не находится».
+     * Инструкции на одну область глубже — те, внутри которых объявление могло бы
+     * спрятаться. Тело функции сюда входит: {@code def} внутри {@code def} снаружи
+     * не виден, и это самая частая причина «имя определено, но не находится».
+     * <p>
+     * Состав детей берётся у {@link Nodes}, а не перечисляется здесь заново. Раньше
+     * перечислялся — и список был намеренно неполон: для подсказки хватало девяти
+     * видов инструкций, а про тело анонимной функции и ветку {@code match} никто
+     * не вспоминал. Общий обход снимает вопрос: новый вид узла попадает сюда сам.
+     * <p>
+     * Не-инструкции разворачиваются вглубь: между {@code def} и телом стоит
+     * {@link ru.wds.wdl.ast.expr.FunctionExpr}, а между {@code match} и веткой —
+     * фрагмент, и обрывать спуск на них значило бы потерять как раз те области,
+     * ради которых всё это и считается.
      */
-    private static List<Stmt> children(Stmt statement) {
-        List<Stmt> nested = new ArrayList<>(4);
-        switch (statement) {
-            case BlockStmt block -> nested.addAll(block.statements());
-            case IfStmt branch -> {
-                nested.add(branch.thenBranch());
-                nested.add(branch.elseBranch());
-            }
-            case WhileStmt loop -> nested.add(loop.body());
-            case ForStmt loop -> {
-                nested.add(loop.init());
-                nested.add(loop.step());
-                nested.add(loop.body());
-            }
-            case ForEachStmt loop -> nested.add(loop.body());
-            case TryStmt guarded -> {
-                nested.add(guarded.body());
-                guarded.handlers().forEach(handler -> nested.add(handler.body()));
-                nested.add(guarded.finallyBlock());
-            }
-            case DeferStmt deferred -> nested.add(deferred.body());
-            case UseStmt use -> nested.add(use.body());
-            case DefDeclStmt def -> nested.add(def.function().body());
-            default -> {
+    private static List<Stmt> nested(Node node) {
+        List<Stmt> found = new ArrayList<>(4);
+        for (Node child : Nodes.children(node)) {
+            if (child instanceof Stmt statement) {
+                found.add(statement);
+            } else {
+                found.addAll(nested(child));
             }
         }
-        nested.removeIf(java.util.Objects::isNull);
-        return nested;
+        return found;
     }
 
     /**

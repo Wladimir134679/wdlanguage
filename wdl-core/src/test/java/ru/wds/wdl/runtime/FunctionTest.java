@@ -284,6 +284,20 @@ class FunctionTest {
     }
 
     @Test
+    @DisplayName("объявление в теле анонимной функции диагностика тоже находит")
+    void hintReachesAnonymousFunctionBody() {
+        // Раньше подсказка сюда не доходила: обход перечислял виды инструкций руками,
+        // и присваивание с функцией справа в список не попало. Теперь состав детей
+        // берётся у общего обхода, и такие места не забываются.
+        String message = errorOf("""
+                handler = def() { def helper() => 1
+                    return helper(); }
+                helper()
+                """).getMessage();
+        assertTrue(message.contains("внутри вложенной области"), message);
+    }
+
+    @Test
     @DisplayName("константа выше и одноимённая функция ниже — ошибка на строке def")
     void constantBlocksLaterFunction() {
         // Раньше это держалось на побочном эффекте: помеченное объявление выполнялось

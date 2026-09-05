@@ -4,6 +4,8 @@ import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Binding;
 import ru.wds.wdl.value.Value;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -132,6 +134,27 @@ public final class Scope implements Environment {
             return alias.value();
         }
         return parent != null ? parent.lookup(name, context, span) : null;
+    }
+
+    @Override
+    public Set<String> namesHere() {
+        Set<String> names = new LinkedHashSet<>(values.keySet());
+        Map<String, Binding> known = aliases;
+        if (known != null) {
+            names.addAll(known.keySet());
+        }
+        return Collections.unmodifiableSet(names);
+    }
+
+    @Override
+    public Set<String> names() {
+        // Своё имя сильнее внешнего, и множество это отражает само: одно вхождение
+        // на имя, а какое значение за ним стоит, отвечает lookup.
+        Set<String> names = new LinkedHashSet<>(namesHere());
+        if (parent != null) {
+            names.addAll(parent.names());
+        }
+        return Collections.unmodifiableSet(names);
     }
 
     @Override

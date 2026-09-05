@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.expr;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.source.Span;
 
@@ -35,7 +36,8 @@ import java.util.Objects;
  * @param body   тело-блок или {@code null}
  * @param span   место в исходнике целиком
  */
-public record MatchCase(List<CaseTail> tails, Expr guard, Expr value, Stmt body, Span span) {
+public record MatchCase(List<CaseTail> tails, Expr guard, Expr value, Stmt body, Span span)
+        implements Fragment {
 
     public MatchCase {
         tails = List.copyOf(Objects.requireNonNull(tails, "tails"));

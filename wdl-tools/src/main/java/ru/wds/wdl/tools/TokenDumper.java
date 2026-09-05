@@ -14,6 +14,9 @@ import java.util.List;
  */
 public final class TokenDumper {
 
+    /** Сколько символов тривии показывать в таблице. */
+    private static final int TRIVIA_LIMIT = 30;
+
     private TokenDumper() {
     }
 
@@ -27,7 +30,7 @@ public final class TokenDumper {
         StringBuilder sb = new StringBuilder(tokens.size() * 40);
         for (Token token : tokens) {
             String place = token.span().isNone() ? "-" : source.positionOf(token.span().start()).toString();
-            String value = displayValue(token);
+            String value = displayValue(source, token);
             sb.append(String.format("%8s  ", place));
             if (value.isEmpty()) {
                 sb.append(token.type().name());
@@ -47,11 +50,21 @@ public final class TokenDumper {
      * и без них {@code --tokens} на объявлении оператора показывал бы обычное имя —
      * то есть врал бы ровно про то, ради чего дамп и смотрят.
      */
-    private static String displayValue(Token token) {
+    private static String displayValue(Source source, Token token) {
         if (token.type() == TokenType.STRING) {
             return '"' + escape(token.text()) + '"';
         }
+        // У тривии текста нет по построению — она хранит только интервал. Показываем
+        // сам исходник: без этого поток с '--trivia' состоял бы из безымянных строк.
+        if (token.type().isTrivia()) {
+            return escape(shorten(source.text().substring(token.span().start(), token.span().end())));
+        }
         return token.quoted() ? '`' + token.text() + '`' : token.text();
+    }
+
+    /** Длинный комментарий разъехал бы таблицу — а смотрят в неё ради видов и позиций. */
+    private static String shorten(String value) {
+        return value.length() <= TRIVIA_LIMIT ? value : value.substring(0, TRIVIA_LIMIT) + "…";
     }
 
     private static String escape(String value) {

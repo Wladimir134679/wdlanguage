@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.expr;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.ast.op.BinaryOp;
 import ru.wds.wdl.source.Span;
 
@@ -25,7 +26,7 @@ import java.util.Objects;
  * @param right правая часть; вычисляется лениво — только если до этой ветки дошла очередь
  * @param span  место в исходнике целиком
  */
-public record CaseTail(BinaryOp op, Expr right, Span span) {
+public record CaseTail(BinaryOp op, Expr right, Span span) implements Fragment {
 
     public CaseTail {
         Objects.requireNonNull(op, "op");

@@ -40,11 +40,21 @@ public final class Diagnostics {
     }
 
     public void error(Span span, String message) {
-        add(new Diagnostic(Severity.ERROR, message, span));
+        add(new Diagnostic(Severity.ERROR, DiagnosticCode.NONE, message, span));
+    }
+
+    /** То же с видом проблемы: код нужен редактору — см. {@link DiagnosticCode}. */
+    public void error(Span span, DiagnosticCode code, String message) {
+        add(new Diagnostic(Severity.ERROR, code, message, span));
     }
 
     public void warning(Span span, String message) {
-        add(new Diagnostic(Severity.WARNING, message, span));
+        add(new Diagnostic(Severity.WARNING, DiagnosticCode.NONE, message, span));
+    }
+
+    /** То же с видом проблемы. */
+    public void warning(Span span, DiagnosticCode code, String message) {
+        add(new Diagnostic(Severity.WARNING, code, message, span));
     }
 
     public void add(Diagnostic diagnostic) {

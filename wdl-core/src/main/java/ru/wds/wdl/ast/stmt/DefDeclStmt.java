@@ -25,6 +25,15 @@ import java.util.Objects;
  */
 public record DefDeclStmt(FunctionExpr function, Span span) implements Stmt {
 
+    /**
+     * Та же инструкция с другим интервалом: им объявление раздвигают до написанных
+     * перед ним блоков {@code @{...}}. Решает это разбор верхнего уровня — только он
+     * знает, не стоит ли между блоками и словом {@code def} декоратор.
+     */
+    public DefDeclStmt withSpan(Span span) {
+        return new DefDeclStmt(function, span);
+    }
+
     public DefDeclStmt {
         Objects.requireNonNull(function, "function");
         Objects.requireNonNull(span, "span");

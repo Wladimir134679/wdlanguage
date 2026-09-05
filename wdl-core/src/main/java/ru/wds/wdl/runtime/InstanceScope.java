@@ -4,8 +4,12 @@ import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Property;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
+import ru.wds.wdl.value.types.StringValue;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Область видимости поверх экземпляра: то, что делает поле видимым по имени.
@@ -100,6 +104,29 @@ final class InstanceScope implements Environment {
         }
         Value bound = owner.method(instance, name);
         return bound != null ? bound : method.closure().lookup(name, context, span);
+    }
+
+    /**
+     * Свои имена — поля экземпляра: их и показывает панель переменных отладчика,
+     * остановившегося внутри метода. Методы и свойства принадлежат классу, и спрашивать
+     * их надо у него, а не у объекта.
+     */
+    @Override
+    public Set<String> namesHere() {
+        Set<String> names = new LinkedHashSet<>();
+        instance.entries().keySet().forEach(key -> {
+            if (key instanceof StringValue text) {
+                names.add(text.value());
+            }
+        });
+        return Collections.unmodifiableSet(names);
+    }
+
+    @Override
+    public Set<String> names() {
+        Set<String> names = new LinkedHashSet<>(namesHere());
+        names.addAll(method.closure().names());
+        return Collections.unmodifiableSet(names);
     }
 
     /** Своё у экземпляра — поля: методы принадлежат классу, а не объекту. */

@@ -8,6 +8,7 @@ import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Lexer;
+import ru.wds.wdl.lexer.LexerMode;
 import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.metrics.Measure;
 import ru.wds.wdl.metrics.Measurement;
@@ -91,6 +92,10 @@ public final class Main implements Callable<Integer> {
     @Option(names = {"-t", "--tokens"}, description = "Показать поток токенов")
     private boolean showTokens;
 
+    @Option(names = {"--trivia"},
+            description = "Вместе с --tokens: показать пробелы, комментарии и мусор")
+    private boolean showTrivia;
+
     @Option(names = {"-a", "--ast"}, description = "Показать синтаксическое дерево (AST)")
     private boolean showAst;
 
@@ -137,6 +142,13 @@ public final class Main implements Callable<Integer> {
     public Integer call() {
         if (repl) {
             return repl(showJavaTrace);
+        }
+
+        if (showTrivia && !showTokens) {
+            // '--trivia' без '--tokens' — описка: тривия видна только в дампе токенов,
+            // и молча ничего не показать значило бы соврать про выполненный флаг.
+            System.err.println("Ошибка: флаг --trivia работает вместе с --tokens.");
+            return EXIT_USAGE_ERROR;
         }
 
         if (scriptFile == null) {
@@ -226,7 +238,11 @@ public final class Main implements Callable<Integer> {
             if (diagnostics.hasErrors()) {
                 return EXIT_SCRIPT_ERROR;
             }
-            System.out.print(TokenDumper.dump(source, tokens));
+            // Поток с тривией лексируется отдельно: тот, что уйдёт в парсер, менять
+            // нельзя, а диагностику второй раз копить незачем — она уже показана.
+            System.out.print(TokenDumper.dump(source, showTrivia
+                    ? Lexer.tokenize(source, new Diagnostics(source), LexerMode.LOSSLESS)
+                    : tokens));
             if (!showAst) {
                 return 0;
             }

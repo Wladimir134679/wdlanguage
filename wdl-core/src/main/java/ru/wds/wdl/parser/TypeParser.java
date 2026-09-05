@@ -516,8 +516,11 @@ final class TypeParser {
                 return;
             }
             TraitDeclStmt.Requirement requirement = new TraitDeclStmt.Requirement(name.text(),
-                    annotations, params, header.rest() != null,
-                    modifiers.contains(Modifier.MIRROR), start.span().to(name.span()));
+                    name.span(), annotations, params, header.rest() != null,
+                    modifiers.contains(Modifier.MIRROR),
+                    // До последнего разобранного токена, а не до имени: параметры
+                    // требования — его дети, и интервал обязан их накрывать.
+                    annotations.cover(start.span().to(cursor.lastSpan())));
             if (members.taken(key(requirement))) {
                 diagnostics.error(name.span(), duplicate(name.text()));
                 return;
@@ -526,9 +529,9 @@ final class TypeParser {
             return;
         }
 
-        FunctionExpr function = new FunctionExpr(name.text(), modifiers, annotations, params,
-                header.rest(), header.namedRest(), body,
-                bodyStyle(body), start.span().to(body.span()));
+        FunctionExpr function = new FunctionExpr(name.text(), name.span(), modifiers, annotations,
+                params, header.rest(), header.namedRest(), body,
+                bodyStyle(body), annotations.cover(start.span().to(body.span())));
         if (isConstructor) {
             if (members.constructor != null) {
                 diagnostics.error(name.span(), "конструктор класса '" + className + "' уже объявлен");
@@ -716,9 +719,13 @@ final class TypeParser {
                         + "запишите 'def get()' и 'def set(value)' блоком");
             }
             Expr value = state.inFunctionBody(() -> parser.expression(0));
-            Span span = keyword.span().to(value.span());
+            Span span = annotations.cover(keyword.span().to(value.span()));
+            // Интервал аксессора — интервал его функции: у короткой формы это 'имя => значение'
+            // целиком. Взять одно значение значило бы оставить функцию снаружи её же
+            // аксессора, то есть ребёнка вне родителя.
+            FunctionExpr getter = getterOf(value, name);
             add(members, new PropertyDecl(name.text(), name.span(), annotations, initial,
-                    new PropertyDecl.Accessor(getterOf(value, name), value.span()), null,
+                    new PropertyDecl.Accessor(getter, getter.span()), null,
                     PropertyStyle.ARROW, span), name);
             return;
         }
@@ -757,7 +764,7 @@ final class TypeParser {
             cursor.skipSeparators();
         }
         cursor.expect(TokenType.RBRACE, "закрывающую скобку '}'");
-        Span span = keyword.span().to(cursor.lastSpan());
+        Span span = annotations.cover(keyword.span().to(cursor.lastSpan()));
 
         if (getter == null) {
             // Свойство, которое нельзя прочитать, — приглашение к опечатке: 'obj.x = 1'
@@ -824,7 +831,7 @@ final class TypeParser {
         // Имя аксессора — 'Rect.area (get)': оно попадёт в кадр трассировки, и там
         // должно быть видно свойство, а не голое 'get' неизвестно от чего.
         String title = state.className() + "." + property.text() + " (" + kind.text() + ")";
-        FunctionExpr function = new FunctionExpr(title, Set.of(), header.params(),
+        FunctionExpr function = new FunctionExpr(title, kind.span(), Set.of(), header.params(),
                 null, null, body, bodyStyle(body), start.span().to(body.span()));
         return new Accessor(kind.text(),
                 new PropertyDecl.Accessor(function, start.span().to(body.span())));
@@ -864,7 +871,7 @@ final class TypeParser {
     /** Короткая форма {@code => выражение} — тот же {@code def get()}, записанный одной строкой. */
     private FunctionExpr getterOf(Expr value, Token name) {
         String title = state.className() + "." + name.text() + " (get)";
-        return new FunctionExpr(title, Set.of(), List.of(), null, null,
+        return new FunctionExpr(title, name.span(), Set.of(), List.of(), null, null,
                 new ReturnStmt(value, value.span()), BodyStyle.ARROW,
                 name.span().to(value.span()));
     }
@@ -916,10 +923,11 @@ final class TypeParser {
                 return;
             }
         }
+        Span place = annotations.cover(start.span().to(body.span()));
         members.factories.add(new ClassDeclStmt.Factory(name.text(),
-                new FunctionExpr(full, modifiers, annotations, header.params(), header.rest(),
-                        header.namedRest(), body, bodyStyle(body), start.span().to(body.span())),
-                start.span().to(body.span())));
+                new FunctionExpr(full, name.span(), modifiers, annotations, header.params(),
+                        header.rest(), header.namedRest(), body, bodyStyle(body), place),
+                place));
     }
 
     /**
@@ -1159,7 +1167,7 @@ final class TypeParser {
             diagnostics.error(hole.span(), "пропуск '_' без значения по умолчанию"
                     + " не может идти после параметра со значением по умолчанию");
         }
-        params.add(new FunctionExpr.Param(FunctionExpr.Param.HOLE, annotations, null, hole.span()));
+        params.add(new FunctionExpr.Param(FunctionExpr.Param.HOLE, hole.span(), annotations, null));
     }
 
     private void addParameter(List<FunctionExpr.Param> params, Token name,
@@ -1186,6 +1194,6 @@ final class TypeParser {
             diagnostics.error(name.span(), "параметр '" + name.text() + "' без значения по умолчанию"
                     + " не может идти после параметра со значением по умолчанию");
         }
-        params.add(new FunctionExpr.Param(name.text(), annotations, defaultValue, name.span()));
+        params.add(new FunctionExpr.Param(name.text(), name.span(), annotations, defaultValue));
     }
 }

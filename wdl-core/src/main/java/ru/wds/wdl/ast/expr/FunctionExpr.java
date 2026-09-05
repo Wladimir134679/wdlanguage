@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.expr;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.ast.op.Overloads;
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.source.Span;
@@ -34,6 +35,12 @@ import java.util.stream.Collectors;
  * а сама функция — значение.
  *
  * @param name      имя для диагностики или {@code null}, если узнать его неоткуда
+ * @param nameSpan  место имени в исходнике или {@link Span#NONE}, если имени там нет.
+ *                  Именно <b>в исходнике</b>: у {@code f = def(a) => a} имя подставлено
+ *                  от переменной, писать его функцией никто не писал, и место у неё
+ *                  пустое — переход к объявлению и переименование ведут к переменной,
+ *                  а не сюда. У аксессора и фабрики имя синтетическое
+ *                  ({@code Rect.area (get)}), а место указывает на написанное слово
  * @param anonymous записана ли функция без имени. Не то же, что {@code name == null}:
  *                  у {@code f = def(a) => a} имя подставлено, а функция анонимна
  * @param modifiers слова перед {@code def}: сейчас там бывает только
@@ -53,12 +60,13 @@ import java.util.stream.Collectors;
  * @param style     как тело было записано — {@link BodyStyle}
  * @param span      место в исходнике: от первого слова заголовка до конца тела
  */
-public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifiers,
+public record FunctionExpr(String name, Span nameSpan, boolean anonymous, Set<Modifier> modifiers,
                            Annotations annotations, List<Param> params, Rest rest,
                            Rest namedRest, Stmt body, BodyStyle style, Span span)
         implements Expr {
 
     public FunctionExpr {
+        nameSpan = nameSpan == null ? Span.NONE : nameSpan;
         modifiers = modifiers == null || modifiers.isEmpty()
                 ? Set.of()
                 : Collections.unmodifiableSet(EnumSet.copyOf(modifiers));
@@ -76,17 +84,17 @@ public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifie
     }
 
     /** Объявление под именем: {@code def f()}, метод, фабрика. */
-    public FunctionExpr(String name, Set<Modifier> modifiers, List<Param> params,
+    public FunctionExpr(String name, Span nameSpan, Set<Modifier> modifiers, List<Param> params,
                         Rest rest, Rest namedRest, Stmt body, BodyStyle style, Span span) {
-        this(name, name == null, modifiers, Annotations.NONE, params, rest, namedRest,
+        this(name, nameSpan, name == null, modifiers, Annotations.NONE, params, rest, namedRest,
                 body, style, span);
     }
 
     /** То же с аннотациями: {@code @{a: 1} def f()}. */
-    public FunctionExpr(String name, Set<Modifier> modifiers, Annotations annotations,
+    public FunctionExpr(String name, Span nameSpan, Set<Modifier> modifiers, Annotations annotations,
                         List<Param> params, Rest rest, Rest namedRest, Stmt body,
                         BodyStyle style, Span span) {
-        this(name, name == null, modifiers, annotations, params, rest, namedRest,
+        this(name, nameSpan, name == null, modifiers, annotations, params, rest, namedRest,
                 body, style, span);
     }
 
@@ -137,7 +145,7 @@ public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifie
      * @param name имя переменной, в которую соберётся остаток
      * @param span место имени в исходнике
      */
-    public record Rest(String name, Span span) {
+    public record Rest(String name, Span span) implements Fragment {
 
         public Rest {
             Objects.requireNonNull(name, "name");
@@ -179,34 +187,49 @@ public record FunctionExpr(String name, boolean anonymous, Set<Modifier> modifie
      * язык не заводит.
      *
      * @param name         имя параметра или {@link #HOLE} у дырки
+     * @param nameSpan     место имени в исходнике: то, к чему ведёт переход
+     *                     к объявлению и что меняет переименование
      * @param annotations  данные, приписанные параметру, или {@link Annotations#NONE}
      * @param defaultValue значение по умолчанию или {@code null}, если параметр обязателен
-     * @param span         место имени в исходнике
+     * @param span         место параметра целиком: от аннотаций, если они написаны,
+     *                     до конца значения по умолчанию. Именно целиком, а не одно имя:
+     *                     аннотация и значение — дети параметра в дереве, и интервал
+     *                     родителя обязан их накрывать
      */
-    public record Param(String name, Annotations annotations, Expr defaultValue, Span span) {
+    public record Param(String name, Span nameSpan, Annotations annotations, Expr defaultValue,
+                        Span span) implements Fragment {
 
         /** Имя параметра-дырки. Обычным именем оно быть не может — см. javadoc записи. */
         public static final String HOLE = "_";
 
         public Param {
             Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(nameSpan, "nameSpan");
             annotations = annotations == null ? Annotations.NONE : annotations;
-            Objects.requireNonNull(span, "span");
+            span = span == null ? nameSpan : span;
+        }
+
+        /** Параметр из разбора: место целиком считается по тому, что написано. */
+        public Param(String name, Span nameSpan, Annotations annotations, Expr defaultValue) {
+            this(name, nameSpan, annotations, defaultValue,
+                    (annotations == null ? Annotations.NONE : annotations)
+                            .cover(defaultValue == null ? nameSpan : nameSpan.to(defaultValue.span())));
         }
 
         /** Параметр без аннотаций: {@code def f(a, b = 10)}. */
         public Param(String name, Expr defaultValue, Span span) {
-            this(name, Annotations.NONE, defaultValue, span);
+            this(name, span, Annotations.NONE, defaultValue,
+                    defaultValue == null ? span : span.to(defaultValue.span()));
         }
 
         /** Обязательный параметр — без значения по умолчанию. */
         public Param(String name, Span span) {
-            this(name, Annotations.NONE, null, span);
+            this(name, span, Annotations.NONE, null, span);
         }
 
         /** Параметр-дырка: {@code def onClick(_, event)}. Значения по умолчанию у неё нет. */
         public static Param hole(Span span) {
-            return new Param(HOLE, Annotations.NONE, null, span);
+            return new Param(HOLE, span, Annotations.NONE, null, span);
         }
 
         /** Дырка ли это — то есть надо ли забыть значение сразу после связывания. */

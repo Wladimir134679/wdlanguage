@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.expr;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.source.Span;
 
 import java.util.List;
@@ -40,7 +41,7 @@ public record ObjectExpr(List<Entry> entries, Span span) implements Expr {
      * @param starSpan место {@code **} в исходнике или {@code null} у пары
      * @param value    выражение значения; у раскрытия — выражение объекта
      */
-    public record Entry(Kind kind, Expr key, Span starSpan, Expr value) {
+    public record Entry(Kind kind, Expr key, Span starSpan, Expr value) implements Fragment {
 
         /** Форма записи. */
         public enum Kind {

@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.source.Span;
 
@@ -37,7 +38,7 @@ public record UseStmt(List<Binding> resources, BlockStmt body, Span span) implem
      * Имя живёт только в теле — как переменная цикла и как имя обработчика
      * в {@code catch}.
      */
-    public record Binding(String name, Span nameSpan, Expr value, Span span) {
+    public record Binding(String name, Span nameSpan, Expr value, Span span) implements Fragment {
 
         public Binding {
             Objects.requireNonNull(name, "name");

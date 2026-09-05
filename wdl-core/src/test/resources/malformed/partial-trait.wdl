@@ -1,0 +1,2 @@
+trait Printable {
+    def print(

@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.expr;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.source.Span;
 
 import java.util.List;
@@ -30,7 +31,7 @@ import java.util.Objects;
  *                  и здесь не лежит
  * @param span      место записи целиком: от {@code @} до закрывающей скобки
  */
-public record Decorator(Expr callee, List<Argument> arguments, Span span) {
+public record Decorator(Expr callee, List<Argument> arguments, Span span) implements Fragment {
 
     public Decorator {
         Objects.requireNonNull(callee, "callee");

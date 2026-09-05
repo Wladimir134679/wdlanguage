@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.source.Span;
 
 import java.util.List;
@@ -43,7 +44,8 @@ public record TryStmt(BlockStmt body, List<Catch> handlers, BlockStmt finallyBlo
      * @param types типы через запятую; пустой список — {@code catch (e)}, то есть
      *              «любая ошибка», то же самое, что {@code catch (e is Exception)}
      */
-    public record Catch(String name, Span nameSpan, List<TypeRef> types, BlockStmt body, Span span) {
+    public record Catch(String name, Span nameSpan, List<TypeRef> types, BlockStmt body, Span span)
+            implements Fragment {
 
         public Catch {
             Objects.requireNonNull(name, "name");
@@ -63,7 +65,7 @@ public record TryStmt(BlockStmt body, List<Catch> handlers, BlockStmt finallyBlo
      * Именно имя, а не выражение, — как после {@code :} и {@code with} в объявлении
      * класса и по той же причине: тип обработчика должен быть виден глазами.
      */
-    public record TypeRef(String alias, String name, Span span) {
+    public record TypeRef(String alias, String name, Span span) implements Fragment {
 
         public TypeRef {
             Objects.requireNonNull(name, "name");

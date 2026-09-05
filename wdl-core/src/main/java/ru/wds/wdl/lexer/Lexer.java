@@ -1,5 +1,6 @@
 package ru.wds.wdl.lexer;
 
+import ru.wds.wdl.diagnostic.DiagnosticCode;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
@@ -26,6 +27,11 @@ import java.util.Objects;
  *   <li><b>Позиция — смещение</b> ({@link Span}), а не пара «строка:столбец».
  *       Лексер не считает строки: это работа {@link Source}, и делается она один раз
  *       при выводе диагностики, а не на каждом символе.</li>
+ *   <li><b>Пробелы и комментарии видны только тому, кто их попросил.</b> В режиме
+ *       {@link LexerMode#RUNTIME} их в потоке нет — разбору они не нужны никогда;
+ *       в {@link LexerMode#LOSSLESS} поток покрывает документ встык и годится
+ *       для подсветки, форматтера и подсказки по наведению. Значимые токены в обоих
+ *       режимах одни и те же.</li>
  * </ol>
  * Экземпляр одноразовый; точка входа — {@link #tokenize(Source, Diagnostics)}.
  */
@@ -63,12 +69,21 @@ public final class Lexer {
      * через {@link Diagnostics#hasErrors()}.
      */
     public static List<Token> tokenize(Source source, Diagnostics diagnostics) {
-        return new Lexer(source, diagnostics).run();
+        return tokenize(source, diagnostics, LexerMode.RUNTIME);
+    }
+
+    /**
+     * То же, но с выбором режима: {@link LexerMode#LOSSLESS} добавляет в поток
+     * пробелы, комментарии и мусор, покрывая документ целиком.
+     */
+    public static List<Token> tokenize(Source source, Diagnostics diagnostics, LexerMode mode) {
+        return new Lexer(source, diagnostics, mode).run();
     }
 
     private final String text;
     private final int length;
     private final Diagnostics diagnostics;
+    private final LexerMode mode;
     private final List<Token> tokens = new ArrayList<>();
     private final StringBuilder buffer = new StringBuilder(32);
 
@@ -76,27 +91,31 @@ public final class Lexer {
     /** Между прошлым токеном и текущей позицией был перевод строки. */
     private boolean afterNewline;
 
-    private Lexer(Source source, Diagnostics diagnostics) {
+    private Lexer(Source source, Diagnostics diagnostics, LexerMode mode) {
         Objects.requireNonNull(source, "source");
         this.text = source.text();
         this.length = text.length();
         this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
+        this.mode = Objects.requireNonNull(mode, "mode");
     }
 
     private List<Token> run() {
         // Редакторы Windows охотно ставят в начало UTF-8 файла BOM. Это маркер кодировки,
         // а не символ программы: пропускаем его молча, иначе первый же скрипт, сохранённый
         // «Блокнотом», падает с ошибкой про неизвестный символ в первой позиции.
+        // Пропускаем, но не выбрасываем из позиций: смещения остаются индексами в тексте,
+        // который дали. Редактор поэтому обязан лексить текст своего документа (BOM там
+        // уже снят), а не байты файла — иначе позиции разъедутся на единицу.
         if (length > 0 && text.charAt(0) == BOM) {
             pos = 1;
+            // В потоке с тривией маркер всё же виден — иначе покрытие документа начиналось
+            // бы не с нуля, и «встык от начала до конца» перестало бы быть правдой.
+            trivia(TokenType.WHITESPACE, 0);
         }
         while (pos < length) {
             char current = text.charAt(pos);
             if (Character.isWhitespace(current)) {
-                if (current == '\n') {
-                    afterNewline = true;
-                }
-                pos++;
+                whitespace();
             } else if (current == '/' && peek(1) == '/') {
                 lineComment();
             } else if (current == '/' && peek(1) == '*') {
@@ -111,7 +130,9 @@ public final class Lexer {
                 quotedName();
             } else if (!operator()) {
                 int start = pos++;
-                diagnostics.error(new Span(start, pos), "неизвестный символ " + describe(current));
+                diagnostics.error(new Span(start, pos), DiagnosticCode.UNKNOWN_CHARACTER,
+                        "неизвестный символ " + describe(current));
+                trivia(TokenType.BAD_CHARACTER, start);
             }
         }
         tokens.add(new Token(TokenType.EOF, "", Span.point(length), afterNewline));
@@ -278,7 +299,8 @@ public final class Lexer {
             pos++;
         }
         if (!closed) {
-            diagnostics.error(new Span(start, pos), "строка не закрыта кавычкой");
+            diagnostics.error(new Span(start, pos), DiagnosticCode.UNCLOSED_STRING,
+                    "строка не закрыта кавычкой");
         }
         add(TokenType.STRING, buffer.toString(), start);
     }
@@ -400,10 +422,27 @@ public final class Lexer {
         return false;
     }
 
+    /**
+     * Пробельный кусок целиком — одним токеном, а не по символу: подсветке и форматтеру
+     * нужен интервал «между этими двумя токенами ничего нет», а не список пробелов.
+     */
+    private void whitespace() {
+        int start = pos;
+        while (pos < length && Character.isWhitespace(text.charAt(pos))) {
+            if (text.charAt(pos) == '\n') {
+                afterNewline = true;
+            }
+            pos++;
+        }
+        trivia(TokenType.WHITESPACE, start);
+    }
+
     private void lineComment() {
+        int start = pos;
         while (pos < length && text.charAt(pos) != '\n') {
             pos++;
         }
+        trivia(TokenType.LINE_COMMENT, start);
     }
 
     private void blockComment() {
@@ -413,6 +452,7 @@ public final class Lexer {
             char current = text.charAt(pos);
             if (current == '*' && peek(1) == '/') {
                 pos += 2;
+                trivia(TokenType.BLOCK_COMMENT, start);
                 return;
             }
             if (current == '\n') {
@@ -421,7 +461,12 @@ public final class Lexer {
             }
             pos++;
         }
-        diagnostics.error(new Span(start, Math.min(start + 2, length)), "комментарий не закрыт '*/'");
+        diagnostics.error(new Span(start, Math.min(start + 2, length)),
+                DiagnosticCode.UNCLOSED_COMMENT, "комментарий не закрыт '*/'");
+        // Диагностика показывает на открывающие '/*' — там ошибка, — а токен берёт всё
+        // до конца документа: незакрытый комментарий и правда съедает остаток файла,
+        // и подсветка обязана показать это так же, как показала бы IDE.
+        trivia(TokenType.BLOCK_COMMENT, start);
     }
 
     // --- служебное ----------------------------------------------------------
@@ -433,6 +478,19 @@ public final class Lexer {
     private void add(TokenType type, String value, int start) {
         tokens.add(new Token(type, value, new Span(start, pos), afterNewline));
         afterNewline = false;
+    }
+
+    /**
+     * Токен тривии — только в режиме {@link LexerMode#LOSSLESS}.
+     * <p>
+     * Текст пустой: содержимое читается из {@link Source} по интервалу, как и у строк.
+     * Флаг {@code afterNewline} тривия не несёт и <b>не сбрасывает</b> — он принадлежит
+     * следующему значимому токену, и комментарий между строками не должен его съедать.
+     */
+    private void trivia(TokenType type, int start) {
+        if (mode == LexerMode.LOSSLESS) {
+            tokens.add(new Token(type, "", new Span(start, pos)));
+        }
     }
 
     private char peek(int offset) {

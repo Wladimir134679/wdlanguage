@@ -61,6 +61,20 @@ public record Annotations(List<ObjectExpr.Entry> entries, List<Span> blocks) {
         return blocks.isEmpty() ? null : blocks.get(0).to(blocks.get(blocks.size() - 1));
     }
 
+    /**
+     * Расширяет интервал объявления так, чтобы в него вошли написанные блоки.
+     * <p>
+     * Аннотация стоит <b>перед</b> объявлением, а место объявления считается от его
+     * первого слова — {@code def}, {@code class}, имени параметра. Без этой поправки
+     * записи аннотаций оказывались бы вне интервала того, кому они приписаны, то есть
+     * вне своего родителя в дереве: обход по смещению до них бы не добрался,
+     * а инвариант вложенности оказался бы нарушен.
+     */
+    public Span cover(Span span) {
+        Span blocks = span();
+        return blocks == null ? span : blocks.to(span);
+    }
+
     @Override
     public String toString() {
         if (!written()) {

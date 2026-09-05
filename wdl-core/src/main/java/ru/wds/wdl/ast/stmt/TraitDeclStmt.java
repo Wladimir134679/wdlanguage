@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.ast.expr.Annotations;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.source.Span;
@@ -52,6 +53,12 @@ public record TraitDeclStmt(
         List<PropertyDecl> properties,
         Span span) implements Stmt {
 
+    /** Та же инструкция с другим интервалом: см. {@link DefDeclStmt#withSpan}. */
+    public TraitDeclStmt withSpan(Span span) {
+        return new TraitDeclStmt(name, nameSpan, annotations, params, methods, requirements,
+                properties, span);
+    }
+
     public TraitDeclStmt {
         Objects.requireNonNull(name, "name");
         annotations = annotations == null ? Annotations.NONE : annotations;
@@ -78,21 +85,27 @@ public record TraitDeclStmt(
      * @param annotations данные, приписанные требованию. Значения у требования нет,
      *                 поэтому прочитать их из скрипта пока нечем; в дереве они лежат
      *                 затем же, зачем там лежит всё остальное, — их видят инструменты
+     * @param nameSpan место имени в исходнике: то, к чему ведёт переход к объявлению
+     *                 и что переименовывает переименование. Своего {@link FunctionExpr}
+     *                 у требования нет — тела нет, а значит и функции, — поэтому место
+     *                 имени хранится здесь
      * @param mirror   требуется ли зеркальный оператор: {@code mirror def `+`(left)}.
      *                 Признаком, а не мангленным именем, — {@code name} обязан отражать
      *                 текст, ровно как у {@link FunctionExpr}
      */
-    public record Requirement(String name, Annotations annotations,
+    public record Requirement(String name, Span nameSpan, Annotations annotations,
                               List<FunctionExpr.Param> params, boolean variadic,
-                              boolean mirror, Span span) {
+                              boolean mirror, Span span) implements Fragment {
 
         public Requirement {
+            nameSpan = nameSpan == null ? Span.NONE : nameSpan;
             annotations = annotations == null ? Annotations.NONE : annotations;
         }
 
         /** Обычное требование: {@code def report()}. */
-        public Requirement(String name, List<FunctionExpr.Param> params, boolean variadic, Span span) {
-            this(name, Annotations.NONE, params, variadic, false, span);
+        public Requirement(String name, Span nameSpan, List<FunctionExpr.Param> params,
+                           boolean variadic, Span span) {
+            this(name, nameSpan, Annotations.NONE, params, variadic, false, span);
         }
     }
 }

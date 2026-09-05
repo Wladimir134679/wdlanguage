@@ -72,6 +72,25 @@ final class ModuleScope implements Environment {
     }
 
     @Override
+    public Set<String> namesHere() {
+        Set<String> names;
+        synchronized (members) {
+            names = new LinkedHashSet<>(members.keySet());
+        }
+        synchronized (aliases) {
+            names.addAll(aliases.keySet());
+        }
+        return Collections.unmodifiableSet(names);
+    }
+
+    @Override
+    public Set<String> names() {
+        Set<String> names = new LinkedHashSet<>(namesHere());
+        names.addAll(root.names());
+        return Collections.unmodifiableSet(names);
+    }
+
+    @Override
     public Value lookupHere(String name) {
         Objects.requireNonNull(name, "name");
         Value value = members.get(name);

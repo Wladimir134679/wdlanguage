@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.ast.expr.Annotations;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
@@ -40,7 +41,7 @@ import java.util.Objects;
  */
 public record PropertyDecl(String name, Span nameSpan, Annotations annotations, Expr initial,
                            Accessor getter, Accessor setter,
-                           PropertyStyle style, Span span) {
+                           PropertyStyle style, Span span) implements Fragment {
 
     public PropertyDecl {
         Objects.requireNonNull(name, "name");
@@ -66,7 +67,7 @@ public record PropertyDecl(String name, Span nameSpan, Annotations annotations, 
      * посетителям дерева. Здесь он заперт внутри одной записи, и спрашивают о нём
      * {@link #isRequirement()}.
      */
-    public record Accessor(FunctionExpr function, Span span) {
+    public record Accessor(FunctionExpr function, Span span) implements Fragment {
 
         public Accessor {
             Objects.requireNonNull(span, "span");

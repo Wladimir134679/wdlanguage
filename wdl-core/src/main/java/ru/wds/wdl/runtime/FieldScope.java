@@ -5,7 +5,10 @@ import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.NullValue;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Область внутри аксессора свойства со скрытым полем: то, что делает видимым
@@ -46,6 +49,19 @@ final class FieldScope implements Environment {
      * место лучше показать значением, чем ошибкой «переменная не определена»
      * посреди чужого аксессора.
      */
+    /** Своё имя здесь одно — скрытое поле свойства. */
+    @Override
+    public Set<String> namesHere() {
+        return Set.of(FIELD);
+    }
+
+    @Override
+    public Set<String> names() {
+        Set<String> names = new LinkedHashSet<>(namesHere());
+        names.addAll(outer.names());
+        return Collections.unmodifiableSet(names);
+    }
+
     @Override
     public Value lookup(String name) {
         if (FIELD.equals(name)) {

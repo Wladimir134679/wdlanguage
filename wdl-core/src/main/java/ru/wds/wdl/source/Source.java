@@ -12,6 +12,18 @@ import java.util.Objects;
  * Узлы AST и токены хранят только {@link Span} (смещения в символах) — компактно
  * и дёшево. Перевод смещения в «строка:столбец» для сообщений об ошибках делается
  * здесь, по требованию.
+ * <p>
+ * <b>Контракт позиций, на который опирается весь инструментарий.</b> Смещение —
+ * индекс в {@link String}, то есть единица UTF-16 (см. {@link Span}). Строки
+ * и столбцы {@link Position} нумеруются <b>с единицы</b>; перевод в нумерацию
+ * с нуля, которой пользуется LSP, — дело адаптера, ядро о ней не знает.
+ * Перевод обратим: {@code offsetOf(positionOf(o)) == o} для любого допустимого
+ * смещения, включая смещение за последним символом.
+ * <p>
+ * Строку заканчивает {@code \n}; {@code \r} перед ним — обычный символ текста,
+ * он входит в позиции, но {@link #lineText} его не отдаёт. Маркер кодировки (BOM)
+ * — тоже обычный символ позиции 0: пропускает его {@link ru.wds.wdl.lexer.Lexer},
+ * а не этот класс, поэтому редактор обязан лексить текст документа, а не байты файла.
  */
 public final class Source {
 
@@ -61,6 +73,37 @@ public final class Source {
         }
         int line = binarySearchLine(offset);
         return new Position(line + 1, offset - lineStarts[line] + 1);
+    }
+
+    /**
+     * Переводит позицию «строка:столбец» обратно в смещение — то, чем редактор
+     * отвечает на клик мышью.
+     * <p>
+     * Обратно к {@link #positionOf(int)} и в тех же единицах: столбец считается
+     * в символах UTF-16 от начала строки, нумерация с единицы. Допустимый столбец
+     * доходит до позиции <b>за</b> последним символом строки — там стоит курсор,
+     * дописывающий строку, и именно эту позицию присылает редактор чаще всего.
+     *
+     * @throws IndexOutOfBoundsException если строки нет или столбец за её концом
+     */
+    public int offsetOf(int line, int column) {
+        if (line < 1 || line > lineStarts.length) {
+            throw new IndexOutOfBoundsException("строка " + line + " вне диапазона 1.." + lineStarts.length);
+        }
+        int start = lineStarts[line - 1];
+        int end = (line < lineStarts.length) ? lineStarts[line] - 1 : text.length();
+        int offset = start + column - 1;
+        if (column < 1 || offset > end) {
+            throw new IndexOutOfBoundsException("столбец " + column + " вне строки " + line
+                    + " длиной " + (end - start));
+        }
+        return offset;
+    }
+
+    /** То же для собранной позиции: {@code offsetOf(positionOf(o)) == o}. */
+    public int offsetOf(Position position) {
+        Objects.requireNonNull(position, "position");
+        return offsetOf(position.line(), position.column());
     }
 
     /** Текст строки без завершающего перевода строки. Нумерация с единицы. */

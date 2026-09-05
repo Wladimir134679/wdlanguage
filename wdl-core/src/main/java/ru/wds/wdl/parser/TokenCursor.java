@@ -1,5 +1,6 @@
 package ru.wds.wdl.parser;
 
+import ru.wds.wdl.diagnostic.DiagnosticCode;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.lexer.TokenType;
@@ -71,8 +72,14 @@ final class TokenCursor {
             advance();
             return token;
         }
-        diagnostics.error(token.span(), "ожидалось " + what + ", найдено " + describe(token));
-        return token;
+        diagnostics.error(token.span(), DiagnosticCode.EXPECTED_TOKEN,
+                "ожидалось " + what + ", найдено " + describe(token));
+        // Возвращается не подвернувшийся токен, а пустой, в точке ожидания. Вызывающий
+        // почти всегда строит по нему конец своего интервала, и, отдай мы чужой токен,
+        // узел дотянулся бы до следующей инструкции: 'def f(a) return a' без ';' наезжал
+        // бы на 'def' со следующей строки. Курсор при этом не двигается — восстановление
+        // после ошибки остаётся за тем, кто её увидел.
+        return new Token(type, "", Span.point(lastSpan().end()), token.afterNewline());
     }
 
     /** Текущее место в потоке — только чтобы сравнить его с прежним в {@link #ensureProgress(int)}. */

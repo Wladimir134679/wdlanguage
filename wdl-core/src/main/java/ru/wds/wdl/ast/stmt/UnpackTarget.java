@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.Fragment;
 import ru.wds.wdl.ast.expr.AccessExpr;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.VariableExpr;
@@ -27,7 +28,7 @@ import java.util.Objects;
  * @param kind   вид цели
  * @param span   место в исходнике вместе со звёздочкой, если она есть
  */
-public record UnpackTarget(Expr target, Kind kind, Span span) {
+public record UnpackTarget(Expr target, Kind kind, Span span) implements Fragment {
 
     /** Вид цели. */
     public enum Kind {

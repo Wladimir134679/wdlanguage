@@ -4,6 +4,7 @@ import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.ast.expr.*;
 import ru.wds.wdl.ast.op.*;
 import ru.wds.wdl.ast.stmt.*;
+import ru.wds.wdl.diagnostic.DiagnosticCode;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.diagnostic.Plural;
 import ru.wds.wdl.lexer.Token;
@@ -589,7 +590,9 @@ public final class Parser {
             return value;
         }
         // Анонимной она и остаётся: имя тут подставлено для сообщений, а не написано.
-        return new FunctionExpr(name, true, function.modifiers(), function.annotations(),
+        // Место имени остаётся пустым: написано оно у переменной, а не у функции,
+        // и переход к объявлению должен вести туда, где человек его написал.
+        return new FunctionExpr(name, Span.NONE, true, function.modifiers(), function.annotations(),
                 function.params(), function.rest(), function.namedRest(), function.body(),
                 function.style(), function.span());
     }
@@ -774,7 +777,11 @@ public final class Parser {
         if (decorators.isEmpty() || declaration instanceof ErrorStmt) {
             // Либо декораторов не написали вовсе, либо ни один не разобрался и об этом
             // уже сказано. Объявление разобрать всё равно надо: дерево возвращается всегда.
-            return declaration;
+            // Без декораторов блоки аннотаций входят в интервал объявления: между ними
+            // и словом 'def' ничего чужого не стоит, и записи становятся его детьми.
+            // С декораторами так нельзя — интервал перепрыгнул бы через них, — и тогда
+            // блоки покрывает DecoratedStmt, который начинается с первого '@'.
+            return decorators.isEmpty() ? withAnnotationSpan(declaration, annotations) : declaration;
         }
         return new DecoratedStmt(decorators, declaration, start.span().to(cursor.lastSpan()));
     }
@@ -878,6 +885,19 @@ public final class Parser {
         };
     }
 
+    /** Раздвигает интервал объявления до написанных перед ним блоков {@code @{...}}. */
+    private static Stmt withAnnotationSpan(Stmt declaration, Annotations annotations) {
+        if (!annotations.written()) {
+            return declaration;
+        }
+        return switch (declaration) {
+            case DefDeclStmt def -> def.withSpan(annotations.cover(def.span()));
+            case ClassDeclStmt type -> type.withSpan(annotations.cover(type.span()));
+            case TraitDeclStmt type -> type.withSpan(annotations.cover(type.span()));
+            default -> declaration;
+        };
+    }
+
     /**
      * Назвать в сообщении надо то, что человек написал: цель у аннотации и декоратора
      * одна, но советовать «уберите декоратор» тому, кто его не писал, — плохой совет.
@@ -947,7 +967,7 @@ public final class Parser {
         if (name.quoted()) {
             diagnostics.error(name.span(), LOCAL_OPERATOR);
         }
-        FunctionExpr function = functionRest(start, name.text(), modifiers, annotations);
+        FunctionExpr function = functionRest(start, name.text(), name.span(), modifiers, annotations);
         if (function.body() instanceof ReturnStmt returned && returned.value() instanceof ErrorExpr) {
             // Тело после '=>' не разобралось, и об этом уже сказано. Дальше по строке
             // разбирать нечего: пропускаем её целиком, иначе тот же токен вызовет ту же
@@ -966,7 +986,7 @@ public final class Parser {
         Token start = cursor.peek();
         Set<Modifier> modifiers = modifiers();
         cursor.advance(); // def
-        return functionRest(start, null, modifiers, Annotations.NONE);
+        return functionRest(start, null, Span.NONE, modifiers, Annotations.NONE);
     }
 
     /**
@@ -1005,8 +1025,8 @@ public final class Parser {
      * @param start первый токен заголовка: {@code def} или модификатор перед ним —
      *              место функции обязано начинаться там, где человек начал её писать
      */
-    private FunctionExpr functionRest(Token start, String name, Set<Modifier> modifiers,
-                                      Annotations annotations) {
+    private FunctionExpr functionRest(Token start, String name, Span nameSpan,
+                                      Set<Modifier> modifiers, Annotations annotations) {
         TypeParser.Params header = types.parameters("'def'", true, true);
         return state.inFunctionBody(() -> {
             if (cursor.match(TokenType.FATARROW)) {
@@ -1014,12 +1034,12 @@ public final class Parser {
                 // ReturnStmt, а сама форма записи остаётся в BodyStyle для форматтера.
                 Expr value = expression(0);
                 Stmt body = new ReturnStmt(value, value.span());
-                return new FunctionExpr(name, modifiers, annotations, header.params(),
+                return new FunctionExpr(name, nameSpan, modifiers, annotations, header.params(),
                         header.rest(), header.namedRest(), body, BodyStyle.ARROW,
                         start.span().to(value.span()));
             }
             Stmt body = body(name != null ? "функции '" + name + "'" : "анонимной функции");
-            return new FunctionExpr(name, modifiers, annotations, header.params(),
+            return new FunctionExpr(name, nameSpan, modifiers, annotations, header.params(),
                     header.rest(), header.namedRest(), body, BodyStyle.STATEMENT,
                     start.span().to(body.span()));
         });
@@ -1732,7 +1752,9 @@ public final class Parser {
                 || cursor.check(TokenType.EOF)) {
             diagnostics.error(cursor.peek().span(),
                     "ожидалось тело " + owner + ", найдено " + describe(cursor.peek()));
-            return new ErrorStmt(cursor.peek().span());
+            // Ни '}', ни ';' телом не становятся: закрывающая скобка нужна внешнему блоку,
+            // и, забрав её сюда, конструкция вылезла бы за интервал своего родителя.
+            return new ErrorStmt(Span.point(cursor.peek().span().start()));
         }
         return statement();
     }
@@ -1928,10 +1950,13 @@ public final class Parser {
                 return new ErrorExpr(token.span());
             }
             default -> {
-                diagnostics.error(token.span(), "ожидалось выражение, найдено " + describe(token));
+                diagnostics.error(token.span(), DiagnosticCode.EXPECTED_EXPRESSION,
+                        "ожидалось выражение, найдено " + describe(token));
                 // Токен не съедаем: закрывающая скобка или запятая нужны тому, кто нас
                 // вызвал, чтобы закончить свой список. За продвижение отвечает вызывающий.
-                return new ErrorExpr(token.span());
+                // Раз токен остаётся непрочитанным, интервал узла — точка перед ним:
+                // иначе тот же текст попал бы и сюда, и в узел, который его разберёт.
+                return new ErrorExpr(Span.point(token.span().start()));
             }
         }
     }
@@ -1979,8 +2004,13 @@ public final class Parser {
             if (name.type() != TokenType.WORD && !name.type().isKeyword()) {
                 diagnostics.error(name.span(),
                         "после точки ожидалось имя поля, найдено " + describe(name));
-                return new AccessExpr(target, new ErrorExpr(name.span()), AccessStyle.DOT,
-                        target.span().to(operator.span()));
+                // Ключ — пустой узел сразу за точкой, а не подвернувшийся токен: у 'obj.'
+                // в конце строки следующий токен принадлежит следующей инструкции, и,
+                // проглотив его, обращение соврало бы про структуру файла. Заодно
+                // интервал ребёнка остаётся внутри интервала родителя — на этом стоит
+                // поиск узла под курсором.
+                return new AccessExpr(target, new ErrorExpr(Span.point(operator.span().end())),
+                        AccessStyle.DOT, target.span().to(operator.span()));
             }
             cursor.advance();
             Expr key = new LiteralExpr(StringValue.of(name.text()), name.span());
@@ -2139,7 +2169,8 @@ public final class Parser {
             return group();
         }
         diagnostics.error(token.span(), "после 'new' ожидалось имя класса, найдено " + describe(token));
-        return new ErrorExpr(token.span());
+        // Токен остаётся вызывающему — значит и место у ошибки нулевое, перед ним.
+        return new ErrorExpr(Span.point(token.span().start()));
     }
 
     // --- литералы коллекций --------------------------------------------------

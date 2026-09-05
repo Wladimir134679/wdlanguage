@@ -16,7 +16,7 @@ import ru.wds.wdl.source.Span;
  * ({@link Stmt}) выполняются ради действия, {@link Program} — корень разобранного
  * скрипта. Дальше сюда придут объявления.
  */
-public sealed interface Node permits Expr, Stmt, Program {
+public sealed interface Node permits Expr, Stmt, Program, Fragment {
 
     /** Интервал исходного текста, который занял этот узел. */
     Span span();

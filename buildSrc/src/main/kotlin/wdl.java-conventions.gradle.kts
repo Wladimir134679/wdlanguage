@@ -38,6 +38,9 @@ tasks.withType<JavaCompile>().configureEach {
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     defaultCharacterEncoding = "UTF-8"
+    // Корпус примеров лежит в корне репозитория, а тест выполняется из каталога модуля.
+    // Относительным путём это связывать нельзя: он поедет от того, кто запустил задачу.
+    systemProperty("wdl.examples", rootProject.file("examples").absolutePath)
     testLogging {
         events(TestLogEvent.FAILED, TestLogEvent.SKIPPED)
         exceptionFormat = TestExceptionFormat.FULL
