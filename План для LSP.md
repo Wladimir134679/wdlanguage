@@ -755,6 +755,12 @@ public interface LanguageService {
 **Шлюз этапа:** консольный Java-клиент получает diagnostics, symbols, completion
 и definition; в analysis нет классов LSP4J/IntelliJ.
 
+
+> **Этап 3 (слой анализа имён) закрыт 5 сентября 2026 года** — смысловая часть:
+> `FileAnalysis`, дерево областей, символы, `visibleAt`, `resolve`, `usages`,
+> комментарии. Подробности и решения — `plans/ПланАнализаИмён.md`. `DocumentStore`
+> с версиями, интерфейс `LanguageService` и cancellation остаются серверу (этап 6).
+
 ### Этап 4. Описать builtins, stdlib и возможности приложения
 
 **Цель:** редактор знает ровно ту конфигурацию языка, которую собрал хозяин движка.
