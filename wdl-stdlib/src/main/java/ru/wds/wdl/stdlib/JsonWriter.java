@@ -27,7 +27,7 @@ import java.util.Map;
  * особого случая не нужно: имя класса в JSON не попадает, потому что в JSON
  * такого понятия нет.
  */
-final class JsonWriter {
+public final class JsonWriter {
 
     /**
      * Как значение превращается в данные перед записью.
@@ -54,6 +54,20 @@ final class JsonWriter {
         this.indent = indent;
         this.span = span;
         this.replacer = replacer;
+    }
+
+    /**
+     * Запись готовых данных: массивов, объектов и простых значений.
+     * <p>
+     * Публичная затем, что писать JSON нужно не только скрипту: консоль печатает
+     * им каталог ({@code wdl --catalog --json}), и заводить ради этого вторую
+     * реализацию правил экранирования было бы ровно тем дублированием, от которого
+     * каталог и уходит.
+     *
+     * @param indent сколько пробелов на уровень; {@code 0} — писать в одну строку
+     */
+    public static String stringify(Value value, int indent) {
+        return write(value, indent, Span.NONE, raw -> raw);
     }
 
     /**

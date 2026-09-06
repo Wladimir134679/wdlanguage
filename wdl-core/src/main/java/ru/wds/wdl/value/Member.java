@@ -66,6 +66,16 @@ public interface Member {
     /** Собирает ли член новое значение за {@code O(n)} на каждое чтение. */
     boolean snapshot();
 
+    /**
+     * Описание словами для подсказки редактора или {@code null}.
+     * <p>
+     * По умолчанию его нет, и это не пробел: набор членов перечислим и без описаний,
+     * а фраза пишется там же, где член объявлен, — см. {@link Documented}.
+     */
+    default String documentation() {
+        return null;
+    }
+
     default boolean isProperty() {
         return property() != null;
     }

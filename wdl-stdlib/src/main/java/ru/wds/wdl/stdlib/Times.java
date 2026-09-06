@@ -56,6 +56,7 @@ public final class Times {
     public static Library library() {
         JavaBridge bridge = bridge();
         return Module.named("sys/time")
+                .doc("дата, время, длительность: типы java.time под короткими именами")
                 .install(bridge::installTo)
                 .onClose(bridge::close)
                 .build();

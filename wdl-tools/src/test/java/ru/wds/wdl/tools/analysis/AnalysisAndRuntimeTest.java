@@ -12,6 +12,8 @@ import ru.wds.wdl.runtime.ExecutionContext;
 import ru.wds.wdl.runtime.Interpreter;
 import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.source.Source;
+import ru.wds.wdl.tools.catalog.Catalog;
+import ru.wds.wdl.tools.catalog.Catalogs;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -112,6 +114,20 @@ class AnalysisAndRuntimeTest {
         List<String> unresolved = unresolved(analysis, rootNames);
         assertTrue(unresolved.isEmpty(),
                 () -> "анализ потерял имена, которые в запуске есть: " + unresolved);
+
+        // Второе полукольцо той же сверки: имя, не найденное анализом, обязано найтись
+        // в каталоге. Раньше здесь стоял просто набор имён корня — он говорил, что имя
+        // где-то есть, но не что редактору будет что о нём показать.
+        Catalog language = Catalogs.builtins();
+        List<String> unknown = rootNames.stream()
+                .filter(name -> language.root(name) == null)
+                .toList();
+        assertTrue(unknown.isEmpty(),
+                () -> "каталог языка не знает имён, которые кладёт в корень сам запуск: " + unknown);
+
+        List<String> undescribed = unresolvedByCatalog(analysis, language);
+        assertTrue(undescribed.isEmpty(),
+                () -> "имена, которых нет ни в файле, ни в каталоге: " + undescribed);
     }
 
     @Test
@@ -173,6 +189,26 @@ class AnalysisAndRuntimeTest {
     /** Внутри тела типа имя может быть членом — от родителя или трейта, из другого файла. */
     private static boolean insideType(FileAnalysis analysis, Reference reference) {
         return analysis.scopeAt(reference.span().start()).enclosingType() != null;
+    }
+
+    /**
+     * Имена, которые не нашлись ни в файле, ни в каталоге языка.
+     * <p>
+     * Это тот же вопрос, что и у {@link #unresolved}, но заданный тому, кто отвечает
+     * редактору: каталог обязан знать всё, чего нет в файле, — иначе подсказка молчит
+     * там, где имя на самом деле есть.
+     */
+    private static List<String> unresolvedByCatalog(FileAnalysis analysis, Catalog catalog) {
+        Set<String> found = new LinkedHashSet<>();
+        for (Reference reference : analysis.references()) {
+            if (SELF_NAMES.contains(reference.name())
+                    || catalog.root(reference.name()) != null
+                    || analysis.declarationOf(reference) != null) {
+                continue;
+            }
+            found.add(reference.name());
+        }
+        return List.copyOf(found);
     }
 
     /** Имена, которые употреблены в файле, но не нашлись ни в нём, ни в корне запуска. */

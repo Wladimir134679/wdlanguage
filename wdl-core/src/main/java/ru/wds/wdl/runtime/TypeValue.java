@@ -62,7 +62,7 @@ import java.util.List;
  * самое. {@code name()} — имя значения для сообщений об ошибках, оно с большой буквы,
  * как и стоит в корневой области ({@code "Number"}).
  */
-public final class TypeValue implements ClassValue {
+public final class TypeValue implements ClassValue, ru.wds.wdl.value.Documented {
 
     /**
      * Единственный ключ {@link #statics()}: справка о самом типе, а не о его членах.
@@ -94,6 +94,15 @@ public final class TypeValue implements ClassValue {
     @Override
     public String name() {
         return name;
+    }
+
+    /**
+     * Описание для подсказки: {@code typeof(x) == Number} — единственное, ради чего
+     * дескриптор и лежит в области именем.
+     */
+    @Override
+    public String documentation() {
+        return "дескриптор типа «" + valueType.title() + "»: с ним сравнивают typeof(x)";
     }
 
     /** Тип, о котором этот дескриптор: он же ключ таблицы членов. */

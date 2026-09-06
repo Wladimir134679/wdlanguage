@@ -6,6 +6,8 @@ import ru.wds.wdl.bridge.NativeTrait;
 import ru.wds.wdl.module.Library;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.InstanceObjectValue;
@@ -66,18 +68,23 @@ public final class Json {
     /** Модуль этого запуска: трейт и две функции. */
     private Library module() {
         return Module.named("sys/json")
+                .doc("JSON: разбор в значения языка и запись обратно")
                 .trait("Serializable", scope -> {
                     serializable = NativeTrait.named("Serializable")
                             .requireMethod(TO_JSON, Arity.exactly(0))
                             .build();
                     return serializable;
                 })
-                .function("parse", Arity.exactly(1),
+                .doc("обещание класса отдавать себя данными: метод toJson()")
+                .function("parse", Signature.of(Param.required("text")),
                         (context, arguments, span) ->
                                 JsonReader.read(arguments.string(0, "текст"), span))
-                .function("stringify", Arity.between(1, 2),
+                .doc("разбирает текст JSON в значения языка")
+                .function("stringify", Signature.of(Param.required("value"), Param.optional("indent")),
                         (context, arguments, span) -> StringValue.of(JsonWriter.write(arguments.at(0),
                                 indent(arguments), span, value -> toData(value, context, span))))
+                .doc("записывает значение в JSON; indent задаёт отступ")
+
                 .build();
     }
 

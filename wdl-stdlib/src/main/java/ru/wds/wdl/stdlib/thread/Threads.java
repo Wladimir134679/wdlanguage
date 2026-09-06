@@ -12,6 +12,8 @@ import ru.wds.wdl.runtime.WdlError;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.IntValue;
@@ -91,19 +93,29 @@ public final class Threads {
      */
     private Library module() {
         return Module.named("sys/thread")
+                .doc("потоки, пул, замки и счётчики этого запуска")
                 .type(THREAD, scope -> threadClass())
+                .doc("поток скрипта: start(), join(), name")
                 .type("Future", scope -> Pool.futureClass())
+                .doc("обещание результата из пула: get() ждёт")
                 .type("Pool", scope -> Pool.poolClass(scope,
                         Module.typeIn(scope, "Future")))
+                .doc("пул потоков: submit() отдаёт Future")
                 .type("Lock", scope -> Sync.lockClass())
+                .doc("замок: склеивает несколько обращений в одно")
                 .type("Counter", scope -> Sync.counterClass())
+                .doc("счётчик с атомарным приращением")
                 .type("Channel", scope -> Sync.channelClass())
+                .doc("очередь между потоками: put() и take()")
                 .type("Latch", scope -> Sync.latchClass())
+                .doc("защёлка: ждать, пока не досчитают до нуля")
 
                 .function("current", Arity.exactly(0),
                         (context, arguments, span) -> describe(Thread.currentThread()))
+                .doc("сведения о текущем потоке")
 
-                .function("sleep", Arity.exactly(1), (context, arguments, span) -> {
+                .function("sleep", Signature.of(Param.required("millis")),
+                        (context, arguments, span) -> {
                     long millis = arguments.integer(0, "миллисекунды");
                     if (millis < 0) {
                         throw arguments.bad(0, "миллисекунды", "ожидалось неотрицательное число");
@@ -116,6 +128,7 @@ public final class Threads {
                     }
                     return NullValue.NULL;
                 })
+                .doc("усыпляет текущий поток на столько миллисекунд")
 
                 // yield — подсказка планировщику, а не гарантия; на корректность скрипта
                 // влиять не должна и потому ничего не возвращает.
@@ -123,6 +136,7 @@ public final class Threads {
                     Thread.yield();
                     return NullValue.NULL;
                 })
+                .doc("подсказка планировщику уступить очередь; гарантий не даёт")
 
                 // Дальше — то, что замыкается на собранные классы: взять их можно
                 // только здесь, когда типы уже стоят в области.

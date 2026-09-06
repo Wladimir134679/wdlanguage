@@ -8,6 +8,8 @@ import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.Value;
@@ -109,30 +111,45 @@ public final class Http {
     /** Модуль этого запуска: класс ответа, пять функций и клиент, который надо закрыть. */
     private Library module() {
         return Module.named("sys/net/http")
+                .doc("HTTP-клиент: get, post, put, delete и общая форма request")
                 .type("Response", scope -> responseClass = responseClass())
-                .function("get", Arity.between(1, 2),
+                .doc("ответ сервера: код, тело, заголовки")
+                .function("get", URL_OPTIONS,
                         (context, arguments, span) -> send("GET", url(arguments), null,
                                 options(arguments, 1), context, span))
-                .function("post", Arity.between(2, 3),
+                .doc("запрос GET; options задаёт заголовки и таймаут")
+                .function("post", URL_BODY_OPTIONS,
                         (context, arguments, span) -> send("POST", url(arguments), arguments.at(1),
                                 options(arguments, 2), context, span))
-                .function("put", Arity.between(2, 3),
+                .doc("запрос POST с телом")
+                .function("put", URL_BODY_OPTIONS,
                         (context, arguments, span) -> send("PUT", url(arguments), arguments.at(1),
                                 options(arguments, 2), context, span))
-                .function("delete", Arity.between(1, 2),
+                .doc("запрос PUT с телом")
+                .function("delete", URL_OPTIONS,
                         (context, arguments, span) -> send("DELETE", url(arguments), null,
                                 options(arguments, 1), context, span))
+                .doc("запрос DELETE")
                 // Общая форма: метод и тело приходят опциями. Всё остальное — сокращения к ней.
-                .function("request", Arity.between(1, 2),
+                .function("request", URL_OPTIONS,
                         (context, arguments, span) -> {
                             MapValue options = options(arguments, 1);
                             String method = text(options, "method", "GET", span).toUpperCase(Locale.ROOT);
                             Value body = options.has("body") ? options.get("body") : null;
                             return send(method, url(arguments), body, options, context, span);
                         })
+                .doc("общая форма: метод, тело и заголовки задаются опциями")
                 .onClose(this::closeClient)
                 .build();
     }
+
+    /** Адрес и необязательные опции — контракт четырёх функций из пяти. */
+    private static final Signature URL_OPTIONS =
+            Signature.of(Param.required("url"), Param.optional("options"));
+
+    /** То же с телом запроса. */
+    private static final Signature URL_BODY_OPTIONS = Signature.of(
+            Param.required("url"), Param.required("body"), Param.optional("options"));
 
     /**
      * Закрывает клиента вместе с запуском.

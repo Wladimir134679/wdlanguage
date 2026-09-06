@@ -1,5 +1,6 @@
 package ru.wds.wdl.ast.stmt;
 
+import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.source.Span;
 
 import java.util.Objects;
@@ -14,13 +15,26 @@ import java.util.Objects;
  * <p>
  * Правило интервала — то же, что у {@link ErrorExpr}: покрыто ровно прочитанное,
  * а на месте несъеденного токена стоит точка.
+ * <p>
+ * <b>Разобранное выражение сохраняется.</b> Строка {@code obj.} инструкцией не
+ * является, но выражение в ней разобрано — и выбрасывать его значит оставлять
+ * редактор без самого частого случая дополнения: точка в начале строки. Поэтому
+ * {@link #expr()} держит то, что успели прочитать, когда это было выражение,
+ * и {@code null} во всех остальных случаях (недописанный {@code class},
+ * осиротевший {@code catch} — там читать было нечего).
  *
  * @param span место в исходнике
+ * @param expr разобранное выражение или {@code null}
  */
-public record ErrorStmt(Span span) implements Stmt {
+public record ErrorStmt(Span span, Expr expr) implements Stmt {
 
     public ErrorStmt {
         Objects.requireNonNull(span, "span");
+    }
+
+    /** Заглушка без выражения: разбирать было нечего. */
+    public ErrorStmt(Span span) {
+        this(span, null);
     }
 
     @Override

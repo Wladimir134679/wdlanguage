@@ -58,15 +58,25 @@ public final class Gui {
      */
     private Library module() {
         return Module.named("sys/gui")
+                .doc("окна и виджеты Swing: окно, панель и элементы на ней")
                 .type("Layout", scope -> Layouts.layoutClass())
+                .doc("компоновщик: как расставить элементы в панели")
                 .type("Window", scope -> NativeWindow.build(tracker))
+                .doc("окно: заголовок, размер, show()")
                 .type("Panel", scope -> NativePanel.build())
+                .doc("панель: держит элементы и их компоновку")
                 .type("Button", scope -> NativeButton.build())
+                .doc("кнопка: текст и обработчик нажатия")
                 .type("Label", scope -> NativeLabel.build())
+                .doc("надпись")
                 .type("TextField", scope -> NativeTextField.build())
+                .doc("однострочное поле ввода")
                 .type("TextArea", scope -> NativeTextArea.build())
+                .doc("многострочное поле ввода с прокруткой")
                 .type("CheckBox", scope -> NativeCheckBox.build())
+                .doc("флажок")
                 .type("ComboBox", scope -> NativeComboBox.build())
+                .doc("выпадающий список")
                 .install(this::functions)
                 // Закрытие модуля держит завершение процесса, пока пользователь
                 // не закроет окна: обработчики кнопок всё это время работают.

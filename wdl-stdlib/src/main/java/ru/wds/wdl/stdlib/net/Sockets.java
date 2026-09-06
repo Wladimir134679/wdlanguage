@@ -19,9 +19,12 @@ public final class Sockets {
 
     public static Library library() {
         return Module.named("sys/net/socket")
+                .doc("TCP: соединение и слушающий сокет")
                 .type("Socket", scope -> NativeSocket.build())
+                .doc("соединение: чтение и запись строк, закрывается через use")
                 .type("Server", scope -> NativeServerSocket.build(
                         Module.typeIn(scope, "Socket")))
+                .doc("слушающий сокет: accept() отдаёт соединение")
                 .build();
     }
 }

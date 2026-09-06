@@ -160,8 +160,11 @@ class NamedArgumentTest {
     @Test
     @DisplayName("встроенная функция без объявленных имён отвечает честным сообщением")
     void builtinWithoutNames() {
-        assertTrue(errorOf("println(len(value: [1, 2]))").getMessage()
-                .contains("функция 'len' принимает аргументы только по позиции"));
+        // println берёт любое число аргументов, и имён у них нет и быть не может —
+        // в отличие от len(value) и typeof(value), которым имена объявлены ради
+        // подсказки редактора.
+        assertTrue(errorOf("println(text: \"эй\")").getMessage()
+                .contains("функция 'println' принимает аргументы только по позиции"));
     }
 
     @Test

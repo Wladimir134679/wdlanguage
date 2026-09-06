@@ -2,7 +2,8 @@ package ru.wds.wdl.stdlib;
 
 import ru.wds.wdl.bridge.Module;
 import ru.wds.wdl.module.Library;
-import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.DecoratorMeta;
 
 /**
@@ -45,8 +46,10 @@ public final class Meta {
     /** Фабрика для реестра встроенных модулей. */
     public static Library library() {
         return Module.named("sys/meta")
-                .function("of", Arity.exactly(1),
+                .doc("сведения о значении для декораторов: имя, аннотации, параметры")
+                .function("of", Signature.of(Param.required("value")),
                         (context, arguments, span) -> DecoratorMeta.of(arguments.at(0)))
+                .doc("описание функции или класса: имя, аннотации, параметры")
                 .build();
     }
 }

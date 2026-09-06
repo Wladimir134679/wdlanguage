@@ -313,7 +313,7 @@ public final class Nodes {
         switch (statement) {
             case BreakStmt ignored -> { }
             case ContinueStmt ignored -> { }
-            case ErrorStmt ignored -> { }
+            case ErrorStmt error -> children.add(error.expr());
             case ImportStmt ignored -> { }
             case ExprStmt expression -> children.add(expression.expr());
             case AssignStmt assignment -> children.add(assignment.target()).add(assignment.value());

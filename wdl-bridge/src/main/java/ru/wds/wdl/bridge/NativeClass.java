@@ -91,7 +91,7 @@ import java.util.stream.Collectors;
  * даёт внятный отказ. Композиция через {@link NativeTrait} закрывает этот случай
  * лучше: {@code class My with net.Handler} связывает слабее и читается яснее.
  */
-public final class NativeClass implements ClassValue {
+public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documented {
 
     private final String name;
     private final NativeClass parent;
@@ -113,11 +113,23 @@ public final class NativeClass implements ClassValue {
     private final Class<?> backing;
     /** Обёртка над чужим объектом, а не свой класс: см. {@link Builder#wrapper}. */
     private final boolean wrapper;
+    /** Описание класса и его членов: читает только редактор. См. {@link Builder#doc}. */
+    private final String documentation;
+    private final Map<String, String> documentations;
 
     private NativeClass(Builder builder, List<Field> allFields, Map<String, Entry> allMethods,
                         Map<String, NativeProperty> allProperties) {
         this.properties = Collections.unmodifiableMap(new LinkedHashMap<>(allProperties));
         this.name = builder.name;
+        this.documentation = builder.documentation;
+        // Описания родителя достаются наследнику вместе с его методами: метод виден
+        // в классе, значит и описание метода должно быть видно там же.
+        Map<String, String> described = new LinkedHashMap<>();
+        if (builder.parent != null) {
+            described.putAll(builder.parent.documentations);
+        }
+        described.putAll(builder.documentations);
+        this.documentations = Collections.unmodifiableMap(described);
         this.parent = builder.parent;
         this.fields = List.copyOf(allFields);
         this.methods = Collections.unmodifiableMap(new LinkedHashMap<>(allMethods));
@@ -182,6 +194,17 @@ public final class NativeClass implements ClassValue {
     @Override
     public String name() {
         return name;
+    }
+
+    @Override
+    public String documentation() {
+        return documentation;
+    }
+
+    /** Описание метода, свойства или поля — то, что показывает подсказка после точки. */
+    @Override
+    public String documentation(String member) {
+        return documentations.get(member);
     }
 
     @Override
@@ -509,14 +532,60 @@ public final class NativeClass implements ClassValue {
         private final Map<String, Value> statics = new LinkedHashMap<>();
         private final Map<String, FactoryEntry> factories = new LinkedHashMap<>();
         private final List<TraitValue> traits = new ArrayList<>();
+        private final Map<String, String> documentations = new LinkedHashMap<>();
         private NativeMethod init;
         private NativeClass parent;
         private Class<?> backing;
         private Signature header;
         private boolean wrapper;
+        private String documentation;
+        /** Член, объявленный последним: к нему относится следующий {@link #doc}. */
+        private String described;
+        private boolean anyDeclared;
 
         private Builder(String name) {
             this.name = requireName(name, "имя класса");
+        }
+
+        /**
+         * Описание словами — <b>того, что объявлено прямо перед ним</b>:
+         *
+         * <pre>{@code
+         * NativeClass.named("File")
+         *         .doc("файл на диске: чтение, запись, дозапись")
+         *         .field("path")
+         *         .method("read", Arity.exactly(0), body)
+         *         .doc("читает файл целиком в строку")
+         * }</pre>
+         *
+         * Первый {@code doc} в цепочке описывает сам класс: ни одного члена ещё
+         * не объявлено, описывать больше нечего. Правило то же, что у
+         * {@link Module.Builder#doc}, и по той же причине — фраза пишется рядом
+         * с тем, что она описывает, и второго списка описаний не заводится.
+         *
+         * @throws IllegalStateException если описывать нечего
+         */
+        public Builder doc(String text) {
+            Objects.requireNonNull(text, "text");
+            if (!anyDeclared) {
+                documentation = text;
+                return this;
+            }
+            if (described == null) {
+                throw new IllegalStateException("doc(): у класса '" + name + "' описывать нечего —"
+                        + " предыдущее звено цепочки члена не объявляет");
+            }
+            documentations.put(described, text);
+            return this;
+        }
+
+        /**
+         * Запоминает, к чему относится следующий {@link #doc}: {@code null} — звено
+         * члена не объявляет, и описывать после него нечего.
+         */
+        private void declares(String declaredName) {
+            described = declaredName;
+            anyDeclared = true;
         }
 
         /**
@@ -610,6 +679,7 @@ public final class NativeClass implements ClassValue {
          */
         public Builder field(String fieldName, Value defaultValue) {
             requireName(fieldName, "имя поля");
+            declares(fieldName);
             if (fields.stream().anyMatch(field -> field.name.equals(fieldName))) {
                 throw new IllegalArgumentException("поле '" + fieldName + "' класса '"
                         + name + "' уже объявлено");
@@ -646,6 +716,7 @@ public final class NativeClass implements ClassValue {
          */
         public Builder param(String paramName, Value defaultValue) {
             requireName(paramName, "имя параметра");
+            declares(paramName);
             if (fields.stream().anyMatch(field -> field.name.equals(paramName))) {
                 throw new IllegalArgumentException("поле '" + paramName + "' класса '"
                         + name + "' уже объявлено");
@@ -665,6 +736,7 @@ public final class NativeClass implements ClassValue {
          */
         public Builder init(NativeMethod body) {
             this.init = Objects.requireNonNull(body, "body");
+            declares(null);
             return this;
         }
 
@@ -741,6 +813,7 @@ public final class NativeClass implements ClassValue {
          */
         public Builder method(String methodName, Signature methodSignature, NativeMethod body) {
             requireName(methodName, "имя метода");
+            declares(methodName);
             Objects.requireNonNull(methodSignature, "signature");
             Objects.requireNonNull(body, "body");
             if (methods.put(methodName, new Entry(methodName, methodSignature, body)) != null) {
@@ -766,6 +839,7 @@ public final class NativeClass implements ClassValue {
         /** Фабрика с объявленными именами параметров: {@code File.temp(prefix: "wdl")}. */
         public Builder factory(String factoryName, Signature factorySignature, NativeFactory body) {
             requireName(factoryName, "имя фабрики");
+            declares(factoryName);
             Objects.requireNonNull(factorySignature, "signature");
             Objects.requireNonNull(body, "body");
             checkStaticFree(factoryName);
@@ -807,6 +881,7 @@ public final class NativeClass implements ClassValue {
          */
         public Builder members(MemberSource source) {
             Objects.requireNonNull(source, "source");
+            declares(null);
             source.contributeTo(this);
             return this;
         }
@@ -814,6 +889,7 @@ public final class NativeClass implements ClassValue {
         /** Свойство с чтением и записью: {@code window.title = "..."}. */
         public Builder property(String propertyName, NativeGetter getter, NativeSetter setter) {
             requireName(propertyName, "имя свойства");
+            declares(propertyName);
             Objects.requireNonNull(getter, "getter");
             // Ячейку имени свойство делит с полем и с методом. У класса на wdl первое
             // разрешает плоская таблица, второе ловит Linker; здесь оба случая видно
@@ -833,6 +909,7 @@ public final class NativeClass implements ClassValue {
         /** Поле самого класса: {@code File.SEPARATOR}. */
         public Builder constant(String constantName, Value value) {
             requireName(constantName, "имя поля класса");
+            declares(constantName);
             Objects.requireNonNull(value, "value");
             checkStaticFree(constantName);
             statics.put(constantName, value);

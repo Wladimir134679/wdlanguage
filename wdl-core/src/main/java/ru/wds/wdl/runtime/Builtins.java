@@ -5,6 +5,7 @@ import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.Member;
 import ru.wds.wdl.value.FunctionValue;
+import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.Value;
 
@@ -41,20 +42,21 @@ public final class Builtins {
         scope.define("println", BuiltinFunction.of("println", Arity.any(), (context, arguments, span) -> {
             context.write(join(arguments) + System.lineSeparator());
             return NullValue.NULL;
-        }));
+        }).documented("печатает аргументы подряд и переводит строку; разделителей не ставит"));
 
         scope.define("print", BuiltinFunction.of("print", Arity.any(), (context, arguments, span) -> {
             context.write(join(arguments));
             return NullValue.NULL;
-        }));
+        }).documented("печатает аргументы подряд, без перевода строки"));
 
         // typeof и len — минимум, без которого динамический язык неудобно отлаживать.
         // typeof возвращает не строку, а дескриптор типа (Types.of) — тот же самый
         // объект, что лежит в переменной 'Number', 'String' и так далее. Это открывает
         // 'typeof(x) == Number' и 'typeof(x) == typeof(y)' и не требует ни разбора
         // строки, ни второй функции рядом: одно понятие — одно имя.
-        scope.define("typeof", BuiltinFunction.of("typeof", Arity.exactly(1),
-                (context, arguments, span) -> Types.of(arguments.get(0))));
+        scope.define("typeof", BuiltinFunction.of("typeof", Signature.of(Signature.Param.required("value")),
+                (context, arguments, span) -> Types.of(arguments.get(0)))
+                .documented("дескриптор типа значения: typeof(x) == Number"));
 
         // Дескрипторы типов — обычными именами корневой области, как println
         // и классы прелюдии: пространство имён одно, и скрипт вправе их перекрыть.
@@ -64,33 +66,36 @@ public final class Builtins {
             scope.define(descriptor.name(), descriptor);
         }
 
-        scope.define("len", BuiltinFunction.of("len", Arity.exactly(1), (context, arguments, span) -> {
-            Value value = arguments.get(0);
-            // Ответ берётся из таблицы типа напрямую, а не обращением по ключу:
-            // len({size: "L"}) обязан вернуть 1, а не "L". Встроенная функция
-            // не должна ломаться от чужого ключа — поэтому данные здесь не при чём.
-            // Отсюда же и то, что len(x) с x.size разойтись не могут: член один.
-            Member size = BuiltinMembers.of(value.type()).get("size");
-            if (size == null || size.property() == null) {
-                throw new WdlRuntimeError(ErrorKind.TYPE, span,
-                        "len() работает со строкой, массивом или объектом, а здесь " + value.type().title());
-            }
-            return size.property().read(value, context, span);
-        }));
+        scope.define("len", BuiltinFunction.of("len",
+                Signature.of(Signature.Param.required("value")), (context, arguments, span) -> {
+                    Value value = arguments.get(0);
+                    // Ответ берётся из таблицы типа напрямую, а не обращением по ключу:
+                    // len({size: "L"}) обязан вернуть 1, а не "L". Встроенная функция
+                    // не должна ломаться от чужого ключа — поэтому данные здесь не при чём.
+                    // Отсюда же и то, что len(x) с x.size разойтись не могут: член один.
+                    Member size = BuiltinMembers.of(value.type()).get("size");
+                    if (size == null || size.property() == null) {
+                        throw new WdlRuntimeError(ErrorKind.TYPE, span, "len() работает со строкой,"
+                                + " массивом или объектом, а здесь " + value.type().title());
+                    }
+                    return size.property().read(value, context, span);
+                }).documented("длина строки, массива или объекта — то же, что x.size"));
 
         // like — единственная встроенная, существующая ради сообщений об ошибках:
         // без неё декоратор молча съедает проверку числа аргументов. См. LikeFunction.
-        scope.define("like", BuiltinFunction.of("like", Arity.exactly(2), (context, arguments, span) -> {
-            if (!(arguments.get(0) instanceof FunctionValue target)) {
-                throw new WdlRuntimeError(ErrorKind.TYPE, span, "like(): первым аргументом идёт"
-                        + " цель — функция, а здесь " + arguments.get(0).type().title());
-            }
-            if (!(arguments.get(1) instanceof FunctionValue wrapper)) {
-                throw new WdlRuntimeError(ErrorKind.TYPE, span, "like(): вторым аргументом идёт"
-                        + " обёртка — функция, а здесь " + arguments.get(1).type().title());
-            }
-            return LikeFunction.of(target, wrapper, span);
-        }));
+        scope.define("like", BuiltinFunction.of("like",
+                Signature.of(Signature.Param.required("target"), Signature.Param.required("wrapper")),
+                (context, arguments, span) -> {
+                    if (!(arguments.get(0) instanceof FunctionValue target)) {
+                        throw new WdlRuntimeError(ErrorKind.TYPE, span, "like(): первым аргументом"
+                                + " идёт цель — функция, а здесь " + arguments.get(0).type().title());
+                    }
+                    if (!(arguments.get(1) instanceof FunctionValue wrapper)) {
+                        throw new WdlRuntimeError(ErrorKind.TYPE, span, "like(): вторым аргументом"
+                                + " идёт обёртка — функция, а здесь " + arguments.get(1).type().title());
+                    }
+                    return LikeFunction.of(target, wrapper, span);
+                }).documented("обёртка, притворяющаяся целью: сохраняет её имя и число аргументов"));
 
         return scope;
     }

@@ -49,6 +49,9 @@ final class Files {
     /** Класс {@code File}: собирается на запуск, ставится модулем. */
     static NativeClass build() {
         return NativeClass.named("File")
+            // Класс кладут в область два модуля (std и sys.io), поэтому описан он
+            // здесь, у своего построителя: одно объявление — одно описание.
+            .doc("файл на диске: чтение, запись, дозапись по одному пути")
             .field("path")
 
             .init((self, context, arguments, span) -> {

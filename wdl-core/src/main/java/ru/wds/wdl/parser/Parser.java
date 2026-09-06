@@ -215,7 +215,9 @@ public final class Parser {
                     + "инструкцией может быть вызов функции или присваивание");
         }
         cursor.synchronize();
-        return new ErrorStmt(expr.span());
+        // Выражение уходит в заглушку, а не в мусор: 'obj.' инструкцией не стало,
+        // но дополнению после точки нужен именно этот разобранный получатель.
+        return new ErrorStmt(expr.span(), expr);
     }
 
     /**
@@ -1368,7 +1370,7 @@ public final class Parser {
      */
     private Stmt matchStatement() {
         Expr expr = matchExpression(false);
-        return expr instanceof ErrorExpr ? new ErrorStmt(expr.span()) : new ExprStmt(expr, expr.span());
+        return expr instanceof ErrorExpr ? new ErrorStmt(expr.span(), expr) : new ExprStmt(expr, expr.span());
     }
 
     /**

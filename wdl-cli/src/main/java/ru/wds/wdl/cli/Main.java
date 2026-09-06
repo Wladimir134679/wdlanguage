@@ -25,11 +25,20 @@ import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.runtime.WdlError;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Source;
+import ru.wds.wdl.stdlib.JsonWriter;
 import ru.wds.wdl.stdlib.Std;
 import ru.wds.wdl.stdlib.Sys;
 import ru.wds.wdl.tools.AstDumper;
+import ru.wds.wdl.tools.catalog.Catalog;
+import ru.wds.wdl.tools.catalog.Catalogs;
+import ru.wds.wdl.tools.catalog.ModuleDescriptor;
+import ru.wds.wdl.tools.catalog.Origin;
+import ru.wds.wdl.tools.catalog.SymbolDescriptor;
 import ru.wds.wdl.tools.TokenDumper;
+import ru.wds.wdl.value.types.ArrayValue;
+import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.types.NullValue;
+import ru.wds.wdl.value.types.StringValue;
 import ru.wds.wdl.value.Value;
 
 import java.io.BufferedReader;
@@ -46,6 +55,7 @@ import java.nio.charset.UnsupportedCharsetException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Callable;
@@ -122,6 +132,13 @@ public final class Main implements Callable<Integer> {
     @Option(names = {"--debug"}, description = "Показывать Java-стек у ошибок из библиотек")
     private boolean showJavaTrace;
 
+    @Option(names = {"--catalog"},
+            description = "Показать имена, доступные скриптам: встроенные, std и модули sys.*")
+    private boolean showCatalog;
+
+    @Option(names = {"--json"}, description = "Машинный вывод (пока только для --catalog)")
+    private boolean asJson;
+
     @Parameters(index = "0", arity = "0..1", paramLabel = "<файл>", description = "Файл скрипта .wdl для выполнения")
     private Path scriptFile;
 
@@ -142,6 +159,16 @@ public final class Main implements Callable<Integer> {
     public Integer call() {
         if (repl) {
             return repl(showJavaTrace);
+        }
+
+        if (showCatalog) {
+            return printCatalog();
+        }
+
+        if (asJson) {
+            // '--json' сам по себе ничего не выводит: это форма ответа, а не вопрос.
+            System.err.println("Ошибка: флаг --json работает вместе с --catalog.");
+            return EXIT_USAGE_ERROR;
         }
 
         if (showTrivia && !showTokens) {
@@ -356,7 +383,8 @@ public final class Main implements Callable<Integer> {
      * Интерактивный режим: строка — выражение — значение.
      */
     private static int repl(boolean withJavaTrace) {
-        System.out.println("wdl " + version() + " — интерактивный режим. Выход: :q или Ctrl+D.");
+        System.out.println("wdl " + version()
+                + " — интерактивный режим. Имена: :names [начало]. Выход: :q или Ctrl+D.");
         Interpreter interpreter = new Interpreter();
         // У строки, набранной в REPL, файла нет, поэтому и каталога у неё нет:
         // импорты считаются от рабочей директории процесса. Реестр один на сеанс —
@@ -384,8 +412,40 @@ public final class Main implements Callable<Integer> {
             if (line.isBlank()) {
                 continue;
             }
+            if (line.trim().equals(":names") || line.trim().startsWith(":names ")) {
+                printNames(context, line.trim().substring(":names".length()).trim());
+                continue;
+            }
             evaluateLine(line, interpreter, context, withJavaTrace);
         }
+    }
+
+    /**
+     * Имена, видимые сейчас: встроенные, библиотечные и заведённые самим сеансом.
+     * <p>
+     * Каталог снимается с <b>живой</b> области запуска, поэтому функция, объявленная
+     * строкой выше, попадает в список сама — второго учёта имён REPL не ведёт.
+     * Настоящее дополнение по Tab требует библиотеки строкового ввода
+     * ({@code BufferedReader} редактировать строку не умеет); ответ на тот же вопрос
+     * это даёт уже сейчас.
+     */
+    private static void printNames(ExecutionContext context, String prefix) {
+        Catalog visible = Catalogs.of(context.scope(), Origin.LIBRARY);
+        StringBuilder out = new StringBuilder(1024);
+        int shown = 0;
+        for (SymbolDescriptor descriptor : visible.roots()) {
+            if (!prefix.isEmpty() && !descriptor.name().startsWith(prefix)) {
+                continue;
+            }
+            SymbolDescriptor known = Catalogs.builtins().root(descriptor.name());
+            appendName(out, "  ", known != null ? known : descriptor);
+            shown++;
+        }
+        if (shown == 0) {
+            out.append("  (ничего с таким началом)").append(System.lineSeparator());
+        }
+        System.out.print(out);
+        System.out.flush();
     }
 
     /**
@@ -434,6 +494,113 @@ public final class Main implements Callable<Integer> {
      * что положить скрипту в область видимости — дело приложения, и {@code std}
      * тут ничем не привилегированнее любой другой библиотеки.
      */
+    /**
+     * Печатает то, что доступно скриптам в этой сборке консоли: встроенное языка,
+     * имена {@code std} и состав встроенных модулей.
+     * <p>
+     * Каталог здесь <b>снимается с той же конфигурации, которую собирает запуск</b>
+     * ({@link #standardContext()}), а не пишется рядом с ней: разойтись со списком
+     * имён, который получит скрипт, он поэтому не может. Это же и первый машинный
+     * ответ на вопрос «что вообще есть в sys.io», которого до сих пор не было нигде,
+     * кроме документации.
+     */
+    private int printCatalog() {
+        ExecutionContext context = standardContext();
+        Catalog roots;
+        try {
+            roots = Catalogs.of(context.scope(), Origin.LIBRARY);
+        } finally {
+            context.shutdownModules();
+            context.closeRun();
+        }
+        Catalog modules = Catalogs.ofModules(Sys.registry());
+        List<SymbolDescriptor> builtin = new ArrayList<>();
+        List<SymbolDescriptor> library = new ArrayList<>();
+        for (SymbolDescriptor descriptor : roots.roots()) {
+            // Встроенное языка отделяется от библиотеки тем же снимком языка,
+            // а не списком имён: список разошёлся бы с Builtins на первой же правке.
+            // Оттуда же берётся и сам дескриптор — с честным происхождением.
+            SymbolDescriptor known = Catalogs.builtins().root(descriptor.name());
+            if (known != null) {
+                builtin.add(known);
+            } else {
+                library.add(descriptor);
+            }
+        }
+        System.out.print(asJson
+                ? renderCatalogAsJson(builtin, library, modules)
+                : renderCatalog(builtin, library, modules));
+        System.out.flush();
+        return 0;
+    }
+
+    private static String renderCatalog(List<SymbolDescriptor> builtin,
+                                        List<SymbolDescriptor> library, Catalog modules) {
+        StringBuilder out = new StringBuilder(4096);
+        out.append("Встроенное в язык (").append(builtin.size()).append("):\n");
+        builtin.forEach(descriptor -> appendName(out, "  ", descriptor));
+        out.append("\nБиблиотека std (").append(library.size()).append("):\n");
+        library.forEach(descriptor -> appendName(out, "  ", descriptor));
+        out.append("\nВстроенные модули:\n");
+        for (String key : modules.moduleKeys()) {
+            ModuleDescriptor module = modules.module(key);
+            out.append("  ").append(key);
+            if (module.hasDocumentation()) {
+                out.append(" — ").append(module.documentation());
+            }
+            out.append('\n');
+            module.names().forEach(descriptor -> appendName(out, "    ", descriptor));
+        }
+        return out.toString();
+    }
+
+    private static void appendName(StringBuilder out, String indent, SymbolDescriptor descriptor) {
+        out.append(indent).append(descriptor.signature());
+        if (descriptor.hasDocumentation()) {
+            int width = Math.max(1, 44 - indent.length() - descriptor.signature().length());
+            out.append(" ".repeat(width)).append("— ").append(descriptor.documentation());
+        }
+        out.append('\n');
+    }
+
+    /** Тот же каталог машине: пишется тем же JsonWriter, что и sys.json. */
+    private static String renderCatalogAsJson(List<SymbolDescriptor> builtin,
+                                              List<SymbolDescriptor> library, Catalog modules) {
+        MapValue root = new MapValue();
+        root.put("builtins", namesAsJson(builtin));
+        root.put("library", namesAsJson(library));
+        List<Value> described = new ArrayList<>();
+        for (String key : modules.moduleKeys()) {
+            ModuleDescriptor module = modules.module(key);
+            MapValue entry = new MapValue();
+            entry.put("key", StringValue.of(module.key()));
+            entry.put("name", StringValue.of(module.name()));
+            entry.put("documentation", text(module.documentation()));
+            entry.put("names", namesAsJson(module.names()));
+            described.add(entry);
+        }
+        root.put("modules", ArrayValue.of(described));
+        return JsonWriter.stringify(root, 2) + System.lineSeparator();
+    }
+
+    private static ArrayValue namesAsJson(List<SymbolDescriptor> names) {
+        List<Value> items = new ArrayList<>(names.size());
+        for (SymbolDescriptor descriptor : names) {
+            MapValue entry = new MapValue();
+            entry.put("name", StringValue.of(descriptor.name()));
+            entry.put("kind", StringValue.of(descriptor.kind().name().toLowerCase(Locale.ROOT)));
+            entry.put("signature", StringValue.of(descriptor.signature()));
+            entry.put("documentation", text(descriptor.documentation()));
+            entry.put("origin", StringValue.of(descriptor.origin().name().toLowerCase(Locale.ROOT)));
+            items.add(entry);
+        }
+        return ArrayValue.of(items);
+    }
+
+    private static Value text(String value) {
+        return value == null ? NullValue.NULL : StringValue.of(value);
+    }
+
     private static ExecutionContext standardContext() {
         ExecutionContext context = ExecutionContext.fresh(Output.standard());
         Std.install(context.scope());

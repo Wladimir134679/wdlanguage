@@ -7,8 +7,9 @@ import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
-import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.NumberValue;
+import ru.wds.wdl.value.Signature;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.FloatValue;
 import ru.wds.wdl.value.types.IntValue;
@@ -39,6 +40,7 @@ public final class Std {
      */
     public static Library library() {
         return Module.named("std")
+                .doc("математика и базовые классы: File, Random, pow, sqrt, abs")
                 // Классы модуль берёт у области: если они там уже есть (скажем,
                 // 'import std as s' после установки в корень), это те же самые
                 // классы, и 'f is File' не врёт.
@@ -49,37 +51,44 @@ public final class Std {
                 // ни в установке разницы нет и быть не должно.
                 .type("File", scope -> Files.build())
                 .type("Random", scope -> Randoms.build())
+                .doc("генератор случайных чисел; с seed повторяет свою последовательность")
 
                 // Математика: целое остаётся целым там, где это точно —
                 // pow(2, 10) это 1024, а не 1024.0. Правило то же, что у арифметики
                 // языка, и по той же причине: скрипт не должен знать, что внутри
                 // long, а что double.
-                .function("pow", Arity.exactly(2), (context, arguments, span) -> {
-                    NumberValue base = arguments.number(0, "основание");
-                    NumberValue exponent = arguments.number(1, "показатель");
-                    return power(base, exponent, span);
-                })
+                .function("pow", Signature.of(Param.required("base"), Param.required("exponent")),
+                        (context, arguments, span) -> {
+                            NumberValue base = arguments.number(0, "основание");
+                            NumberValue exponent = arguments.number(1, "показатель");
+                            return power(base, exponent, span);
+                        })
+                .doc("возведение в степень; целое в целой степени остаётся целым")
 
-                .function("sqrt", Arity.exactly(1), (context, arguments, span) -> {
-                    double value = arguments.real(0, "аргумент");
-                    if (value < 0) {
-                        throw arguments.bad(0, "аргумент", "ожидалось неотрицательное число");
-                    }
-                    return FloatValue.of(Math.sqrt(value));
-                })
+                .function("sqrt", Signature.of(Param.required("value")),
+                        (context, arguments, span) -> {
+                            double value = arguments.real(0, "аргумент");
+                            if (value < 0) {
+                                throw arguments.bad(0, "аргумент", "ожидалось неотрицательное число");
+                            }
+                            return FloatValue.of(Math.sqrt(value));
+                        })
+                .doc("квадратный корень; отрицательный аргумент — ошибка, а не NaN")
 
-                .function("abs", Arity.exactly(1), (context, arguments, span) -> {
-                    NumberValue value = arguments.number(0, "аргумент");
-                    if (!value.isInteger()) {
-                        return FloatValue.of(Math.abs(value.asDouble()));
-                    }
-                    long number = value.asLong();
-                    // Long.MIN_VALUE по модулю в long не влезает — тот же случай, что
-                    // и переполнение в арифметике языка, и решается так же.
-                    return number == Long.MIN_VALUE
-                            ? FloatValue.of(Math.abs((double) number))
-                            : IntValue.of(Math.abs(number));
-                })
+                .function("abs", Signature.of(Param.required("value")),
+                        (context, arguments, span) -> {
+                            NumberValue value = arguments.number(0, "аргумент");
+                            if (!value.isInteger()) {
+                                return FloatValue.of(Math.abs(value.asDouble()));
+                            }
+                            long number = value.asLong();
+                            // Long.MIN_VALUE по модулю в long не влезает — тот же случай,
+                            // что и переполнение в арифметике языка, и решается так же.
+                            return number == Long.MIN_VALUE
+                                    ? FloatValue.of(Math.abs((double) number))
+                                    : IntValue.of(Math.abs(number));
+                        })
+                .doc("модуль числа")
 
                 .build();
     }

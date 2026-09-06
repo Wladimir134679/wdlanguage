@@ -23,7 +23,7 @@ import java.util.Objects;
  * Тело задаётся лямбдой, состояния у функции нет: всё нужное приходит в
  * {@link CallContext}. Один экземпляр спокойно живёт в нескольких интерпретаторах.
  */
-public final class BuiltinFunction implements FunctionValue {
+public final class BuiltinFunction implements FunctionValue, ru.wds.wdl.value.Documented {
 
     /**
      * Реализация встроенной функции. Число аргументов уже проверено.
@@ -40,11 +40,14 @@ public final class BuiltinFunction implements FunctionValue {
     private final String name;
     private final Signature signature;
     private final Body body;
+    /** Описание для подсказки редактора; выполнение его не читает никогда. */
+    private final String documentation;
 
-    private BuiltinFunction(String name, Signature signature, Body body) {
+    private BuiltinFunction(String name, Signature signature, Body body, String documentation) {
         this.name = Objects.requireNonNull(name, "name");
         this.signature = Objects.requireNonNull(signature, "signature");
         this.body = Objects.requireNonNull(body, "body");
+        this.documentation = documentation;
     }
 
     /**
@@ -54,7 +57,7 @@ public final class BuiltinFunction implements FunctionValue {
      * {@code println} с любым числом аргументов имён нет и быть не может.
      */
     public static BuiltinFunction of(String name, Arity arity, Body body) {
-        return new BuiltinFunction(name, Signature.positional(arity), body);
+        return new BuiltinFunction(name, Signature.positional(arity), body, null);
     }
 
     /**
@@ -65,7 +68,25 @@ public final class BuiltinFunction implements FunctionValue {
      * Ему не нужно знать, что вызов был именованным.
      */
     public static BuiltinFunction of(String name, Signature signature, Body body) {
-        return new BuiltinFunction(name, signature, body);
+        return new BuiltinFunction(name, signature, body, null);
+    }
+
+    /**
+     * Та же функция с описанием для подсказки.
+     * <p>
+     * Копией, а не полем в фабрике: описание приходит из построителя модуля позже,
+     * чем тело, — {@code .function(...)} и {@code .doc(...)} стоят разными звеньями
+     * цепочки. Функция неизменяема, копия дёшева и делается один раз на установку.
+     */
+    public BuiltinFunction documented(String text) {
+        return text == null || text.isBlank()
+                ? this
+                : new BuiltinFunction(name, signature, body, text);
+    }
+
+    @Override
+    public String documentation() {
+        return documentation;
     }
 
     @Override
