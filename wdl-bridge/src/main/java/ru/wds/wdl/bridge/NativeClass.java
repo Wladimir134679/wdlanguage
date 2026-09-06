@@ -103,6 +103,10 @@ public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documente
     private final Map<String, Entry> methods;
     /** Свойства: родительские, затем свои — тем же правилом, что методы. */
     private final Map<String, NativeProperty> properties;
+    /** Декларативные результаты экземплярных членов, только для инструментов. */
+    private final Map<String, String> methodResults;
+    /** Декларативные результаты фабрик и других членов объекта класса. */
+    private final Map<String, String> staticResults;
     private final List<TraitValue> traits;
     /** Поля, пришедшие от трейтов готовыми значениями: пишутся до своих. */
     private final Map<String, Value> traitFields;
@@ -133,6 +137,13 @@ public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documente
         this.parent = builder.parent;
         this.fields = List.copyOf(allFields);
         this.methods = Collections.unmodifiableMap(new LinkedHashMap<>(allMethods));
+        Map<String, String> inheritedResults = new LinkedHashMap<>();
+        if (parent != null) {
+            inheritedResults.putAll(parent.methodResults);
+        }
+        inheritedResults.putAll(builder.methodResults);
+        this.methodResults = Collections.unmodifiableMap(inheritedResults);
+        this.staticResults = Collections.unmodifiableMap(new LinkedHashMap<>(builder.staticResults));
         this.traits = List.copyOf(builder.allTraits());
         this.backing = builder.backing;
         this.wrapper = builder.wrapper;
@@ -335,6 +346,16 @@ public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documente
     }
 
     @Override
+    public String methodResultClass(String name) {
+        return methodResults.get(name);
+    }
+
+    @Override
+    public String staticResultClass(String name) {
+        return staticResults.get(name);
+    }
+
+    @Override
     public List<String> fieldNames() {
         // Только хранимые: параметр без поля (см. Field#stored) в объекте не лежит,
         // и распаковка по позициям взяла бы у него пустоту вместо значения.
@@ -533,6 +554,8 @@ public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documente
         private final Map<String, FactoryEntry> factories = new LinkedHashMap<>();
         private final List<TraitValue> traits = new ArrayList<>();
         private final Map<String, String> documentations = new LinkedHashMap<>();
+        private final Map<String, String> methodResults = new LinkedHashMap<>();
+        private final Map<String, String> staticResults = new LinkedHashMap<>();
         private NativeMethod init;
         private NativeClass parent;
         private Class<?> backing;
@@ -541,6 +564,9 @@ public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documente
         private String documentation;
         /** Член, объявленный последним: к нему относится следующий {@link #doc}. */
         private String described;
+        /** Последний член, которому разрешено назначить return shape. */
+        private String resultMember;
+        private boolean resultIsStatic;
         private boolean anyDeclared;
 
         private Builder(String name) {
@@ -585,7 +611,32 @@ public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documente
          */
         private void declares(String declaredName) {
             described = declaredName;
+            resultMember = null;
             anyDeclared = true;
+        }
+
+        /**
+         * Указывает класс результата предыдущего метода, фабрики или свойства.
+         * Это метаданные completion, а не вызов и не Java-reflection.
+         */
+        public Builder returns(ClassValue result) {
+            Objects.requireNonNull(result, "result");
+            if (resultMember == null) {
+                throw new IllegalStateException("returns(): у класса '" + name
+                        + "' предыдущим звеном не объявлен вызываемый член");
+            }
+            (resultIsStatic ? staticResults : methodResults).put(resultMember, result.name());
+            return this;
+        }
+
+        /** Результат — экземпляр строящегося класса; обычно это фабрика. */
+        public Builder returnsSelf() {
+            if (resultMember == null) {
+                throw new IllegalStateException("returnsSelf(): у класса '" + name
+                        + "' предыдущим звеном не объявлен вызываемый член");
+            }
+            (resultIsStatic ? staticResults : methodResults).put(resultMember, name);
+            return this;
         }
 
         /**
@@ -820,6 +871,8 @@ public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documente
                 throw new IllegalArgumentException("метод '" + methodName + "' класса '"
                         + name + "' уже объявлен");
             }
+            resultMember = methodName;
+            resultIsStatic = false;
             return this;
         }
 
@@ -844,6 +897,8 @@ public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documente
             Objects.requireNonNull(body, "body");
             checkStaticFree(factoryName);
             factories.put(factoryName, new FactoryEntry(factoryName, factorySignature, body));
+            resultMember = factoryName;
+            resultIsStatic = true;
             return this;
         }
 
@@ -903,6 +958,8 @@ public final class NativeClass implements ClassValue, ru.wds.wdl.value.Documente
                         + "' уже занято методом: свойство даёт значение, метод — функцию");
             }
             properties.put(propertyName, new NativeProperty(propertyName, getter, setter, name));
+            resultMember = propertyName;
+            resultIsStatic = false;
             return this;
         }
 

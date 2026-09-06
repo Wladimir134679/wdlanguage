@@ -11,7 +11,10 @@ import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.SemanticTokens;
 import org.eclipse.lsp4j.SemanticTokensLegend;
+import org.eclipse.lsp4j.SignatureHelp;
+import org.eclipse.lsp4j.SignatureInformation;
 import org.eclipse.lsp4j.SymbolKind;
+import org.eclipse.lsp4j.SymbolInformation;
 import ru.wds.wdl.diagnostic.DiagnosticCode;
 import ru.wds.wdl.diagnostic.Severity;
 import ru.wds.wdl.source.Source;
@@ -19,8 +22,10 @@ import ru.wds.wdl.source.Span;
 import ru.wds.wdl.tools.catalog.Suggestion;
 import ru.wds.wdl.tools.service.HighlightToken;
 import ru.wds.wdl.tools.service.Hover;
+import ru.wds.wdl.tools.service.CallSignature;
 import ru.wds.wdl.tools.service.Outline;
 import ru.wds.wdl.tools.service.TokenStyle;
+import ru.wds.wdl.tools.service.WorkspaceSymbol;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -142,8 +147,21 @@ final class Protocol {
                 range(source, hover.span()));
     }
 
+    static SignatureHelp signature(CallSignature signature) {
+        SignatureInformation information = new SignatureInformation(signature.label());
+        if (signature.documentation() != null && !signature.documentation().isBlank()) {
+            information.setDocumentation(signature.documentation());
+        }
+        return new SignatureHelp(List.of(information), 0, signature.activeParameter());
+    }
+
     static Location location(String uri, Source source, Span span) {
         return new Location(uri, range(source, span));
+    }
+
+    static SymbolInformation workspaceSymbol(Source source, WorkspaceSymbol symbol) {
+        return new SymbolInformation(symbol.name(), symbolKind(symbol.kind()),
+                location(symbol.document().uri(), source, symbol.span()), symbol.container());
     }
 
     static DocumentSymbol documentSymbol(Source source, Outline outline) {

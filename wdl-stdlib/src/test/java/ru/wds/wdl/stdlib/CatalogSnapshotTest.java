@@ -83,6 +83,11 @@ class CatalogSnapshotTest {
         MemberDescriptor read = file.member("read");
         assertNotNull(read, "члены класса перечисляются вместе с ним: " + file.members());
         assertEquals(MemberDescriptor.Kind.METHOD, read.kind());
+
+        MemberDescriptor temp = file.staticMember("temp");
+        assertNotNull(temp, "фабрики живут на самом классе, а не на экземпляре");
+        assertEquals(MemberDescriptor.Kind.METHOD, temp.kind());
+        assertTrue(file.members().stream().noneMatch(member -> member.name().equals("temp")));
     }
 
     @Test

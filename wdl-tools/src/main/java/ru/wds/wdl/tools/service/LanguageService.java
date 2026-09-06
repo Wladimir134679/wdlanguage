@@ -9,7 +9,10 @@ import ru.wds.wdl.tools.analysis.Symbol;
 import ru.wds.wdl.tools.catalog.Catalog;
 import ru.wds.wdl.tools.catalog.Lookup;
 import ru.wds.wdl.tools.catalog.Suggestion;
+import ru.wds.wdl.tools.workspace.WorkspaceIndex;
+import ru.wds.wdl.source.Source;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -45,6 +48,7 @@ public final class LanguageService {
 
     private final DocumentStore documents = new DocumentStore();
     private final Catalog catalog;
+    private final WorkspaceIndex workspace = new WorkspaceIndex();
 
     private LanguageService(Catalog catalog) {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
@@ -67,19 +71,40 @@ public final class LanguageService {
         return catalog;
     }
 
+    /** Настраивает безопасный индекс .wdl-файлов; открытые буферы автоматически сильнее диска. */
+    public void configureWorkspace(Collection<Path> sourceRoots) {
+        workspace.configure(sourceRoots);
+        for (DocumentId id : documents.ids()) {
+            Document document = documents.get(id);
+            if (document != null) {
+                workspace.openOrChange(document);
+            }
+        }
+    }
+
+    public WorkspaceIndex workspace() {
+        return workspace;
+    }
+
     // --- документы ----------------------------------------------------------
 
     public Document open(DocumentId id, long version, String text) {
-        return documents.open(id, version, text);
+        Document document = documents.open(id, version, text);
+        workspace.openOrChange(document);
+        return document;
     }
 
     /** Правка. Устаревшая отбрасывается — см. {@link DocumentStore#change}. */
     public Document change(DocumentId id, long version, String text) {
-        return documents.change(id, version, text);
+        Document document = documents.change(id, version, text);
+        workspace.openOrChange(document);
+        return document;
     }
 
     public Document close(DocumentId id) {
-        return documents.close(id);
+        Document document = documents.close(id);
+        workspace.close(id);
+        return document;
     }
 
     /** Открытый документ или {@code null}. */
@@ -105,7 +130,12 @@ public final class LanguageService {
     /** Ошибки и предупреждения разбора. Для закрытого документа — пустой список. */
     public List<Diagnostic> diagnostics(DocumentId id) {
         Document document = documents.get(id);
-        return document == null ? List.of() : document.analysis().diagnostics().all();
+        if (document == null) {
+            return List.of();
+        }
+        List<Diagnostic> found = new ArrayList<>(document.analysis().diagnostics().all());
+        found.addAll(workspace.diagnostics(id, catalog));
+        return List.copyOf(found);
     }
 
     /**
@@ -123,7 +153,7 @@ public final class LanguageService {
         if (document == null) {
             return null;
         }
-        Suggestion described = Lookup.of(document.analysis(), catalog).describeAt(offset);
+        Suggestion described = Lookup.of(document.analysis(), effectiveCatalog()).describeAt(offset);
         return described == null ? null : new Hover(described.signature(),
                 described.documentation(), described.kind(), described.origin(),
                 nameSpanAt(document.analysis(), offset));
@@ -142,7 +172,10 @@ public final class LanguageService {
             return null;
         }
         Symbol symbol = document.analysis().resolve(offset).orElse(null);
-        return symbol == null ? null : new Location(id, symbol.nameSpan());
+        if (symbol != null) {
+            return new Location(id, symbol.nameSpan());
+        }
+        return workspace.definition(id, document.analysis(), effectiveCatalog(), offset);
     }
 
     /**
@@ -155,24 +188,38 @@ public final class LanguageService {
             return List.of();
         }
         Symbol symbol = document.analysis().resolve(offset).orElse(null);
-        if (symbol == null) {
-            return List.of();
-        }
         List<Location> found = new ArrayList<>();
-        if (includeDeclaration && !symbol.nameSpan().isNone()) {
-            found.add(new Location(id, symbol.nameSpan()));
-        }
-        for (Span usage : document.analysis().usages(symbol)) {
-            // Присваивание, заведшее имя, — одновременно объявление и употребление:
-            // 'price = 120' и объявляет, и пишет. Показывать его дважды нельзя,
-            // а прятать при includeDeclaration = false — обязательно: спрашивали
-            // именно «где ещё», а это то самое место.
-            if (!usage.equals(symbol.nameSpan())) {
-                found.add(new Location(id, usage));
+        if (symbol != null) {
+            if (includeDeclaration && !symbol.nameSpan().isNone()) {
+                found.add(new Location(id, symbol.nameSpan()));
+            }
+            for (Span usage : document.analysis().usages(symbol)) {
+                // Присваивание, заведшее имя, — одновременно объявление и употребление:
+                // 'price = 120' и объявляет, и пишет. Показывать его дважды нельзя,
+                // а прятать при includeDeclaration = false — обязательно: спрашивали
+                // именно «где ещё», а это то самое место.
+                if (!usage.equals(symbol.nameSpan())) {
+                    found.add(new Location(id, usage));
+                }
+            }
+            found.addAll(workspace.references(id, symbol, includeDeclaration, effectiveCatalog()));
+        } else {
+            Location definition = workspace.definition(id, document.analysis(), effectiveCatalog(), offset);
+            if (definition == null) {
+                return List.of();
+            }
+            Document target = documents.get(definition.document());
+            FileAnalysis targetAnalysis = target == null ? workspace.analysis(definition.document())
+                    : target.analysis();
+            Symbol exported = targetAnalysis == null ? null
+                    : targetAnalysis.resolve(definition.span().start()).orElse(null);
+            if (exported != null) {
+                found.addAll(workspace.references(definition.document(), exported, includeDeclaration,
+                        effectiveCatalog()));
             }
         }
-        found.sort(Comparator.comparingInt(location -> location.span().start()));
-        return List.copyOf(found);
+        return found.stream().distinct().sorted(Comparator.comparing((Location location) ->
+                location.document().uri()).thenComparingInt(location -> location.span().start())).toList();
     }
 
     /** Состав файла деревом. */
@@ -184,13 +231,38 @@ public final class LanguageService {
     /** Окрашенные куски текста слева направо. */
     public List<HighlightToken> highlight(DocumentId id) {
         Document document = documents.get(id);
-        return document == null ? List.of() : Highlights.of(document.analysis(), catalog);
+        return document == null ? List.of() : Highlights.of(document.analysis(), effectiveCatalog());
     }
 
     /** Файл плюс каталог одним объектом — для вопросов, которых здесь нет. */
     public Lookup lookup(DocumentId id) {
         Document document = documents.get(id);
-        return document == null ? null : Lookup.of(document.analysis(), catalog);
+        return document == null ? null : Lookup.of(document.analysis(), effectiveCatalog());
+    }
+
+    /** Сигнатура функции или метода под курсором; неизвестный динамический вызов молчит. */
+    public CallSignature signatureHelp(DocumentId id, int offset) {
+        Lookup lookup = lookup(id);
+        if (lookup == null) {
+            return null;
+        }
+        Suggestion suggestion = lookup.callAt(offset);
+        return suggestion == null || !suggestion.kind().isCallable() ? null
+                : new CallSignature(suggestion.signature(), suggestion.documentation(), 0);
+    }
+
+    /** Текст открытого или проиндексированного файла: нужен LSP для чужого URI. */
+    public Source source(DocumentId id) {
+        Document document = documents.get(id);
+        return document != null ? document.source() : workspace.source(id);
+    }
+
+    public List<WorkspaceSymbol> workspaceSymbols(String query) {
+        return workspace.symbols(query);
+    }
+
+    private Catalog effectiveCatalog() {
+        return Catalog.merged(workspace.catalog(), catalog);
     }
 
     /**

@@ -22,11 +22,13 @@ import java.util.Objects;
  * @param signature     краткая запись для подсказки: {@code pow(a, b)}, {@code class File(path)}
  * @param documentation описание, объявленное рядом с именем, или {@code null}
  * @param origin        откуда имя взялось
- * @param members       члены, если это класс или трейт; иначе пусто
+ * @param members       экземплярные члены, если это класс или трейт; иначе пусто
+ * @param staticMembers члены самого класса ({@code File.temp}); иначе пусто
  */
 public record SymbolDescriptor(String name, SymbolKind kind, String signature,
                                String documentation, Origin origin,
-                               List<MemberDescriptor> members) {
+                               List<MemberDescriptor> members,
+                               List<MemberDescriptor> staticMembers) {
 
     public SymbolDescriptor {
         Objects.requireNonNull(name, "name");
@@ -34,11 +36,18 @@ public record SymbolDescriptor(String name, SymbolKind kind, String signature,
         Objects.requireNonNull(origin, "origin");
         signature = signature == null ? name : signature;
         members = members == null ? List.of() : List.copyOf(members);
+        staticMembers = staticMembers == null ? List.of() : List.copyOf(staticMembers);
     }
 
     public SymbolDescriptor(String name, SymbolKind kind, String signature,
                             String documentation, Origin origin) {
-        this(name, kind, signature, documentation, origin, List.of());
+        this(name, kind, signature, documentation, origin, List.of(), List.of());
+    }
+
+    public SymbolDescriptor(String name, SymbolKind kind, String signature,
+                            String documentation, Origin origin,
+                            List<MemberDescriptor> members) {
+        this(name, kind, signature, documentation, origin, members, List.of());
     }
 
     public boolean hasDocumentation() {
@@ -53,6 +62,16 @@ public record SymbolDescriptor(String name, SymbolKind kind, String signature,
     /** Член с таким именем или {@code null}: {@code File.read} без запуска. */
     public MemberDescriptor member(String memberName) {
         for (MemberDescriptor member : members) {
+            if (member.name().equals(memberName)) {
+                return member;
+            }
+        }
+        return null;
+    }
+
+    /** Статический член класса или {@code null}: {@code File.temp} без запуска. */
+    public MemberDescriptor staticMember(String memberName) {
+        for (MemberDescriptor member : staticMembers) {
             if (member.name().equals(memberName)) {
                 return member;
             }

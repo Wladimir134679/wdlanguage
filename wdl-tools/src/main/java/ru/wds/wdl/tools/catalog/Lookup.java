@@ -4,6 +4,7 @@ import ru.wds.wdl.ast.Node;
 import ru.wds.wdl.ast.Nodes;
 import ru.wds.wdl.ast.expr.AccessExpr;
 import ru.wds.wdl.ast.expr.AccessStyle;
+import ru.wds.wdl.ast.expr.CallExpr;
 import ru.wds.wdl.ast.expr.VariableExpr;
 import ru.wds.wdl.ast.stmt.ImportStmt;
 import ru.wds.wdl.source.Span;
@@ -25,10 +26,9 @@ import java.util.Set;
  * <b>имя файла сильнее одноимённого внешнего</b>: скрипт вправе завести свой
  * {@code println}, и предлагать вместо него встроенный было бы ложью.
  * <p>
- * <b>Про типы здесь нет ничего.</b> После точки отвечается ровно один случай —
- * псевдоним модуля, — и он не требует вывода типов вовсе: путь модуля написан
- * в {@code import} буквально. Всё остальное после точки ждёт своего этапа, и пустой
- * список честнее выдуманного.
+ * Форма получателя устанавливается {@link ReceiverResolver} только из текста и
+ * снимка каталога. Неизвестный получатель по-прежнему даёт пустой список: в
+ * динамическом языке случайный точный API хуже отсутствующей подсказки.
  */
 public final class Lookup {
 
@@ -62,13 +62,18 @@ public final class Lookup {
         if (importing != null) {
             return modulePaths();
         }
-        String module = moduleAliasBefore(path, offset);
-        if (module != null) {
-            return moduleNames(module);
-        }
-        if (afterDot(path, offset)) {
-            // Получатель не модуль: чем он окажется, знают типы, а их пока нет.
-            return List.of();
+        AccessExpr access = accessBefore(path, offset);
+        if (access != null) {
+            ReceiverType receiver = ReceiverResolver.of(analysis, catalog).resolve(access.target());
+            if (receiver instanceof ReceiverType.Module module) {
+                return moduleNames(module.descriptor().key());
+            }
+            Origin origin = originOf(receiver);
+            List<Suggestion> found = new ArrayList<>();
+            for (MemberDescriptor member : MemberLookup.of(catalog).members(receiver)) {
+                found.add(Suggestion.of(member, origin));
+            }
+            return List.copyOf(found);
         }
         return namesAt(offset);
     }
@@ -138,9 +143,12 @@ public final class Lookup {
             return module == null ? null : new Suggestion(module.name(), SymbolKind.MODULE,
                     "import " + module.key(), module.documentation(), Origin.MODULE, null);
         }
-        SymbolDescriptor member = memberAt(path, offset);
-        if (member != null) {
-            return Suggestion.of(member);
+        ReceiverResolver.ResolvedMember member = memberAt(path, offset);
+        if (member instanceof ReceiverResolver.ResolvedMember.Name named) {
+            return Suggestion.of(named.descriptor());
+        }
+        if (member instanceof ReceiverResolver.ResolvedMember.Member selected) {
+            return Suggestion.of(selected.descriptor(), selected.origin());
         }
         var reference = analysis.referenceAt(offset);
         if (reference == null) {
@@ -151,7 +159,8 @@ public final class Lookup {
     }
 
     /** Член модуля под курсором: {@code io.read} — то, что описано в самом модуле. */
-    private SymbolDescriptor memberAt(List<Node> path, int offset) {
+    private ReceiverResolver.ResolvedMember memberAt(List<Node> path, int offset) {
+        ReceiverResolver resolver = ReceiverResolver.of(analysis, catalog);
         for (int i = path.size() - 1; i >= 0; i--) {
             if (!(path.get(i) instanceof AccessExpr access) || access.style() != AccessStyle.DOT) {
                 continue;
@@ -160,10 +169,9 @@ public final class Lookup {
             if (field == null || !covers(access.key().span(), offset)) {
                 continue;
             }
-            String key = moduleKeyOf(access.target());
-            ModuleDescriptor module = key == null ? null : catalog.module(key);
-            if (module != null) {
-                return module.get(field);
+            ReceiverResolver.ResolvedMember member = resolver.member(access);
+            if (member != null) {
+                return member;
             }
         }
         return null;
@@ -176,7 +184,7 @@ public final class Lookup {
      * затеняет псевдоним модуля, и предлагать после неё имена {@code sys.io} было бы
      * враньём.
      */
-    private String moduleAliasBefore(List<Node> path, int offset) {
+    private AccessExpr accessBefore(List<Node> path, int offset) {
         for (int i = path.size() - 1; i >= 0; i--) {
             if (!(path.get(i) instanceof AccessExpr access) || access.style() != AccessStyle.DOT) {
                 continue;
@@ -184,10 +192,7 @@ public final class Lookup {
             if (offset <= access.target().span().end()) {
                 continue;
             }
-            String key = moduleKeyOf(access.target());
-            if (key != null) {
-                return key;
-            }
+            return access;
         }
         return null;
     }
@@ -203,15 +208,44 @@ public final class Lookup {
         return symbol.declaration() instanceof ImportStmt statement ? statement.path() : null;
     }
 
-    /** Стоит ли курсор после точки — тогда предлагают члены, а не имена. */
-    private static boolean afterDot(List<Node> path, int offset) {
-        for (int i = path.size() - 1; i >= 0; i--) {
-            if (path.get(i) instanceof AccessExpr access && access.style() == AccessStyle.DOT
-                    && offset > access.target().span().end()) {
-                return true;
+    private static Origin originOf(ReceiverType receiver) {
+        return switch (receiver) {
+            case ReceiverType.Class type -> type.descriptor().origin();
+            case ReceiverType.Trait trait -> trait.descriptor().origin();
+            case ReceiverType.Builtin ignored -> Origin.BUILTIN;
+            case ReceiverType.Module ignored -> Origin.MODULE;
+            default -> Origin.FILE;
+        };
+    }
+
+    /** Сигнатура вызова под курсором или {@code null}, когда форма вызываемого неизвестна. */
+    public Suggestion callAt(int offset) {
+        List<Node> path = Nodes.pathAtCaret(analysis.program(), offset);
+        for (Node node : path.reversed()) {
+            if (!(node instanceof CallExpr call) || offset < call.callee().span().end()
+                    || offset > call.span().end()) {
+                continue;
+            }
+            if (call.callee() instanceof AccessExpr access) {
+                ReceiverResolver.ResolvedMember member = ReceiverResolver.of(analysis, catalog)
+                        .member(access);
+                if (member instanceof ReceiverResolver.ResolvedMember.Name named) {
+                    return Suggestion.of(named.descriptor());
+                }
+                if (member instanceof ReceiverResolver.ResolvedMember.Member selected) {
+                    return Suggestion.of(selected.descriptor(), selected.origin());
+                }
+            }
+            if (call.callee() instanceof VariableExpr variable) {
+                Symbol declared = analysis.resolve(variable.span().start()).orElse(null);
+                if (declared != null) {
+                    return Suggestion.of(declared);
+                }
+                SymbolDescriptor root = catalog.root(variable.name());
+                return root == null ? null : Suggestion.of(root);
             }
         }
-        return false;
+        return null;
     }
 
     /** Импорт, у которого курсор стоит на пути модуля. */

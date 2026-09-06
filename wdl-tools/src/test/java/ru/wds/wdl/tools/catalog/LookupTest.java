@@ -95,13 +95,53 @@ class LookupTest {
     }
 
     @Test
-    @DisplayName("После точки у не-модуля не предлагается ничего: типов ещё нет")
-    void unknownReceiverSuggestsNothing() {
+    @DisplayName("После точки у однозначно присвоенной строки видны её члены")
+    void inferredStringSuggestsBuiltinMembers() {
         String text = """
                 text = "эй"
                 text.
                 """;
-        assertTrue(lookup(text).completeAt(text.indexOf("text.") + 5).isEmpty());
+        List<Suggestion> members = lookup(text).completeAt(text.indexOf("text.") + 5);
+
+        assertTrue(members.stream().anyMatch(member -> member.name().equals("size")));
+        assertEquals(SymbolKind.PROPERTY, find(members, "size").kind());
+        assertEquals(Origin.BUILTIN, find(members, "size").origin());
+    }
+
+    @Test
+    @DisplayName("Локальный класс различает члены экземпляра и фабрики")
+    void localClassSeparatesInstanceAndStaticMembers() {
+        String prefix = """
+                class Box(value) {
+                    property label => value
+                    def open() => value
+                    def Box.empty() => new Box("")
+                }
+                """;
+        String instanceText = prefix + "new Box(\"x\").\n";
+        String staticText = prefix + "Box.\n";
+        List<Suggestion> instance = lookup(instanceText).completeAt(instanceText.indexOf("new Box(\"x\").")
+                + "new Box(\"x\").".length());
+        List<Suggestion> statics = lookup(staticText).completeAt(staticText.lastIndexOf("Box.") + 4);
+
+        assertTrue(instance.stream().anyMatch(member -> member.name().equals("value")));
+        assertTrue(instance.stream().anyMatch(member -> member.name().equals("label")));
+        assertTrue(instance.stream().anyMatch(member -> member.name().equals("open")));
+        assertFalse(instance.stream().anyMatch(member -> member.name().equals("empty")));
+        assertTrue(statics.stream().anyMatch(member -> member.name().equals("empty")), statics::toString);
+        assertFalse(statics.stream().anyMatch(member -> member.name().equals("open")));
+    }
+
+    @Test
+    @DisplayName("Несколько присваиваний не выдают ложный точный список")
+    void ambiguousAssignmentsSuggestNothing() {
+        String text = """
+                value = "строка"
+                value = [1]
+                value.
+                """;
+
+        assertTrue(lookup(text).completeAt(text.indexOf("value.\n") + 6).isEmpty());
     }
 
     @Test

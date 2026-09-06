@@ -49,6 +49,16 @@ public record Suggestion(String name, SymbolKind kind, String signature, String 
                 descriptor.documentation(), descriptor.origin(), null);
     }
 
+    /** Член известного получателя: места в текущем файле у него нет. */
+    public static Suggestion of(MemberDescriptor descriptor, Origin origin) {
+        Objects.requireNonNull(descriptor, "descriptor");
+        Objects.requireNonNull(origin, "origin");
+        SymbolKind kind = descriptor.kind() == MemberDescriptor.Kind.METHOD
+                ? SymbolKind.METHOD : SymbolKind.PROPERTY;
+        return new Suggestion(descriptor.name(), kind, descriptor.signature(),
+                descriptor.documentation(), origin, null);
+    }
+
     /** Есть ли куда перейти по этому имени. */
     public boolean isDeclaredHere() {
         return symbol != null;

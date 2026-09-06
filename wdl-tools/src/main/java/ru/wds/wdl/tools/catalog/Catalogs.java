@@ -16,6 +16,7 @@ import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.ValueType;
 import ru.wds.wdl.value.types.ModuleValue;
+import ru.wds.wdl.value.types.StringValue;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -170,7 +171,7 @@ public final class Catalogs {
                     callable(name, function.signature()), documentation, origin);
             case ClassValue type -> new SymbolDescriptor(name, SymbolKind.CLASS,
                     "class " + callable(name, type.signature()), documentation, origin,
-                    membersOf(type));
+                    membersOf(type), staticMembersOf(type));
             case TraitValue trait -> new SymbolDescriptor(name, SymbolKind.TRAIT,
                     "trait " + name, documentation, origin, membersOf(trait));
             case ModuleValue module -> new SymbolDescriptor(name, SymbolKind.MODULE,
@@ -187,7 +188,8 @@ public final class Catalogs {
         for (String method : sorted(type.methodNames())) {
             Signature signature = type.methodSignature(method);
             members.add(MemberDescriptor.method(method, signature.arity(),
-                    callable(method, signature), documentationOf(described, method)));
+                    callable(method, signature), documentationOf(described, method),
+                    type.methodResultClass(method)));
         }
         for (String property : sorted(type.propertyNames())) {
             members.add(MemberDescriptor.property(property, false,
@@ -197,6 +199,33 @@ public final class Catalogs {
             members.add(MemberDescriptor.property(field, false, documentationOf(described, field)));
         }
         return members;
+    }
+
+    /**
+     * Члены объекта класса: фабрики и константы. Они не попадают в список
+     * экземпляра: {@code File.temp()} и {@code new File("a").read()} живут на
+     * разных получателях и смешать их значило бы предложить невыполнимый код.
+     */
+    private static List<MemberDescriptor> staticMembersOf(ClassValue type) {
+        Documented described = type instanceof Documented documented ? documented : null;
+        List<MemberDescriptor> members = new ArrayList<>();
+        for (Map.Entry<Value, Value> entry : type.statics().entries().entrySet()) {
+            if (!(entry.getKey() instanceof StringValue key)) {
+                continue;
+            }
+            String name = key.value();
+            Value value = entry.getValue();
+            String documentation = documentationOf(described, name);
+            if (value instanceof FunctionValue function) {
+                members.add(MemberDescriptor.method(name, function.signature().arity(),
+                        callable(name, function.signature()), documentation,
+                        type.staticResultClass(name)));
+            } else {
+                members.add(MemberDescriptor.property(name, false, documentation));
+            }
+        }
+        members.sort(java.util.Comparator.comparing(MemberDescriptor::name));
+        return List.copyOf(members);
     }
 
     /** Члены трейта: то, что он обещает всякому, кто его принял. */

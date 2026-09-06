@@ -37,11 +37,14 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import ru.wds.wdl.tools.catalog.Catalog;
 import ru.wds.wdl.tools.service.LanguageService;
 
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -85,6 +88,9 @@ class ServerTest {
     private RecordingClient events;
     private PipedInputStream toServer;
     private PipedInputStream toClient;
+
+    @TempDir
+    Path workspace;
 
     @BeforeAll
     static void snapshotCatalog() {
@@ -131,6 +137,8 @@ class ServerTest {
         assertTrue(capabilities.getDefinitionProvider().getLeft());
         assertTrue(capabilities.getReferencesProvider().getLeft());
         assertTrue(capabilities.getDocumentSymbolProvider().getLeft());
+        assertTrue(capabilities.getWorkspaceSymbolProvider().getLeft());
+        assertNotNull(capabilities.getSignatureHelpProvider());
         assertEquals(Protocol.TOKEN_TYPES,
                 capabilities.getSemanticTokensProvider().getLegend().getTokenTypes());
         // Того, чего ещё нет, сервер не обещает: клиент верит объявлению буквально.
@@ -233,6 +241,32 @@ class ServerTest {
                 .get(10, TimeUnit.SECONDS));
     }
 
+    @Test
+    @DisplayName("Workspace folders дают completion и definition в соседнем модуле")
+    void workspaceModulesAreAvailableOverProtocol() throws Exception {
+        Path shapes = workspace.resolve("app/shapes.wdl");
+        Files.createDirectories(shapes.getParent());
+        Files.writeString(shapes, "class Circle() { def Circle.unit() => new Circle() }\n");
+        InitializeParams initialize = new InitializeParams();
+        initialize.setWorkspaceFolders(List.of(new org.eclipse.lsp4j.WorkspaceFolder(
+                workspace.toUri().toString(), "test")));
+        client.initialize(initialize).get(10, TimeUnit.SECONDS);
+
+        String imported = "import app.shapes as shapes\nshapes.Circle.\n";
+        open(imported);
+        events.next();
+        Position circleDot = position(imported, "Circle.", "Circle.".length());
+        List<String> names = client.getTextDocumentService().completion(
+                new CompletionParams(document(), circleDot)).get(10, TimeUnit.SECONDS).getLeft()
+                .stream().map(CompletionItem::getLabel).toList();
+        assertTrue(names.contains("unit"), names.toString());
+
+        List<? extends Location> definition = client.getTextDocumentService().definition(
+                new DefinitionParams(document(), position(imported, "Circle.", 1)))
+                .get(10, TimeUnit.SECONDS).getLeft();
+        assertEquals(shapes.toUri().toString(), definition.getFirst().getUri());
+    }
+
     // --- вспомогательное ----------------------------------------------------
 
     private void open(String text) {
@@ -262,6 +296,19 @@ class ServerTest {
             if (TEXT.charAt(i) == '\n') {
                 line++;
                 lineStart = i + 1;
+            }
+        }
+        return new Position(line, offset - lineStart);
+    }
+
+    private static Position position(String text, String fragment, int shift) {
+        int offset = text.indexOf(fragment) + shift;
+        int line = 0;
+        int lineStart = 0;
+        for (int index = 0; index < offset; index++) {
+            if (text.charAt(index) == '\n') {
+                line++;
+                lineStart = index + 1;
             }
         }
         return new Position(line, offset - lineStart);

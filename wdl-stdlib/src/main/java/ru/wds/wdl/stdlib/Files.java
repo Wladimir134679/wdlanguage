@@ -112,6 +112,7 @@ final class Files {
                 Path created = io(span, () -> java.nio.file.Files.createTempFile(prefix, ".tmp"));
                 return type.instantiate(List.of(StringValue.of(created.toString())), context, span);
             })
+            .returnsSelf()
 
             .constant("SEPARATOR", StringValue.of(java.io.File.separator))
             .build();

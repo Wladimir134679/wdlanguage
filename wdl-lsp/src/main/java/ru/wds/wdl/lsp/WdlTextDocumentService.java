@@ -17,6 +17,8 @@ import org.eclipse.lsp4j.PublishDiagnosticsParams;
 import org.eclipse.lsp4j.ReferenceParams;
 import org.eclipse.lsp4j.SemanticTokens;
 import org.eclipse.lsp4j.SemanticTokensParams;
+import org.eclipse.lsp4j.SignatureHelp;
+import org.eclipse.lsp4j.SignatureHelpParams;
 import org.eclipse.lsp4j.SymbolInformation;
 import org.eclipse.lsp4j.TextDocumentContentChangeEvent;
 import org.eclipse.lsp4j.TextDocumentItem;
@@ -27,6 +29,7 @@ import ru.wds.wdl.source.Source;
 import ru.wds.wdl.tools.catalog.Suggestion;
 import ru.wds.wdl.tools.service.Document;
 import ru.wds.wdl.tools.service.DocumentId;
+import ru.wds.wdl.tools.service.CallSignature;
 import ru.wds.wdl.tools.service.Hover;
 import ru.wds.wdl.tools.service.LanguageService;
 import ru.wds.wdl.tools.service.Outline;
@@ -91,7 +94,11 @@ final class WdlTextDocumentService implements TextDocumentService {
 
     @Override
     public void didSave(DidSaveTextDocumentParams params) {
-        // Сохранение ничего не меняет: сервер работает по тексту редактора, а не по диску.
+        // Открытый текст всё ещё сильнее, но watcher может не прийти для закрытого файла.
+        java.nio.file.Path path = pathOf(params.getTextDocument().getUri());
+        if (path != null) {
+            service.workspace().changedOnDisk(path);
+        }
     }
 
     // --- вопросы ------------------------------------------------------------
@@ -124,6 +131,17 @@ final class WdlTextDocumentService implements TextDocumentService {
     }
 
     @Override
+    public CompletableFuture<SignatureHelp> signatureHelp(SignatureHelpParams params) {
+        Document document = document(params.getTextDocument().getUri());
+        if (document == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        CallSignature signature = service.signatureHelp(document.id(),
+                Protocol.offset(document.source(), params.getPosition()));
+        return CompletableFuture.completedFuture(signature == null ? null : Protocol.signature(signature));
+    }
+
+    @Override
     public CompletableFuture<Either<List<? extends Location>, List<? extends LocationLink>>>
             definition(DefinitionParams params) {
         Document document = document(params.getTextDocument().getUri());
@@ -133,7 +151,7 @@ final class WdlTextDocumentService implements TextDocumentService {
         ru.wds.wdl.tools.service.Location found = service.definition(document.id(),
                 Protocol.offset(document.source(), params.getPosition()));
         List<Location> locations = found == null ? List.of()
-                : List.of(Protocol.location(found.document().uri(), document.source(),
+                : List.of(Protocol.location(found.document().uri(), sourceOf(found.document(), document.source()),
                         found.span()));
         return CompletableFuture.completedFuture(Either.forLeft(locations));
     }
@@ -149,7 +167,7 @@ final class WdlTextDocumentService implements TextDocumentService {
         List<Location> locations = new ArrayList<>();
         for (ru.wds.wdl.tools.service.Location found : service.references(document.id(),
                 Protocol.offset(document.source(), params.getPosition()), withDeclaration)) {
-            locations.add(Protocol.location(found.document().uri(), document.source(),
+            locations.add(Protocol.location(found.document().uri(), sourceOf(found.document(), document.source()),
                     found.span()));
         }
         return CompletableFuture.completedFuture(locations);
@@ -183,6 +201,20 @@ final class WdlTextDocumentService implements TextDocumentService {
 
     private Document document(String uri) {
         return uri == null ? null : service.document(DocumentId.of(uri));
+    }
+
+    private Source sourceOf(DocumentId id, Source fallback) {
+        Source source = service.source(id);
+        return source == null ? fallback : source;
+    }
+
+    private static java.nio.file.Path pathOf(String uri) {
+        try {
+            java.net.URI parsed = java.net.URI.create(uri);
+            return "file".equalsIgnoreCase(parsed.getScheme()) ? java.nio.file.Path.of(parsed) : null;
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     /**

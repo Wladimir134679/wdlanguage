@@ -138,6 +138,17 @@ class LanguageServiceTest {
     }
 
     @Test
+    @DisplayName("Подсказка сигнатуры берётся у известного вызова без выполнения")
+    void signatureHelpUsesKnownCallable() {
+        LanguageService service = opened();
+
+        CallSignature signature = service.signatureHelp(ID, at("total(3)") + "total(".length());
+
+        assertNotNull(signature);
+        assertEquals("total(count)", signature.label());
+    }
+
+    @Test
     @DisplayName("Переход ведёт к объявлению; у встроенного имени места в тексте нет")
     void definitionStaysInsideTheFile() {
         LanguageService service = opened();

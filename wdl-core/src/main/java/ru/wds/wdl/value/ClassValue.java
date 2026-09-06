@@ -97,6 +97,15 @@ public non-sealed interface ClassValue extends Value {
         return null;
     }
 
+    /**
+     * Декларативно известный класс результата метода или {@code null}. Это metadata
+     * для инструментов, а не обещание статической типизации: отсутствие ответа
+     * остаётся нормальным для динамического API.
+     */
+    default String methodResultClass(String name) {
+        return null;
+    }
+
     /** Аннотации метода по имени; пусто, если метода нет или их не написали. */
     default java.util.Map<Value, Value> methodAnnotations(String name) {
         return java.util.Map.of();
@@ -195,6 +204,11 @@ public non-sealed interface ClassValue extends Value {
      * и {@code Point.zero = new Point(0, 0)} — обычная запись в неё.
      */
     MapValue statics();
+
+    /** Декларативно известный класс результата фабрики/статического метода. */
+    default String staticResultClass(String name) {
+        return null;
+    }
 
     /**
      * Ответ оператора {@code is}: этот ли класс, его предок или подмешанный трейт.

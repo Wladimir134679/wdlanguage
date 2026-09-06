@@ -5,6 +5,7 @@ import org.eclipse.lsp4j.InitializeParams;
 import org.eclipse.lsp4j.InitializeResult;
 import org.eclipse.lsp4j.PositionEncodingKind;
 import org.eclipse.lsp4j.SemanticTokensWithRegistrationOptions;
+import org.eclipse.lsp4j.SignatureHelpOptions;
 import org.eclipse.lsp4j.ServerCapabilities;
 import org.eclipse.lsp4j.ServerInfo;
 import org.eclipse.lsp4j.TextDocumentSyncKind;
@@ -35,7 +36,7 @@ public final class WdlLanguageServer implements LanguageServer, LanguageClientAw
 
     private final LanguageService service;
     private final WdlTextDocumentService documents;
-    private final WdlWorkspaceService workspace = new WdlWorkspaceService();
+    private final WdlWorkspaceService workspace;
     private final CompletableFuture<Integer> stopped = new CompletableFuture<>();
 
     private volatile boolean shutdownRequested;
@@ -43,6 +44,7 @@ public final class WdlLanguageServer implements LanguageServer, LanguageClientAw
     public WdlLanguageServer(LanguageService service) {
         this.service = Objects.requireNonNull(service, "service");
         this.documents = new WdlTextDocumentService(service);
+        this.workspace = new WdlWorkspaceService(service);
     }
 
     @Override
@@ -52,6 +54,7 @@ public final class WdlLanguageServer implements LanguageServer, LanguageClientAw
 
     @Override
     public CompletableFuture<InitializeResult> initialize(InitializeParams params) {
+        workspace.initialize(params);
         ServerCapabilities capabilities = new ServerCapabilities();
         // Единицы позиций совпадают с нашими без пересчёта: Span — индексы UTF-16.
         capabilities.setPositionEncoding(PositionEncodingKind.UTF16);
@@ -61,9 +64,11 @@ public final class WdlLanguageServer implements LanguageServer, LanguageClientAw
         capabilities.setTextDocumentSync(TextDocumentSyncKind.Full);
         capabilities.setCompletionProvider(new CompletionOptions(false, List.of(".")));
         capabilities.setHoverProvider(true);
+        capabilities.setSignatureHelpProvider(new SignatureHelpOptions(List.of("("), List.of(",")));
         capabilities.setDefinitionProvider(true);
         capabilities.setReferencesProvider(true);
         capabilities.setDocumentSymbolProvider(true);
+        capabilities.setWorkspaceSymbolProvider(true);
         capabilities.setSemanticTokensProvider(
                 new SemanticTokensWithRegistrationOptions(Protocol.LEGEND, true));
         return CompletableFuture.completedFuture(

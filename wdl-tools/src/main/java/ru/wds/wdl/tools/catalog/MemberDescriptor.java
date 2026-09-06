@@ -20,9 +20,10 @@ import java.util.Objects;
  * @param arity         сколько аргументов принимает метод; у свойства — ноль
  * @param signature     краткая запись для подсказки: {@code size}, {@code push(…)}
  * @param documentation описание или {@code null}
+ * @param resultClass   известный класс результата вызова/чтения или {@code null}
  */
 public record MemberDescriptor(String name, Kind kind, Arity arity,
-                               String signature, String documentation) {
+                               String signature, String documentation, String resultClass) {
 
     /** Что именно за член — от этого зависит и запись, и цена чтения. */
     public enum Kind {
@@ -54,6 +55,11 @@ public record MemberDescriptor(String name, Kind kind, Arity arity,
         signature = signature == null ? render(name, kind, arity) : signature;
     }
 
+    public MemberDescriptor(String name, Kind kind, Arity arity, String signature,
+                            String documentation) {
+        this(name, kind, arity, signature, documentation, null);
+    }
+
     /** Свойство или снимок — по ответу самого члена, а не по догадке об имени. */
     public static MemberDescriptor property(String name, boolean snapshot, String documentation) {
         return new MemberDescriptor(name, snapshot ? Kind.SNAPSHOT : Kind.PROPERTY,
@@ -69,6 +75,13 @@ public record MemberDescriptor(String name, Kind kind, Arity arity,
     public static MemberDescriptor method(String name, Arity arity, String signature,
                                           String documentation) {
         return new MemberDescriptor(name, Kind.METHOD, arity, signature, documentation);
+    }
+
+    /** Метод, чья декларация точно называет класс возвращаемого значения. */
+    public static MemberDescriptor method(String name, Arity arity, String signature,
+                                          String documentation, String resultClass) {
+        return new MemberDescriptor(name, Kind.METHOD, arity, signature, documentation,
+                resultClass);
     }
 
     /** Член значения как есть — вид, арность и цена спрашиваются у него самого. */

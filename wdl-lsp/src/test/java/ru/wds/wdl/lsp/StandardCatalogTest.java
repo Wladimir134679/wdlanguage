@@ -8,6 +8,9 @@ import ru.wds.wdl.tools.catalog.Catalog;
 import ru.wds.wdl.tools.catalog.ModuleDescriptor;
 import ru.wds.wdl.tools.catalog.Origin;
 import ru.wds.wdl.tools.catalog.SymbolDescriptor;
+import ru.wds.wdl.tools.catalog.Lookup;
+import ru.wds.wdl.tools.analysis.FileAnalysis;
+import ru.wds.wdl.source.Source;
 
 import java.util.Set;
 
@@ -45,5 +48,15 @@ class StandardCatalogTest {
         assertNotNull(io);
         assertNotNull(io.get("read"), "io.read — первое, что спросят у sys.io");
         assertTrue(catalog.complete(), "полноту заявляет тот, кто собрал запуск");
+    }
+
+    @Test
+    @DisplayName("Фабрика с return shape продолжает цепочку как экземпляр класса")
+    void nativeFactoryReturnShapeCompletesInstance() {
+        String text = "import sys.io as io\nio.File.temp().\n";
+        Lookup lookup = Lookup.of(FileAnalysis.of(Source.ofString(text)), StandardCatalog.create());
+
+        assertTrue(lookup.completeAt(text.length() - 1).stream()
+                .anyMatch(item -> item.name().equals("read")));
     }
 }
