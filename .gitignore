@@ -17,6 +17,12 @@ out/
 !**/src/main/**/out/
 !**/src/test/**/out/
 
+### Плагин IntelliJ (ide/idea-plugin) ###
+# Песочница IDE, кэш списка релизов и локи — всё, что кладёт рядом со сборкой
+# IntelliJ Platform Gradle Plugin. Сама сборка и её кэш уже покрыты
+# правилами build/ и .gradle выше.
+.intellijPlatform/
+
 ### Eclipse ###
 .apt_generated
 .classpath

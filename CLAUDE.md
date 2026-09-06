@@ -69,7 +69,8 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 | `wdl-bridge` | всё для встраивания: `bridge` (`Module`, `NativeClass`, `NativeTrait`, `NativeInstance`, `MemberSource`) и `bridge.reflect` (мост рефлексией: `JavaBridge`, `FromJava`, `Marshal`, `JavaPolicy`) | core |
 | `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, `sys.time`, реестр `Sys` | core, bridge |
 | `wdl-api` | фасад для встраивания `WdlEngine` (пока заготовка) | core, stdlib |
-| `wdl-tools` | `AstDumper`, `TokenDumper`, позже линтер/форматтер/LSP | core |
+| `wdl-tools` | `AstDumper`, `TokenDumper`, `analysis` (имена), `catalog` (внешние имена), `service` (языковой сервис) | core |
+| `wdl-lsp` | языковой сервер LSP: перевод ответов `service` в JSON-RPC (lsp4j) | tools, stdlib |
 | `wdl-cli` | picocli-точка входа, REPL | api, tools |
 
 ### Ключевые решения, определяющие остальное

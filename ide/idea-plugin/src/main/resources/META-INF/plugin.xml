@@ -1,0 +1,30 @@
+<idea-plugin>
+    <id>ru.wds.wdl.idea</id>
+    <name>wdl</name>
+    <vendor>wds</vendor>
+
+    <description><![CDATA[
+        Поддержка языка <b>wdl</b> в IntelliJ IDEA: подсветка, ошибки прямо в редакторе,
+        дополнение имён, переход к объявлению, поиск употреблений и структура файла.
+        <p>
+        Плагин не содержит правил языка — он запускает языковой сервер
+        <code>wdl-lsp</code> из дистрибутива wdl. Так подсказка в редакторе и запуск
+        скрипта всегда говорят об одном и том же языке.
+        <p>
+        Сервер ищется в таком порядке: системное свойство <code>wdl.lsp.home</code>,
+        переменная окружения <code>WDL_LSP_HOME</code>, сборка
+        <code>wdl-lsp/build/install/wdl-lsp</code> внутри открытого проекта,
+        затем <code>PATH</code>.
+    ]]></description>
+
+    <!-- Клиент LSP доступен только в платных IDE JetBrains. -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.ultimate</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType name="wdl" language="wdl" extensions="wdl"
+                  implementationClass="ru.wds.wdl.idea.WdlFileType" fieldName="INSTANCE"/>
+        <platform.lsp.serverSupportProvider
+                implementation="ru.wds.wdl.idea.WdlLspServerSupportProvider"/>
+    </extensions>
+</idea-plugin>

@@ -24,8 +24,17 @@
             <option value="$PROJECT_DIR$/wdl-bridge" />
             <option value="$PROJECT_DIR$/wdl-cli" />
             <option value="$PROJECT_DIR$/wdl-core" />
+            <option value="$PROJECT_DIR$/wdl-lsp" />
             <option value="$PROJECT_DIR$/wdl-stdlib" />
             <option value="$PROJECT_DIR$/wdl-tools" />
+          </set>
+        </option>
+      </GradleProjectSettings>
+      <GradleProjectSettings>
+        <option name="externalProjectPath" value="$PROJECT_DIR$/ide/idea-plugin" />
+        <option name="modules">
+          <set>
+            <option value="$PROJECT_DIR$/ide/idea-plugin" />
           </set>
         </option>
       </GradleProjectSettings>

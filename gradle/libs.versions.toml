@@ -5,9 +5,13 @@
 [versions]
 java = "21"
 junit = "5.14.4"
+# Модели и транспорт LSP. Живёт только в wdl-lsp: ни ядро, ни инструменты
+# про протокол не знают и знать не должны.
+lsp4j = "1.0.0"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 # Версии ниже приходят из BOM выше — намеренно не указаны.
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+lsp4j = { module = "org.eclipse.lsp4j:org.eclipse.lsp4j", version.ref = "lsp4j" }

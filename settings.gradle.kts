@@ -17,4 +17,5 @@ include(
     "wdl-api",
     "wdl-cli",
     "wdl-tools",
+    "wdl-lsp",
 )
