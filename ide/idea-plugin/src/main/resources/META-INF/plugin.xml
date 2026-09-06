@@ -22,6 +22,10 @@
     <depends>com.intellij.modules.ultimate</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <configurationType implementation="ru.wds.wdl.idea.WdlRunConfigurationType"/>
+        <lang.parserDefinition language="wdl" implementationClass="ru.wds.wdl.idea.WdlParserDefinition"/>
+        <runConfigurationProducer implementation="ru.wds.wdl.idea.WdlRunConfigurationProducer"/>
+        <runLineMarkerContributor language="wdl" implementationClass="ru.wds.wdl.idea.WdlRunLineMarkerContributor"/>
         <fileType name="wdl" language="wdl" extensions="wdl"
                   implementationClass="ru.wds.wdl.idea.WdlFileType" fieldName="INSTANCE"/>
         <platform.lsp.serverSupportProvider

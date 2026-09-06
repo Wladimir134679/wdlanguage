@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="wdl: hello" type="WdlRunConfiguration" factoryName="wdl">
+    <option name="target" value="examples/hello.wdl" />
+    <option name="workingDirectory" value="" />
+    <option name="interpreterOptions" value="" />
+    <option name="scriptArguments" value="" />
+    <option name="interpreter" value="" />
+    <method v="2" />
+  </configuration>
+</component>

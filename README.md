@@ -84,6 +84,13 @@
 
 ## Команды
 
+Для использования из любого каталога: `./gradlew installWdl` (Windows:
+`.\gradlew.bat installWdl`). Для сборки с тестами и плагином IDEA:
+`./gradlew prepareWdl`. После установки перезапустите терминал и IDEA.
+Команды `wdl` и `wdl-lsp` будут доступны через пользовательский `PATH`.
+
+**[Установка, аргументы скриптов, запуск проектов и зелёная кнопка IDEA](docs/installation.md)**.
+
 ```bash
 ./gradlew build                  # сборка + тесты + проверка чистоты ядра
 ./gradlew modules                # карта модулей
@@ -114,8 +121,10 @@
 ./gradlew -p ide/idea-plugin buildPlugin   # плагин IntelliJ IDEA (отдельная сборка)
 ```
 
-## Для Intellij IDEA Run context menu
-Быстрый запуск по ПКМ файла скрипта
+## Старый способ запуска через External Tools
+
+Рекомендуемый способ — Run-конфигурация **wdl** из плагина (см. инструкцию выше).
+Старый Windows-скрипт также остаётся доступен для External Tools:
 
 [run-wdl.bat](run-wdl.bat)
 ```

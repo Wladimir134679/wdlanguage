@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ru.wds.wdl"
-version = "0.1.0"
+version = "0.1.1"
 
 java {
     toolchain {
@@ -14,11 +14,13 @@ java {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     intellijPlatform {
         // Клиент LSP есть только в платных IDE JetBrains: в Community и в сборках
         // с открытым кодом этого API нет вовсе. Отсюда и Ultimate, и зависимость
         // от com.intellij.modules.ultimate в plugin.xml.
         intellijIdeaUltimate("2025.3")
+        testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
     }
 }
 

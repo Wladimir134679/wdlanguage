@@ -29,6 +29,8 @@ public final class StandardCatalog {
         ExecutionContext context = ExecutionContext.fresh(Output.discarding())
                 .withNativeModules(Sys.modules());
         Std.install(context.scope());
+        // Имя, предоставляемое CLI; фактические значения появляются только при запуске.
+        context.scope().define("args", ru.wds.wdl.value.types.ArrayValue.of(java.util.List.of()));
         Catalog roots;
         try {
             roots = Catalogs.of(context.scope(), Origin.LIBRARY);

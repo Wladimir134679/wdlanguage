@@ -139,8 +139,13 @@ public final class Main implements Callable<Integer> {
     @Option(names = {"--json"}, description = "Машинный вывод (пока только для --catalog)")
     private boolean asJson;
 
-    @Parameters(index = "0", arity = "0..1", paramLabel = "<файл>", description = "Файл скрипта .wdl для выполнения")
+    @Parameters(index = "0", arity = "0..1", paramLabel = "<файл/проект>",
+            description = "Файл .wdl или каталог проекта с main.wdl")
     private Path scriptFile;
+
+    @Parameters(index = "1..*", arity = "0..*", paramLabel = "<args>",
+            description = "Аргументы скрипта (после --), доступны как args")
+    private List<String> scriptArguments = new ArrayList<>();
 
     static class VersionProvider implements CommandLine.IVersionProvider {
         @Override
@@ -187,7 +192,7 @@ public final class Main implements Callable<Integer> {
             return 0;
         }
 
-        return execute(scriptFile);
+        return execute(Files.isDirectory(scriptFile) ? scriptFile.resolve("main.wdl") : scriptFile);
     }
 
     /**
@@ -303,6 +308,8 @@ public final class Main implements Callable<Integer> {
         // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
         // а не ядра: встроенный движок по умолчанию не печатает никуда.
         ExecutionContext context = standardContext().withMetrics(metrics).withModules(modules);
+        context.scope().define("args", ArrayValue.of(scriptArguments.stream()
+                .<Value>map(StringValue::of).toList()));
         try {
             new Interpreter().run(Unit.of(source, program), context);
             return 0;
@@ -604,6 +611,7 @@ public final class Main implements Callable<Integer> {
     private static ExecutionContext standardContext() {
         ExecutionContext context = ExecutionContext.fresh(Output.standard());
         Std.install(context.scope());
+        context.scope().define("args", ArrayValue.of(List.of()));
         // Встроенные модули (sys.io, sys.json, sys.net.http) даёт тот же запуск и тем же
         // способом: набором, а не флагом. Приложение, встраивающее движок, собирает свой —
         // и скрипту доступно ровно то, что в нём есть.
