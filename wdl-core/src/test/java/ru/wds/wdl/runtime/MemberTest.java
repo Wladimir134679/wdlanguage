@@ -126,6 +126,20 @@ class MemberTest {
         }
 
         @Test
+        @DisplayName("члены с позицией считают отрицательный аргумент от конца")
+        void positionsCountFromTheEnd() {
+            // Правило «число значит позицию» одно на весь язык: разойдись здесь
+            // член с обращением по индексу — расходились бы уже поведения,
+            // а не тексты сообщений.
+            assertEquals("[3, 4]", show("[1, 2, 3, 4].slice(-2)"));
+            assertEquals("4 [1, 2, 3]", run("a = [1, 2, 3, 4]\nprintln(a.remove(-1), \" \", a)"));
+            assertEquals("[1, 2, 9, 3]", run("a = [1, 2, 3]\na.insert(-1, 9)\nprintln(a)"));
+            // Вставка отличается от адресации ровно верхней границей: в конец можно.
+            assertEquals("[1, 2, 9]", run("a = [1, 2]\na.insert(2, 9)\nprintln(a)"));
+            assertTrue(errorOf("[1, 2, 3].insert(-4, 9)").getMessage().contains("наименьший здесь -3"));
+        }
+
+        @Test
         @DisplayName("строка неизменяема, поэтому меняющих членов у неё нет вовсе")
         void string() {
             assertEquals("HELLO", show("\"Hello\".upper"));

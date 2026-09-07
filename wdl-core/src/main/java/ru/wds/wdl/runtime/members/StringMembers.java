@@ -2,6 +2,7 @@ package ru.wds.wdl.runtime.members;
 
 import ru.wds.wdl.runtime.Args;
 import ru.wds.wdl.runtime.ErrorKind;
+import ru.wds.wdl.runtime.Indexes;
 import ru.wds.wdl.runtime.Overloading;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
@@ -102,8 +103,8 @@ public final class StringMembers {
                 .method("slice", Arity.between(1, 2), (receiver, context, arguments, span) -> {
                     Args args = args("slice", arguments, context, span);
                     String value = text(receiver);
-                    int from = clamp(args.integer(0, "начало"), value.length());
-                    int to = args.has(1) ? clamp(args.integer(1, "конец"), value.length()) : value.length();
+                    int from = Indexes.cut(value.length(), args.integer(0, "начало"));
+                    int to = args.has(1) ? Indexes.cut(value.length(), args.integer(1, "конец")) : value.length();
                     return StringValue.of(from >= to ? "" : value.substring(from, to));
                 })
                 .method("toNumber", Arity.exactly(0), (receiver, context, arguments, span) -> {
@@ -132,10 +133,5 @@ public final class StringMembers {
 
     private static Args args(String name, List<Value> arguments, CallContext context, Span span) {
         return Args.of("string." + name, arguments, context, span);
-    }
-
-    /** Границы среза подрезаются, а не ошибаются, — по той же причине, что у массива. */
-    private static int clamp(long index, int size) {
-        return (int) Math.max(0, Math.min(index, size));
     }
 }

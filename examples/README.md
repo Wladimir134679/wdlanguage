@@ -22,6 +22,7 @@ wdl-cli/build/install/wdl/bin/wdl examples/hello.wdl
 | [control-flow.wdl](control-flow.wdl) | `if`, `while`, `for`, перебор (в том числе по диапазону и с ключом), `break`/`continue`, области блока |
 | [match.wdl](match.wdl) | `match` выражением и инструкцией: образцы, перечисление, условия в ветках, `else`, значение ветки через `yield`, что бывает ошибкой |
 | [unpack.wdl](unpack.wdl) | распаковка `x, y = *point` и `host, port, **rest = **config`, остатки, пропуск `_`, перебор с ключом |
+| [slices.wdl](slices.wdl) | срез `a[1..3]` и отрицательный индекс `a[-1]`: включительные границы, подрезка, копия, ключ-диапазон у объекта |
 | [const.wdl](const.wdl) | `const`: заморожено имя, а не содержимое |
 | [functions.wdl](functions.wdl) | объявления, `return`, `=>`, анонимные функции, замыкания |
 | [defaults.wdl](defaults.wdl) | значения параметров по умолчанию и когда они вычисляются |

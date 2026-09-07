@@ -2,6 +2,7 @@ package ru.wds.wdl.runtime.members;
 
 import ru.wds.wdl.runtime.Args;
 import ru.wds.wdl.runtime.ErrorKind;
+import ru.wds.wdl.runtime.Indexes;
 import ru.wds.wdl.runtime.Overloading;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
@@ -84,13 +85,14 @@ public final class ArrayMembers {
                     ArrayValue array = self(receiver);
                     Args args = args("insert", arguments, context, span);
                     // Вставить можно и в конец: границей служит size, а не size - 1.
-                    array.insert(bound(args.integer(0, "индекс"), array.size(), span), arguments.get(1));
+                    array.insert(Indexes.position(array.size(), args.integer(0, "индекс"), "массива", span),
+                            arguments.get(1));
                     return array;
                 })
                 .method("remove", Arity.exactly(1), (receiver, context, arguments, span) -> {
                     ArrayValue array = self(receiver);
                     Args args = args("remove", arguments, context, span);
-                    return array.removeAt(bound(args.integer(0, "индекс"), array.size() - 1, span));
+                    return array.removeAt(Indexes.element(array.size(), args.integer(0, "индекс"), "массива", span));
                 })
                 .method("indexOf", Arity.exactly(1), (receiver, context, arguments, span) -> {
                     List<Value> items = self(receiver).items();
@@ -118,8 +120,8 @@ public final class ArrayMembers {
                 .method("slice", Arity.between(1, 2), (receiver, context, arguments, span) -> {
                     Args args = args("slice", arguments, context, span);
                     List<Value> items = self(receiver).items();
-                    int from = clamp(args.integer(0, "начало"), items.size());
-                    int to = args.has(1) ? clamp(args.integer(1, "конец"), items.size()) : items.size();
+                    int from = Indexes.cut(items.size(), args.integer(0, "начало"));
+                    int to = args.has(1) ? Indexes.cut(items.size(), args.integer(1, "конец")) : items.size();
                     return from >= to ? ArrayValue.of(List.of()) : ArrayValue.of(items.subList(from, to));
                 })
                 .method("sort", Arity.exactly(0), (receiver, context, arguments, span) -> {
@@ -150,23 +152,5 @@ public final class ArrayMembers {
 
     private static Args args(String name, List<Value> arguments, CallContext context, Span span) {
         return Args.of("array." + name, arguments, context, span);
-    }
-
-    /** Индекс в границах: сообщение то же, что у обращения по индексу. */
-    private static int bound(long index, int last, Span span) {
-        if (index < 0 || index > last) {
-            throw new WdlRuntimeError(ErrorKind.INDEX, span,
-                    "индекс " + index + " вне границ массива размером " + (last + 1));
-        }
-        return (int) index;
-    }
-
-    /**
-     * Срез границами не ошибается, а подрезает их. Это не поблажка: у {@code slice}
-     * концы — это «докуда», а не «какой элемент», и просить хвост длиннее массива —
-     * обычное дело.
-     */
-    private static int clamp(long index, int size) {
-        return (int) Math.max(0, Math.min(index, size));
     }
 }

@@ -133,6 +133,40 @@ class LookupTest {
     }
 
     @Test
+    @DisplayName("После среза видны члены того же типа, что у получателя")
+    void sliceKeepsReceiverType() {
+        // Форма ключа видна статически: 'a[1..3]' — диапазон в скобках, то есть срез,
+        // а тип среза совпадает с типом источника. Выполнять для этого нечего.
+        String array = """
+                a = [1, 2, 3]
+                a[0..1].
+                """;
+        String text = """
+                s = "wdl"
+                s[0..1].
+                """;
+        List<Suggestion> arrayMembers = lookup(array).completeAt(array.indexOf("a[0..1].") + 8);
+        List<Suggestion> stringMembers = lookup(text).completeAt(text.indexOf("s[0..1].") + 8);
+
+        assertTrue(arrayMembers.stream().anyMatch(member -> member.name().equals("push")), arrayMembers::toString);
+        assertTrue(stringMembers.stream().anyMatch(member -> member.name().equals("upper")), stringMembers::toString);
+        assertFalse(stringMembers.stream().anyMatch(member -> member.name().equals("push")));
+    }
+
+    @Test
+    @DisplayName("После обращения по вычисляемому индексу не предлагается ничего")
+    void computedIndexSuggestsNothing() {
+        // Тип элемента без выполнения неизвестен, и врать тут нельзя: пустой список
+        // честнее широкого, но ложного.
+        String text = """
+                a = [1, 2, 3]
+                i = 0
+                a[i].
+                """;
+        assertTrue(lookup(text).completeAt(text.indexOf("a[i].") + 5).isEmpty());
+    }
+
+    @Test
     @DisplayName("Несколько присваиваний не выдают ложный точный список")
     void ambiguousAssignmentsSuggestNothing() {
         String text = """

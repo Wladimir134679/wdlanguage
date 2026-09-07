@@ -2254,9 +2254,11 @@ public final class Interpreter
             // Строковый ключ уходит в таблицу членов ДО проверки индекса: иначе
             // на 'a.size' человек получил бы «индекс массива должен быть целым
             // числом» — сообщение про то, чего он не писал.
-            case ArrayValue array -> key instanceof StringValue name
-                    ? memberOrFail(array, name.value(), span, context)
-                    : array.get(checkIndex(array.size(), key, "массива", span));
+            case ArrayValue array -> switch (key) {
+                case StringValue name -> memberOrFail(array, name.value(), span, context);
+                case RangeValue range -> slice(array, range, span);
+                default -> array.get(Indexes.element(array.size(), key, "массива", span));
+            };
             case InstanceObjectValue instance -> {
                 if (instance.has(key)) {
                     yield instance.get(key);
@@ -2289,10 +2291,12 @@ public final class Interpreter
             }
             case ClassValue declared -> readClass(declared, key, span, context);
             case ModuleValue module -> member(module, key, span, context);
-            case StringValue string -> key instanceof StringValue name
-                    ? memberOrFail(string, name.value(), span, context)
-                    : StringValue.of(String.valueOf(
-                            string.value().charAt(checkIndex(string.length(), key, "строки", span))));
+            case StringValue string -> switch (key) {
+                case StringValue name -> memberOrFail(string, name.value(), span, context);
+                case RangeValue range -> slice(string, range, span);
+                default -> StringValue.of(String.valueOf(
+                        string.value().charAt(Indexes.element(string.length(), key, "строки", span))));
+            };
             case NumberValue number -> memberOrIndex(number, key, style, span, context);
             // Диапазон неизменяем и по индексу не читается: у него только члены.
             case RangeValue range -> memberOrIndex(range, key, style, span, context);
@@ -2510,7 +2514,12 @@ public final class Interpreter
                 if (key instanceof StringValue name) {
                     throw readOnlyMember(array, name.value(), span);
                 }
-                array.set(checkIndex(array.size(), key, "массива", span), value);
+                // Отказ стоит до проверки индекса: иначе про диапазон человек услышал бы
+                // «индекс должен быть целым числом», то есть про то, чего он не писал.
+                if (key instanceof RangeValue range) {
+                    throw noSliceWrite(range, span);
+                }
+                array.set(Indexes.element(array.size(), key, "массива", span), value);
             }
             case InstanceObjectValue instance -> writeMember(instance, key, value, span, context);
             case MapValue object -> object.put(key, value);
@@ -2533,7 +2542,7 @@ public final class Interpreter
                     throw readOnlyMember(string, name.value(), span);
                 }
                 throw new WdlRuntimeError(ErrorKind.TYPE, span,
-                        "строку нельзя изменить по индексу: строки неизменяемы");
+                        "строку нельзя изменить по индексу или срезу: строки неизменяемы");
             }
             default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "в значение типа " + container.type().title() + " нельзя записать " + how(style, key));
@@ -2585,16 +2594,40 @@ public final class Interpreter
                         + name + "': такого члена нет, а завести новый нечем");
     }
 
-    private static int checkIndex(int size, Value key, String what, Span span) {
-        if (!(key instanceof NumberValue number) || !number.isInteger()) {
-            throw new WdlRuntimeError(ErrorKind.INDEX, span, "индекс " + what + " должен быть целым числом, а здесь "
-                    + key.type().title() + " (" + key + ")");
-        }
-        long index = number.asLong();
-        if (index < 0 || index >= size) {
-            throw new WdlRuntimeError(ErrorKind.INDEX, span, "индекс " + index + " вне границ " + what + " размером " + size);
-        }
-        return (int) index;
+    /**
+     * Срез массива — новый массив, а не вид на исходный: {@code b = a[0..1]; b[0] = 9}
+     * не трогает {@code a}, как и у {@code slice} с {@code copy}. Вид потребовал бы
+     * либо второго вида массива, либо неявно разделяемой памяти — обе цены
+     * несопоставимы с выгодой.
+     * <p>
+     * Размер берётся у снимка, а не у живого массива: между {@code size()}
+     * и {@code subList} соседний поток вправе укоротить массив.
+     */
+    private static Value slice(ArrayValue array, RangeValue range, Span span) {
+        List<Value> items = array.items();
+        Indexes.Slice cut = Indexes.of(items.size(), range, "массива", span);
+        return ArrayValue.of(items.subList(cut.from(), cut.to()));
+    }
+
+    /**
+     * Срез строки. Меряется в UTF-16, как {@code s[i]}, {@code len} и {@link Span}:
+     * срез посередине суррогатной пары даёт половину пары.
+     */
+    private static Value slice(StringValue string, RangeValue range, Span span) {
+        String value = string.value();
+        Indexes.Slice cut = Indexes.of(value.length(), range, "строки", span);
+        return StringValue.of(value.substring(cut.from(), cut.to()));
+    }
+
+    /**
+     * Записи в срез нет, и это не пробел: {@code a[1..3] = [x, y]} заменило бы кусок
+     * массива вместе с его длиной, а присваивание по ключу длины не меняет. Такая
+     * операция заслуживает собственного имени и собственного разговора про длину.
+     */
+    private static WdlRuntimeError noSliceWrite(RangeValue range, Span span) {
+        return new WdlRuntimeError(ErrorKind.TYPE, span, "в срез " + range.display()
+                + " нельзя записать: это заменило бы часть массива вместе с его длиной. "
+                + "Меняйте элементы по одному или соберите новый массив");
     }
 
     /** Как человек написал обращение — чтобы сообщение говорило на его языке. */

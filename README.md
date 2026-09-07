@@ -102,6 +102,7 @@
 ./gradlew :wdl-cli:run --args="examples/hello.wdl"                # выполнить скрипт
 ./gradlew :wdl-cli:run --args="examples/expressions.wdl"          # шпаргалка по выражениям
 ./gradlew :wdl-cli:run --args="examples/control-flow.wdl"         # ветвления и циклы
+./gradlew :wdl-cli:run --args="examples/slices.wdl"               # срез a[1..3] и индекс с конца
 ./gradlew :wdl-cli:run --args="examples/functions.wdl"            # функции и замыкания
 .\gradlew :wdl-cli:run --args="examples/defaults.wdl"             # значения по умолчанию
 ./gradlew :wdl-cli:run --args="examples/named-args.wdl"           # именованные аргументы
@@ -171,7 +172,9 @@ $ wdl examples/hello.wdl
 `case > 90 if !throttled` и `else` — выражением и инструкцией; ветка в несколько
 строк отдаёт значение словом `yield`),
 принадлежность (`in`, `has`, `!in`, `!has`, `!is`) и диапазоны (`1..5` — значение,
-годное для `in`, для перебора и для передачи в функцию), свои функции (`def`, `return`,
+годное для `in`, для перебора, для передачи в функцию и для среза: `a[1..3]`
+и `s[0..2]` с включительными границами, рядом с отрицательным индексом `a[-1]`
+и записью «от второго до последнего» `a[1..-1]` — [docs/access.md](docs/access.md)), свои функции (`def`, `return`,
 тело-выражение `=>`, анонимные функции, значения параметров по умолчанию,
 именованные аргументы `f(count: 2)`, вариативные параметры `*args`/`**named`
 и раскрытие `f(*array)`, параметр-дырка `def onClick(_, event)`, замыкания),

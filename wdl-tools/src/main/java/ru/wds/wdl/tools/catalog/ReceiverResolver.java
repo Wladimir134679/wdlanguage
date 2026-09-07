@@ -4,6 +4,7 @@ import ru.wds.wdl.ast.Node;
 import ru.wds.wdl.ast.Nodes;
 import ru.wds.wdl.ast.expr.AccessExpr;
 import ru.wds.wdl.ast.expr.ArrayExpr;
+import ru.wds.wdl.ast.expr.BinaryExpr;
 import ru.wds.wdl.ast.expr.CallExpr;
 import ru.wds.wdl.ast.expr.ErrorExpr;
 import ru.wds.wdl.ast.expr.Expr;
@@ -12,6 +13,7 @@ import ru.wds.wdl.ast.expr.LiteralExpr;
 import ru.wds.wdl.ast.expr.NewExpr;
 import ru.wds.wdl.ast.expr.ObjectExpr;
 import ru.wds.wdl.ast.expr.VariableExpr;
+import ru.wds.wdl.ast.op.BinaryOp;
 import ru.wds.wdl.ast.stmt.AssignStmt;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.ast.stmt.ConstDeclStmt;
@@ -102,7 +104,8 @@ public final class ReceiverResolver {
     private ReceiverType resolveAccess(AccessExpr access) {
         String name = access.literalKey();
         if (name == null) {
-            return ReceiverType.unknown("вычисляемый ключ");
+            ReceiverType slice = sliceOf(access);
+            return slice != null ? slice : ReceiverType.unknown("вычисляемый ключ");
         }
         ReceiverType target = resolve(access.target());
         if (target instanceof ReceiverType.Module module) {
@@ -113,6 +116,30 @@ public final class ReceiverResolver {
         MemberDescriptor member = MemberLookup.of(catalog).members(target).stream()
                 .filter(candidate -> candidate.name().equals(name)).findFirst().orElse(null);
         return resultOf(target, member, "результат доступа не описан");
+    }
+
+    /**
+     * Срез: {@code a[1..3]} и {@code s[0..2]} отдают значение того же типа, что
+     * получатель, — и это видно из текста, не из выполнения. Тип элемента у
+     * {@code a[i]} без выполнения неизвестен, поэтому обычный вычисляемый ключ
+     * так и остаётся неизвестным: широкое, но ложное completion хуже пустого.
+     * <p>
+     * Уверенность {@code INFERRED}, а не {@code EXACT}: диапазон в скобках даёт срез
+     * только у массива и строки, а у объекта остаётся обычным ключом — и там
+     * значением под ним лежит что угодно.
+     */
+    private ReceiverType sliceOf(AccessExpr access) {
+        if (!(access.key() instanceof BinaryExpr key) || key.op() != BinaryOp.RANGE) {
+            return null;
+        }
+        if (!(resolve(access.target()) instanceof ReceiverType.Builtin receiver)) {
+            return null;
+        }
+        return switch (receiver.valueType()) {
+            case ARRAY, STRING -> new ReceiverType.Builtin(receiver.valueType(),
+                    ReceiverType.Confidence.INFERRED, "срез");
+            default -> null;
+        };
     }
 
     private ReceiverType resolveCall(CallExpr call) {

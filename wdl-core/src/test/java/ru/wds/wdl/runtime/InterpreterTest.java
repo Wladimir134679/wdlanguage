@@ -200,11 +200,32 @@ class InterpreterTest {
     @DisplayName("выход за границы массива — ошибка с размером в сообщении")
     void arrayOutOfBounds() {
         assertTrue(errorOf("[1, 2][5]").getMessage().contains("вне границ массива размером 2"));
-        assertTrue(errorOf("[1, 2][-1]").getMessage().contains("вне границ"));
         // Строковый ключ у массива уходит в члены раньше проверки индекса: иначе
         // на 'a.size' человек получил бы «индекс должен быть целым числом».
         assertTrue(errorOf("[1, 2][\"a\"]").getMessage().contains("нет члена 'a'"));
         assertTrue(errorOf("[1, 2][true]").getMessage().contains("целым числом"));
+    }
+
+    @Test
+    @DisplayName("отрицательный индекс считается от конца")
+    void negativeIndex() {
+        assertEquals("3", show("[1, 2, 3][-1]"));
+        assertEquals("1", show("[1, 2, 3][-3]"));
+        assertEquals("o", show("\"Hello\"[-1]"));
+        // Запись подчиняется тому же правилу: иначе 'a[-1]' читалось бы и не писалось.
+        assertEquals("[1, 2, 9]", show("(def() { a = [1, 2, 3]; a[-1] = 9; return a; })()"));
+    }
+
+    @Test
+    @DisplayName("промах отрицательным индексом называет нижнюю границу")
+    void negativeOutOfBounds() {
+        // Без хвоста про конец сообщение о -9 неотличимо от сообщения о 9,
+        // а перепутать направление — самая вероятная ошибка в первый месяц.
+        String message = errorOf("[1, 2, 3][-4]").getMessage();
+        assertTrue(message.contains("индекс -4 вне границ массива размером 3"), message);
+        assertTrue(message.contains("наименьший здесь -3"), message);
+        // У пустого массива считать не от чего, и хвост только мешал бы.
+        assertFalse(errorOf("[][-1]").getMessage().contains("наименьший"));
     }
 
     @Test

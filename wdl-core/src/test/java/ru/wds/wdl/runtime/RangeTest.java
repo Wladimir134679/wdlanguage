@@ -161,4 +161,76 @@ class RangeTest {
         assertEquals("true", show("1..5 == 1..5"));
         assertEquals("false", show("1..5 == 1..6"));
     }
+
+    // --- диапазон как ключ: срез -----------------------------------------------
+
+    @Test
+    @DisplayName("срез массива берёт обе границы включительно, как for и in")
+    void arraySlice() {
+        assertEquals("[20, 30, 40]", show("[10, 20, 30, 40, 50][1..3]"));
+        // Тип результата не зависит от значений границ: иначе 'a[i..j].push(x)'
+        // работало бы через раз.
+        assertEquals("[10]", show("[10, 20, 30][0..0]"));
+        assertEquals("[]", show("[10, 20, 30][2..1]"));
+    }
+
+    @Test
+    @DisplayName("отрицательная граница среза считается от конца")
+    void negativeSliceBounds() {
+        assertEquals("[20, 30, 40]", show("[10, 20, 30, 40][1..-1]"));
+        assertEquals("[30, 40]", show("[10, 20, 30, 40][-2..-1]"));
+        assertEquals("[10, 20, 30, 40]", show("[10, 20, 30, 40][-100..100]"));
+    }
+
+    @Test
+    @DisplayName("границы среза подрезаются, а не ошибаются")
+    void sliceClamps() {
+        // Вопрос у среза другой, чем у элемента: не «какой элемент под номером»,
+        // а «какая часть попадает в промежуток», — и ответ есть всегда.
+        assertEquals("[30, 40]", show("[10, 20, 30, 40][2..100]"));
+        assertEquals("[]", show("[][0..10]"));
+        assertTrue(errorOf("[10, 20][9]").getMessage().contains("вне границ"));
+    }
+
+    @Test
+    @DisplayName("срез строки отдаёт строку")
+    void stringSlice() {
+        assertEquals("wdl", show("\"wdlanguage\"[0..2]"));
+        assertEquals("uage", show("\"wdlanguage\"[-4..-1]"));
+        assertEquals("", show("\"wdl\"[2..1]"));
+    }
+
+    @Test
+    @DisplayName("срез — копия, а не вид на исходный массив")
+    void sliceIsCopy() {
+        assertEquals("10", printed("a = [10, 20, 30]; b = a[0..1]; b[0] = 0; println(a[0])"));
+    }
+
+    @Test
+    @DisplayName("границы среза обязаны быть целыми")
+    void sliceBoundsMustBeIntegers() {
+        // Тот же довод, что у 'for (x in 0.5..2.5)': какие позиции содержит такой
+        // диапазон «по одной», языку решать не за что.
+        String message = errorOf("[10, 20, 30][0.5..2.5]").getMessage();
+        assertTrue(message.contains("должны быть целыми числами"), message);
+        assertTrue(message.contains("0.5..2.5"), message);
+    }
+
+    @Test
+    @DisplayName("в срез нельзя записать: это изменило бы длину")
+    void sliceIsReadOnly() {
+        String message = runtimeErrorOf("a = [10, 20, 30]; a[1..2] = [0]").getMessage();
+        assertTrue(message.contains("в срез 1..2 нельзя записать"), message);
+        assertTrue(message.contains("вместе с его длиной"), message);
+        assertTrue(runtimeErrorOf("s = \"abc\"; s[1..2] = \"x\"")
+                .getMessage().contains("по индексу или срезу"));
+    }
+
+    @Test
+    @DisplayName("у объекта диапазон остаётся ключом, а не срезом")
+    void objectKeepsRangeAsKey() {
+        // Это не исключение из правила, а само правило: контейнер толкует ключ
+        // по-своему, у массива ключ — позиция, у объекта — ключ.
+        assertEquals("промежуток", printed("c = {}; c[1..3] = \"промежуток\"; println(c[1..3])"));
+    }
 }
