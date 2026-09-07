@@ -27,13 +27,13 @@ public final class WdlRunConfiguration extends RunConfigurationBase<RunConfigura
     }
 
     private Path directory() {
-        String base = getProject().getBasePath();
-        Path root = Path.of(base == null ? "." : base);
+        Path root = WdlProjectRoot.of(getProject());
         return workingDirectory.isBlank() ? root : root.resolve(workingDirectory).normalize();
     }
 
     @Override public void checkConfiguration() throws RuntimeConfigurationException {
         try {
+            options();
             if (target.isBlank()) throw new IllegalArgumentException("Укажите файл или каталог проекта");
             if (!Files.isDirectory(directory())) throw new IllegalArgumentException("Рабочий каталог не существует");
             Path file = directory().resolve(target);
@@ -46,6 +46,28 @@ public final class WdlRunConfiguration extends RunConfigurationBase<RunConfigura
         }
     }
 
+    private java.util.List<String> options() {
+        var options = ParametersListUtil.parse(interpreterOptions);
+        for (String option : options) {
+            if (option.equals("--project-root") || option.startsWith("--project-root="))
+                throw new IllegalArgumentException("Корень импортов задаёт проект IDEA; удалите --project-root из параметров wdl");
+            if (option.equals("--"))
+                throw new IllegalArgumentException("Параметр -- добавляется автоматически; используйте поле аргументов скрипта");
+        }
+        return options;
+    }
+
+    GeneralCommandLine createCommandLine(Path launcher) {
+        GeneralCommandLine command = WdlCommandLine.create(launcher, "ru.wds.wdl.cli.Main");
+        command.withWorkDirectory(directory().toFile());
+        command.addParameters(options());
+        command.addParameters("--project-root", WdlProjectRoot.of(getProject()).toString());
+        command.addParameter("--");
+        command.addParameter(directory().resolve(target).normalize().toString());
+        command.addParameters(ParametersListUtil.parse(scriptArguments));
+        return command;
+    }
+
     @Override public @NotNull SettingsEditor<WdlRunConfiguration> getConfigurationEditor() {
         return new WdlRunSettingsEditor();
     }
@@ -55,12 +77,7 @@ public final class WdlRunConfiguration extends RunConfigurationBase<RunConfigura
             @Override protected @NotNull ProcessHandler startProcess() throws ExecutionException {
                 Path launcher = WdlCommandLine.findCli(getProject(), interpreter);
                 if (launcher == null) throw new ExecutionException("wdl не найден; выполните installWdl");
-                GeneralCommandLine command = WdlCommandLine.create(launcher, "ru.wds.wdl.cli.Main");
-                command.withWorkDirectory(directory().toFile());
-                command.addParameters(ParametersListUtil.parse(interpreterOptions));
-                command.addParameter("--");
-                command.addParameter(directory().resolve(target).normalize().toString());
-                command.addParameters(ParametersListUtil.parse(scriptArguments));
+                GeneralCommandLine command = createCommandLine(launcher);
                 OSProcessHandler handler = new KillableColoredProcessHandler(command);
                 ProcessTerminatedListener.attach(handler);
                 return handler;

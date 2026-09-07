@@ -55,13 +55,29 @@ final class WdlLspServerDescriptor extends ProjectWideLspServerDescriptor {
     }
 
     @Override
+    public org.eclipse.lsp4j.InitializeParams createInitializeParams() {
+        var params = super.createInitializeParams();
+        String uri = WdlProjectRoot.of(getProject()).toUri().toString();
+        params.setRootUri(uri);
+        params.setWorkspaceFolders(java.util.List.of(
+                new org.eclipse.lsp4j.WorkspaceFolder(uri, getProject().getName())));
+        return params;
+    }
+
+    @Override
+    public Object createInitializationOptions() {
+        return java.util.Map.of("wdl", java.util.Map.of("sourceRoots",
+                java.util.List.of(WdlProjectRoot.of(getProject()).toUri().toString())));
+    }
+
+    @Override
     public @NotNull GeneralCommandLine createCommandLine() {
         GeneralCommandLine command = WdlCommandLine.create(server, "ru.wds.wdl.lsp.Main");
         command.addParameter("--stdio");
         // Сообщения протокола — UTF-8 по спецификации, и русский текст диагностики
         // приходит в них же.
         command.setCharset(StandardCharsets.UTF_8);
-        command.withWorkDirectory(getProject().getBasePath());
+        command.withWorkDirectory(WdlProjectRoot.of(getProject()).toFile());
         return command;
     }
 }

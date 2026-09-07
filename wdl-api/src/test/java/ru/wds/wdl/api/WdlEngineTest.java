@@ -39,6 +39,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * что скрипту доступно, что он отдаёт наружу и что происходит, когда он падает.
  */
 class WdlEngineTest {
+    @Test
+    @DisplayName("явный корень проекта и каталог файла по умолчанию")
+    void projectRoot(@org.junit.jupiter.api.io.TempDir java.nio.file.Path root) throws Exception {
+        var nested = java.nio.file.Files.createDirectories(root.resolve("nested"));
+        var file = nested.resolve("main.wdl");
+        java.nio.file.Files.writeString(file, "import helper; def result() => value; result();");
+        java.nio.file.Files.writeString(root.resolve("helper.wdl"), "value = 42;");
+        java.nio.file.Files.writeString(nested.resolve("helper.wdl"), "value = 99;");
+        assertEquals(42L, Values.toJava(WdlEngine.builder().projectRoot(root).build().compile(file).run()));
+        assertEquals(42L, Values.toJava(WdlEngine.builder().sourceRoot(root).build().compile(file).run()));
+        assertEquals(99L, Values.toJava(WdlEngine.builder().build().compile(file).run()));
+    }
 
     private static WdlEngine engine() {
         return WdlEngine.builder().stdlib(Stdlib.SAFE).build();

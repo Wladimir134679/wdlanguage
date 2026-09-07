@@ -72,7 +72,7 @@ import java.util.concurrent.Callable;
                 + "и вызовы (println, print, typeof, len), ветвления и циклы,%n"
                 + "свои функции: def имя(a, b) => a + b, классы и трейты.%n"
                 + "Модули подключаются через import lib.math или import lib.math as m;%n"
-                + "путь считается от каталога файла, где написан import.%n"
+                + "путь считается от корня проекта (--project-root).%n"
                 + "Встроенные модули: sys.io (файлы), sys.json, sys.net.http, std.%n%n"
                 + "Время стадий: wdl --metrics script.wdl;%n"
                 + "строка на каждую законченную стадию — wdl --metrics-each script.wdl."
@@ -143,6 +143,10 @@ public final class Main implements Callable<Integer> {
             description = "Файл .wdl или каталог проекта с main.wdl")
     private Path scriptFile;
 
+    @Option(names = "--project-root", paramLabel = "<каталог>",
+            description = "Корень импортов; по умолчанию каталог исполняемого файла")
+    private Path projectRoot;
+
     @Parameters(index = "1..*", arity = "0..*", paramLabel = "<args>",
             description = "Аргументы скрипта (после --), доступны как args")
     private List<String> scriptArguments = new ArrayList<>();
@@ -162,6 +166,10 @@ public final class Main implements Callable<Integer> {
 
     @Override
     public Integer call() {
+        if (projectRoot != null && !Files.isDirectory(projectRoot)) {
+            System.err.println("Корень проекта не является каталогом: " + projectRoot);
+            return EXIT_USAGE_ERROR;
+        }
         if (repl) {
             return repl(showJavaTrace);
         }
@@ -303,7 +311,8 @@ public final class Main implements Callable<Integer> {
         // только тогда, когда выполнится их 'import': файла может ещё и не быть.
         // Приёмник метрик достаётся реестру модулей отдельно от контекста: разбор
         // модуля случается здесь, а выполнение — в запуске, и объекты это разные.
-        ModuleUnits modules = new ModuleUnits(ModuleSource.ofDirectory(home(path)), metrics);
+        ModuleUnits modules = new ModuleUnits(ModuleSource.ofDirectory(
+                projectRoot != null ? projectRoot.toAbsolutePath().normalize() : home(path)), metrics);
 
         // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
         // а не ядра: встроенный движок по умолчанию не печатает никуда.
@@ -389,14 +398,15 @@ public final class Main implements Callable<Integer> {
     /**
      * Интерактивный режим: строка — выражение — значение.
      */
-    private static int repl(boolean withJavaTrace) {
+    private int repl(boolean withJavaTrace) {
         System.out.println("wdl " + version()
                 + " — интерактивный режим. Имена: :names [начало]. Выход: :q или Ctrl+D.");
         Interpreter interpreter = new Interpreter();
         // У строки, набранной в REPL, файла нет, поэтому и каталога у неё нет:
         // импорты считаются от рабочей директории процесса. Реестр один на сеанс —
         // модуль, импортированный одной строкой, остаётся тем же самым для следующих.
-        ModuleUnits modules = new ModuleUnits(ModuleSource.ofDirectory(Path.of("")));
+        ModuleUnits modules = new ModuleUnits(ModuleSource.ofDirectory(
+                projectRoot != null ? projectRoot.toAbsolutePath().normalize() : Path.of("")));
         ExecutionContext context = standardContext().withModules(modules);
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, outputCharset()));

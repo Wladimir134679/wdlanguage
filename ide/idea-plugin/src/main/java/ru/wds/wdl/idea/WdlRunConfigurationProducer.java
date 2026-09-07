@@ -25,7 +25,7 @@ public final class WdlRunConfigurationProducer extends LazyRunConfigurationProdu
         VirtualFile file = file(context);
         if (file == null) return false;
         c.target = file.getPath();
-        c.workingDirectory = file.getParent().getPath();
+        c.workingDirectory = "";
         c.setName(file.getName());
         return true;
     }

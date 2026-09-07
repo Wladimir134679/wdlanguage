@@ -190,14 +190,14 @@ class ModuleTest {
     // --- пути ----------------------------------------------------------------
 
     @Test
-    @DisplayName("путь модуля считается от каталога того файла, где написан import")
-    void relativePathsStartAtImportingFile() {
+    @DisplayName("путь модуля считается от корня проекта")
+    void pathsStartAtProjectRoot() {
         assertEquals("рядом" + NL, run("""
                 import lib.outer as o
                 println(o.value)
                 """, Map.of(
                 "lib/outer", "import inner\nvalue = mark",
-                "lib/inner", "mark = \"рядом\"")));
+                "inner", "mark = \"рядом\"")));
     }
 
     @Test
@@ -219,10 +219,10 @@ class ModuleTest {
         assertEquals("lib/math", ModuleKey.resolve("lib/math", ""));
         assertEquals("lib/math", ModuleKey.resolve("lib/math.wdl", ""));
         assertEquals("lib/math", ModuleKey.resolve("/lib/math.wdl", ""));
-        assertEquals("lib/math", ModuleKey.resolve("math", "lib"));
-        assertEquals("lib/math", ModuleKey.resolve("./math.wdl", "lib"));
+        assertEquals("math", ModuleKey.resolve("math", "lib"));
+        assertEquals("math", ModuleKey.resolve("./math.wdl", "lib"));
         assertEquals("math", ModuleKey.resolve("/math", "lib"));
-        assertEquals("shared/math", ModuleKey.resolve("../shared/math", "lib"));
+        assertEquals("../shared/math", ModuleKey.resolve("../shared/math", "lib"));
     }
 
     // --- ошибки --------------------------------------------------------------
@@ -399,7 +399,7 @@ class ModuleTest {
                     x = 1
                     def show() => x
                     """,
-            "lib/re", "import base");
+            "lib/re", "import lib.base");
 
     @Test
     @DisplayName("реэкспорт живой: имя, пришедшее в модуль импортом, — та же ячейка")

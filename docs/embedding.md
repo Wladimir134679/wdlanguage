@@ -428,7 +428,7 @@ NativeModules natives = NativeModules.of(Map.of(
         "app/world",    () -> new WorldLibrary(server)));
 
 ExecutionContext context = ExecutionContext.of(scope, output)
-        .withModules(ModuleSource.ofDirectory(scripts))
+        .withModules(ModuleSource.ofDirectory(scripts)) // scripts — корень всех импортов
         .withNativeModules(natives);
 ```
 

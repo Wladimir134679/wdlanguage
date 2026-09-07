@@ -9,6 +9,48 @@ import org.jdom.Element;
 import java.nio.file.Path;
 
 public final class WdlRunIntegrationTest extends BasePlatformTestCase {
+    public void testRunAndAnalysisShareProjectRootWithCustomWorkingDirectory() {
+        var factory = ConfigurationTypeUtil.findConfigurationType(WdlRunConfigurationType.class)
+                .getConfigurationFactories()[0];
+        var run = (WdlRunConfiguration) factory.createTemplateConfiguration(getProject());
+        run.target = "nested/main.wdl";
+        run.workingDirectory = "some directory";
+        run.interpreterOptions = "--metrics";
+        run.scriptArguments = "\"two words\" --project-root other";
+        var command = run.createCommandLine(Path.of("distribution", "bin", "wdl").toAbsolutePath());
+        var args = command.getParametersList().getList();
+        int rootOption = args.indexOf("--project-root");
+        Path root = Path.of(args.get(rootOption + 1));
+        assertEquals(WdlProjectRoot.of(getProject()), root);
+        assertEquals("--", args.get(rootOption + 2));
+        assertEquals(root.resolve("some directory/nested/main.wdl").toString(), args.get(rootOption + 3));
+        assertEquals(java.util.List.of("two words", "--project-root", "other"),
+                args.subList(rootOption + 4, args.size()));
+        assertEquals(root.resolve("some directory").toFile(), command.getWorkDirectory());
+        var descriptor = new WdlLspServerDescriptor(getProject(), Path.of("wdl-lsp"));
+        var init = descriptor.createInitializeParams();
+        assertEquals(root, Path.of(java.net.URI.create(init.getRootUri())));
+        assertEquals(java.util.List.of(new org.eclipse.lsp4j.WorkspaceFolder(
+                root.toUri().toString(), getProject().getName())), init.getWorkspaceFolders());
+        assertEquals(java.util.Map.of("wdl", java.util.Map.of("sourceRoots",
+                java.util.List.of(root.toUri().toString()))), init.getInitializationOptions());
+    }
+
+    public void testRunCannotOverrideAnalysisRoot() {
+        var factory = ConfigurationTypeUtil.findConfigurationType(WdlRunConfigurationType.class)
+                .getConfigurationFactories()[0];
+        var run = (WdlRunConfiguration) factory.createTemplateConfiguration(getProject());
+        for (String options : java.util.List.of("--project-root other", "--project-root=other", "--")) {
+            run.interpreterOptions = options;
+            try {
+                run.createCommandLine(Path.of("distribution", "bin", "wdl").toAbsolutePath());
+                fail("Недопустимые параметры приняты: " + options);
+            } catch (IllegalArgumentException expected) {
+                assertFalse(expected.getMessage().isBlank());
+            }
+        }
+    }
+
     public void testRunPsiStillRequestsLspHighlighting() {
         PsiFile file = myFixture.configureByText(WdlFileType.INSTANCE, "const answer = 42\nprintln(\"hello\")\n");
         var descriptor = new WdlLspServerDescriptor(getProject(), Path.of("wdl-lsp"));

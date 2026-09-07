@@ -22,6 +22,7 @@ final class WdlRunSettingsEditor extends SettingsEditor<WdlRunConfiguration> {
         panel = FormBuilder.createFormBuilder()
                 .addLabeledComponent("Файл / проект (main.wdl):", target)
                 .addLabeledComponent("Рабочий каталог (пусто = проект IDEA):", directory)
+                .addComponent(new JLabel("Корень импортов для запуска и анализа — проект IDEA."))
                 .addLabeledComponent("Параметры wdl:", options)
                 .addLabeledComponent("Аргументы скрипта:", arguments)
                 .addLabeledComponent("bin/wdl или bin/wdl.bat (пусто = автоматически):", interpreter)

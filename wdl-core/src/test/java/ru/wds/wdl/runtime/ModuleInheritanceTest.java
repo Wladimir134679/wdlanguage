@@ -390,7 +390,7 @@ class ModuleInheritanceTest {
                 class Circle : r.s.Shape("круг")
                 println(new Circle().text())
                 """, Map.of(
-                "lib/re", "import base as s",
+                "lib/re", "import lib.base as s",
                 "lib/base", "class Shape(title) { def text() => \"фигура \" + title }")));
     }
 
@@ -415,7 +415,7 @@ class ModuleInheritanceTest {
                 class Circle : r.Shape("круг")
                 println(new Circle().text())
                 """, Map.of(
-                "lib/re", "import base",
+                "lib/re", "import lib.base",
                 "lib/base", "class Shape(title) { def text() => \"фигура \" + title }")));
     }
 }

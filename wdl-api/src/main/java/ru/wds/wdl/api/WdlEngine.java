@@ -342,6 +342,11 @@ public final class WdlEngine {
          * а для скрипта-строки не берутся вовсе.
          */
         public Builder sourceRoot(Path root) {
+            return projectRoot(root);
+        }
+
+        /** Корень всех файловых импортов; без него используется каталог исполняемого файла. */
+        public Builder projectRoot(Path root) {
             this.sources = ModuleSource.ofDirectory(Objects.requireNonNull(root, "root"));
             return this;
         }

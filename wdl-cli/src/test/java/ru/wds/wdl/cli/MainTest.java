@@ -54,6 +54,21 @@ class MainTest {
         assertEquals(2, run(temp.toString()).status());
     }
 
+    @Test void projectRootOverridesEntryDirectoryForNestedImports() throws Exception {
+        Path scripts = Files.createDirectories(temp.resolve("scripts"));
+        Path lib = Files.createDirectories(temp.resolve("lib"));
+        Path entry = scripts.resolve("main.wdl");
+        Files.writeString(entry, "import lib.outer; println(answer);");
+        Files.writeString(lib.resolve("outer.wdl"), "import helper; answer = value;");
+        Files.writeString(temp.resolve("helper.wdl"), "value = 42;");
+        Files.writeString(lib.resolve("helper.wdl"), "value = 99;");
+        Result result = run("--project-root", temp.toString(), entry.toString());
+        assertEquals(0, result.status(), result.err());
+        assertEquals("42", result.out().trim());
+        assertEquals(1, run(entry.toString()).status());
+        assertEquals(2, run("--project-root", entry.toString(), entry.toString()).status());
+    }
+
     @Test void scriptErrorRetainsNonzeroExitCode() throws Exception {
         Path file = temp.resolve("broken.wdl");
         Files.writeString(file, "println(missingName);");
