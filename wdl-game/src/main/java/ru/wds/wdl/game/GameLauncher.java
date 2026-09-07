@@ -1,40 +1,37 @@
 package ru.wds.wdl.game;
 
-import ru.wds.wdl.api.Stdlib;
-import ru.wds.wdl.api.WdlEngine;
 import ru.wds.wdl.api.WdlException;
+import ru.wds.wdl.game.engine.Engine;
+import ru.wds.wdl.game.pong.Match;
+import ru.wds.wdl.game.pong.Pong;
 import ru.wds.wdl.runtime.Output;
 
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 
 /**
- * Запуск игры: {@code wdgame examples/game/pong.wdl}.
+ * Запуск игры: {@code wdgame}.
  * <p>
- * Приложение здесь — <b>движок</b>, а не язык: он собирает {@link WdlEngine},
- * кладёт рядом со стандартной библиотекой свой модуль {@code game} и отдаёт
- * управление скрипту. Ровно так же поступила бы чужая игра, решившая, что моды
- * к ней пишут на wdl, — и в этом весь смысл модуля: показать встраивание с той
- * стороны, с которой его видит хозяин.
+ * Приложение здесь — <b>игра</b>, а не язык. Она собирает движок, читает свои
+ * встроенные скрипты и играет; wdl внутри неё занят тем же, чем был бы занят
+ * в чужой игре: правилами, которые меняются чаще, чем пересобирается код.
+ * Аргументов у запуска нет, и это часть замысла — скрипт здесь не «то, что
+ * запускают», а часть самой игры.
  *
  * <pre>{@code
- * ./gradlew :wdl-game:run --args="examples/game/pong.wdl"
+ * ./gradlew :wdl-game:run
  * ./gradlew :wdl-game:installDist   # → wdl-game/build/install/wdgame/bin/wdgame
  * }</pre>
  *
- * Без аргументов запускается пример из репозитория ({@code examples/game/pong.wdl}):
- * запуск без параметров — это «Run» из IDE, и показывать в такой момент справку
- * вместо игры значит не показать ничего.
+ * Управление: <b>W/S</b> или стрелки — ракетка, <b>ПРОБЕЛ</b> — подача,
+ * <b>R</b> — новая партия, <b>ESC</b> — выход.
  */
 public final class GameLauncher {
 
-    /** Ошибка в самом скрипте. */
+    /** Ошибка во встроенном скрипте. */
     private static final int EXIT_SCRIPT_ERROR = 1;
-    /** Ошибка в том, как запустили: нет файла, не указан путь. */
-    private static final int EXIT_USAGE_ERROR = 2;
+    /** Играть негде: нет графической среды или запуск позвали не так. */
+    private static final int EXIT_ENVIRONMENT_ERROR = 2;
 
     private GameLauncher() {
     }
@@ -53,51 +50,37 @@ public final class GameLauncher {
         System.exit(code);
     }
 
-    private static int run(String[] arguments, PrintStream console) {
-        if (arguments.length > 0 && isHelp(arguments[0])) {
+    static int run(String[] arguments, PrintStream console) {
+        if (arguments.length > 0) {
+            boolean help = isHelp(arguments[0]);
             usage(console);
-            return 0;
-        }
-        Path script;
-        if (arguments.length == 0) {
-            // Запуск без аргументов — это «Run» из IDE, а не забытый параметр:
-            // движок в такой момент обязан показать себя, а не справку. Игра
-            // берётся из репозитория, а не из ресурсов jar: второй копии
-            // pong.wdl быть не должно — она разойдётся с первой.
-            script = demoGame();
-            if (script == null) {
-                usage(console);
-                return EXIT_USAGE_ERROR;
-            }
-            console.println("Скрипт не указан — запускаю пример: " + script);
-        } else {
-            try {
-                script = Path.of(arguments[0]);
-            } catch (InvalidPathException wrong) {
-                System.err.println("Не путь к скрипту: " + arguments[0]);
-                return EXIT_USAGE_ERROR;
-            }
-        }
-        if (!Files.isRegularFile(script)) {
-            System.err.println("Файл игры не найден: " + script.toAbsolutePath());
-            return EXIT_USAGE_ERROR;
+            return help ? 0 : EXIT_ENVIRONMENT_ERROR;
         }
 
-        WdlEngine engine = WdlEngine.builder()
-                // Стандартная библиотека — потому что игра пишется как обычный скрипт:
-                // ей нужны и математика, и Random, и sys.io для рекордов.
-                .stdlib(Stdlib.STANDARD)
-                .output(Output.standard())
-                .module(Games.NAME, Games::library)
-                .build();
-        try {
-            engine.run(script);
+        Engine engine = Pong.arena();
+        // Скрипты закрываются вместе с игрой: за ними стоит запуск wdl со своими
+        // модулями, и держать его дольше окна незачем.
+        try (PongScripts scripts = PongScripts.embedded(Output.standard())) {
+            Pong pong = new Pong(engine, scripts);
+            console.println("Пинг-понг — WDGame. W/S или стрелки — ракетка, "
+                    + "ПРОБЕЛ — подача, R — заново, ESC — выход.");
+            engine.run(pong);
+            Match match = pong.match();
+            console.println("Счёт: " + match.player() + " : " + match.rival()
+                    + ", кадров сыграно: " + engine.frames());
             return 0;
         } catch (WdlException failed) {
-            // Разбор и выполнение оба приходят сюда: сообщение уже собрано движком —
-            // с местом в исходнике и путём по скрипту.
+            // Сообщение уже собрано движком — с местом во встроенном скрипте
+            // и путём по вызовам.
             System.err.println(failed.getMessage());
             return EXIT_SCRIPT_ERROR;
+        } catch (IllegalStateException impossible) {
+            // Сюда приходит «графической среды нет» и «встроенный скрипт не
+            // объявил хук»: и то и другое — про среду запуска, а не про игру.
+            System.err.println(impossible.getMessage());
+            return EXIT_ENVIRONMENT_ERROR;
+        } finally {
+            engine.close();
         }
     }
 
@@ -105,38 +88,21 @@ public final class GameLauncher {
         return "-h".equals(argument) || "--help".equals(argument);
     }
 
-    /**
-     * Пример игры, лежащий в репозитории, или {@code null}.
-     * <p>
-     * Ищется вверх по дереву от рабочего каталога — тем же приёмом, которым
-     * тесты находят {@code examples/}. Причина та же: рабочий каталог задаёт
-     * тот, кто запустил, и у Gradle, у IDE и у собранного дистрибутива он разный.
-     */
-    static Path demoGame() {
-        for (Path directory = Path.of("").toAbsolutePath(); directory != null;
-                directory = directory.getParent()) {
-            Path candidate = directory.resolve("examples").resolve("game").resolve("pong.wdl");
-            if (Files.isRegularFile(candidate)) {
-                return candidate;
-            }
-        }
-        return null;
-    }
-
     private static void usage(PrintStream console) {
-        console.println("WDGame — маленький игровой движок, играющий скриптами на wdl.");
+        console.println("WDGame — маленький игровой движок; пинг-понг на нём "
+                + "играется по встроенным скриптам на wdl.");
         console.println();
-        console.println("  wdgame <файл.wdl>       запустить игру");
-        console.println("  wdgame                  запустить пример examples/game/pong.wdl");
-        console.println("  wdgame --help           эта справка");
+        console.println("  wdgame            играть");
+        console.println("  wdgame --help     эта справка");
         console.println();
-        console.println("Скрипту доступны стандартная библиотека и модуль game:");
-        console.println("  import game as g");
-        console.println("  world = new g.World(title: \"Игра\", width: 800, height: 480)");
-        console.println("  world.spawn(\"ball\", x: 100, y: 100, w: 12, h: 12, shape: \"oval\")");
-        console.println("  world.onUpdate(def (dt) { ... })");
-        console.println("  world.run()");
+        console.println("Управление: W/S или стрелки — ракетка, ПРОБЕЛ — подача,");
+        console.println("            R — новая партия, ESC — выход.");
         console.println();
-        console.println("Пример игры: examples/game/pong.wdl");
+        console.println("Правила лежат скриптами внутри jar и меняются без пересборки игры:");
+        console.println("  pong.wdl    какие функции игра спрашивает");
+        console.println("  rules.wdl   подача, отскок от ракетки, конец партии");
+        console.println("  rival.wdl   соперник");
+        console.println("  hud.wdl     счёт и надписи поверх кадра");
+        console.println("Исходники: wdl-game/src/main/resources/ru/wds/wdl/game/pong/");
     }
 }

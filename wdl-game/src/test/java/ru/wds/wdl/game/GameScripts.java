@@ -15,8 +15,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * Запуск скрипта с одним подключённым модулем {@code game} — то же, что делает
- * {@link GameLauncher}, только вывод собирается в строку, а окно не открывается.
+ * Запуск скрипта с одним подключённым модулем {@code game}: вывод собирается
+ * в строку, окна нет.
+ * <p>
+ * Так проверяется то, что модуль даёт сам по себе, — типы и две функции. Всё
+ * остальное приходит скрипту от игры и проверяется вместе с ней
+ * ({@link PongScriptsTest}).
  */
 final class GameScripts {
 

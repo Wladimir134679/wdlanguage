@@ -10,7 +10,7 @@ import java.util.Objects;
  * <h2>Цикл идёт в потоке, который его позвал</h2>
  * {@link #run} не заводит потока. Это решение, а не упрощение: обработчик игры
  * (а через мост — функция скрипта) выполняется там же, где стоит вызов
- * {@code world.run()}, и потому его ошибка обычным образом доходит до автора
+ * {@code Engine.run}, и потому его ошибка обычным образом доходит до автора
  * скрипта — с местом в коде, с {@code try}/{@code catch}, без единой строчки
  * про потоки. Цена — {@code run()} не возвращает управления, пока игра идёт;
  * так и должно быть, это и есть игра.
@@ -166,7 +166,19 @@ public final class Engine {
         game.update(dt);
     }
 
-    private void render(Game game) {
+    /**
+     * Рисует один кадр в память и отдаёт картинку — без окна и без ожидания.
+     * <p>
+     * Пара к {@link #step}: тот проверяет правила, этот — рисование. Ни то,
+     * ни другое не требует графической среды, и это то же самое решение, ради
+     * которого сцена отделена от окна.
+     */
+    public BufferedImage paint(Game game) {
+        Objects.requireNonNull(game, "game");
+        return render(game);
+    }
+
+    private BufferedImage render(Game game) {
         int index = nextBuffer;
         nextBuffer = (nextBuffer + 1) % buffers.length;
         Painter painter = painters[index];
@@ -186,5 +198,6 @@ public final class Engine {
         if (opened != null) {
             opened.present(buffers[index]);
         }
+        return buffers[index];
     }
 }

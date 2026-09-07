@@ -4,7 +4,7 @@ plugins {
     application
 }
 
-description = "WDGame — маленький игровой движок на Swing/Graphics2D: площадка, на которой проверяется встраивание wdl в игру."
+description = "WDGame — игровой движок на Swing/Graphics2D и пинг-понг на нём: правила игры написаны скриптами на wdl. Площадка, на которой проверяется встраивание."
 
 dependencies {
     // Движок описывает себя скриптом сам: типы строятся построителем моста,
@@ -25,7 +25,7 @@ application {
     applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8")
 }
 
-// Путь к игре пишется от корня репозитория: --args="examples/game/pong.wdl".
+// Рабочий каталог — корень репозитория: из него запускают все остальные модули.
 tasks.named<JavaExec>("run") {
     workingDir = rootDir
 }

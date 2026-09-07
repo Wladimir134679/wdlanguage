@@ -1,11 +1,10 @@
 package ru.wds.wdl.game;
 
 import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.bridge.NativeClass;
 import ru.wds.wdl.game.engine.Colors;
-import ru.wds.wdl.game.engine.Engine;
 import ru.wds.wdl.game.script.NativeCanvas;
 import ru.wds.wdl.game.script.NativeSprite;
-import ru.wds.wdl.game.script.NativeWorld;
 import ru.wds.wdl.module.Library;
 import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.Signature;
@@ -14,84 +13,73 @@ import ru.wds.wdl.value.types.FloatValue;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.StringValue;
 
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * Встроенный модуль {@code game}: движок WDGame, отданный скрипту.
+ * Встроенный модуль {@code game}: словарь движка WDGame для скрипта.
  *
  * <pre>{@code
  * import game as g
  *
- * world = new g.World(title: "Пинг-понг", width: 800, height: 480)
- * ball = world.spawn("ball", x: 396, y: 236, w: 12, h: 12, shape: "oval")
- * ball.vx = 260
- *
- * world.onUpdate(def (dt) {
- *     if (ball.y < 0 || ball.bottom > world.height) ball.vy = -ball.vy
- * })
- * world.run()
+ * def speed(match, ball, paddle) {
+ *     gap = ball.centerY - paddle.centerY
+ *     return g.clamp(gap * 6, -320, 320)
+ * }
  * }</pre>
  *
- * <h2>Зачем это здесь</h2>
- * Модуль не входит в стандартную библиотеку и никогда не войдёт: игровой движок
- * — не часть языка. Он живёт отдельным модулем сборки и служит <b>проверкой
- * встраивания</b>: игра — самое требовательное приложение из тех, что зовут скрипт,
- * потому что зовёт его шестьдесят раз в секунду, из своего цикла, и ждёт ответа
- * до следующего кадра. Всё, что в таком режиме окажется неудобным или дорогим,
- * должно быть найдено здесь, а не в чужой игре.
+ * <h2>Модуль не создаёт игру, а описывает её</h2>
+ * Мира, сцены и цикла кадров здесь нет — они у приложения. Скрипт получает готовые
+ * объекты аргументами хука и работает с ними: {@code Sprite} — спрайт на сцене,
+ * {@code Canvas} — холст кадра. Так и выглядит встраивание в чужую игру: движок
+ * зовёт скрипт, а не наоборот, и класть в скриптовый модуль кнопку «запустить игру»
+ * не за чем.
  *
- * <h2>Три типа и две функции</h2>
- * {@code World} — мир и его жизненный цикл, {@code Sprite} — объект на сцене,
- * {@code Canvas} — холст кадра. Классы стоят в области рядом с миром, а не прячутся
- * за фабриками: {@code s is game.Sprite} — законный вопрос, и ответить на него
- * можно только именем, которое у скрипта есть.
- *
- * <h2>Окна закрываются вместе с запуском</h2>
- * И, в отличие от {@code sys.gui}, закрытие модуля <b>не ждёт</b> пользователя.
- * Ждать нечего: игра держит поток скрипта в {@code world.run()}, и раз запуск дошёл
- * до закрытия — цикл кадров уже кончился. Оставшееся окно в этот момент означает
- * только одно: скрипт его создал и не показал.
+ * <h2>Классы отдаются хозяину</h2>
+ * Обёртки для своих спрайтов делает приложение, а класс — один на запуск, поэтому
+ * взять чужой нельзя: {@code ball is g.Sprite} обязан отвечать правду. Отсюда
+ * {@link #library(Consumer)}: собранные классы уезжают хозяину сразу после
+ * установки модуля, и заворачивает он ими же.
  */
 public final class Games {
 
     /** Имя модуля так, как его пишут в {@code import}. */
     public static final String NAME = "game";
 
-    /** Миры этого запуска: их окна гасить, если скрипт этого не сделал. */
-    private final List<Engine> worlds = new CopyOnWriteArrayList<>();
+    /** Классы этого запуска: ими приложение заворачивает свои объекты. */
+    public record Types(NativeClass sprite, NativeClass canvas) {
+
+        public Types {
+            Objects.requireNonNull(sprite, "sprite");
+            Objects.requireNonNull(canvas, "canvas");
+        }
+    }
 
     private Games() {
     }
 
     /** Библиотека для этого запуска — своя на каждый, как и все остальные. */
     public static Library library() {
-        return new Games().module();
+        return library(types -> {
+        });
     }
 
     /**
-     * Реестр из одного модуля — то, что отдают движку рядом с {@code Sys.modules()}.
+     * То же самое, но собранные классы уезжают слушателю.
      * <p>
-     * Карта, а не единственная фабрика, потому что так же выглядит набор
-     * стандартной библиотеки: приложение складывает наборы, а не разбирает их
-     * по одному имени.
+     * Слушатель зовётся при установке модуля, то есть на {@code import game}
+     * в скрипте, — до того, как приложение позовёт первый хук.
      */
-    public static Map<String, Supplier<Library>> registry() {
-        return Map.of(NAME, Games::library);
-    }
-
-    private Library module() {
+    public static Library library(Consumer<Types> listener) {
+        Objects.requireNonNull(listener, "listener");
         return Module.named(NAME)
-                .doc("движок WDGame: окно, сцена со спрайтами, цикл кадров и холст")
+                .doc("словарь движка WDGame: спрайты, холст и мелочи к ним")
                 .type("Sprite", scope -> NativeSprite.build())
                 .doc("объект на сцене: положение, размер, скорость, цвет и форма")
                 .type("Canvas", scope -> NativeCanvas.build())
                 .doc("холст кадра: заливка, точки, фигуры, линии и текст")
-                .type("World", scope -> NativeWorld.build(Module.typeIn(scope, "Sprite"),
-                        Module.typeIn(scope, "Canvas"), worlds::add))
-                .doc("мир игры: окно, сцена и жизненный цикл")
 
                 .function("rgb", Signature.of(Param.required("red"), Param.required("green"),
                                 Param.required("blue")),
@@ -119,17 +107,21 @@ public final class Games {
                         })
                 .doc("загоняет значение в границы: ракетку — в поле, скорость — в предел")
 
-                // Окна, оставшиеся от скрипта, гасятся вместе с запуском: висящее
-                // окно не даёт процессу выйти, а решать это за пользователя игры
-                // движок не вправе.
-                .onClose(this::closeAll)
+                // Классы уезжают хозяину последним шагом установки: к этому моменту
+                // оба уже стоят в области модуля.
+                .install(scope -> listener.accept(new Types(
+                        Module.typeIn(scope, "Sprite"), Module.typeIn(scope, "Canvas"))))
                 .build();
     }
 
-    private void closeAll() {
-        for (Engine world : worlds) {
-            world.close();
-        }
-        worlds.clear();
+    /**
+     * Реестр из одного модуля — то, что отдают движку рядом с {@code Sys.modules()}.
+     * <p>
+     * Карта, а не единственная фабрика, потому что так же выглядит набор
+     * стандартной библиотеки: приложение складывает наборы, а не разбирает их
+     * по одному имени.
+     */
+    public static Map<String, Supplier<Library>> registry() {
+        return Map.of(NAME, Games::library);
     }
 }
