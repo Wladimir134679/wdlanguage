@@ -29,6 +29,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew :wdl-cli:repl --console=plain              # REPL (отдельная задача: нужен живой stdin)
 ./gradlew :wdl-cli:installDist                       # → wdl-cli/build/install/wdl/bin/wdl
 
+./gradlew :wdl-game:run --args="examples/game/pong.wdl"   # игра на движке WDGame
+./gradlew :wdl-game:installDist                          # → wdl-game/build/install/wdgame/bin/wdgame
+
 ./gradlew publishToMavenLocal    # библиотечные модули в ~/.m2 (ru.wds.wdl:wdl-api:<версия>)
 ./gradlew publish                # они же в build/repo — каталог-репозиторий для раздачи
 ./gradlew publishToMavenLocal -Pversion=0.1.0        # публикация без -SNAPSHOT
@@ -78,6 +81,7 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 | `wdl-tools` | `AstDumper`, `TokenDumper`, `analysis` (имена), `catalog` (внешние имена), `service` (языковой сервис) | core |
 | `wdl-lsp` | языковой сервер LSP: перевод ответов `service` в JSON-RPC (lsp4j) | tools, stdlib |
 | `wdl-cli` | picocli-точка входа, REPL | api, tools |
+| `wdl-game` | WDGame: игровой движок (`game.engine` — Swing/Graphics2D, про язык не знает) и модуль `game` к нему (`game.script`); приложение-хозяин `GameLauncher` | core, bridge, api |
 
 ### Ключевые решения, определяющие остальное
 

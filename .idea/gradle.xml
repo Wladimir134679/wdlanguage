@@ -24,6 +24,7 @@
             <option value="$PROJECT_DIR$/wdl-bridge" />
             <option value="$PROJECT_DIR$/wdl-cli" />
             <option value="$PROJECT_DIR$/wdl-core" />
+            <option value="$PROJECT_DIR$/wdl-game" />
             <option value="$PROJECT_DIR$/wdl-lsp" />
             <option value="$PROJECT_DIR$/wdl-stdlib" />
             <option value="$PROJECT_DIR$/wdl-tools" />
