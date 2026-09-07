@@ -1,6 +1,10 @@
 package ru.wds.wdl.api;
 
 import ru.wds.wdl.ast.Program;
+import ru.wds.wdl.bridge.Module;
+import ru.wds.wdl.bridge.reflect.FromJava;
+import ru.wds.wdl.bridge.reflect.JavaBridge;
+import ru.wds.wdl.bridge.reflect.JavaPolicy;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.module.Library;
 import ru.wds.wdl.lexer.Lexer;
@@ -14,13 +18,15 @@ import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
 import ru.wds.wdl.runtime.Output;
+import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.value.Value;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,15 +71,41 @@ import java.util.function.Supplier;
  *         instance.function("onTick").call();
  *     }
  * }
+ *
+ * // 4. приложение отдаёт скрипту себя
+ * WdlEngine embedded = WdlEngine.builder()
+ *         .expose(Game.class)        // тип: методы, поля, создание
+ *         .define("game", game)      // готовый объект приложения
+ *         .build();
  * }</pre>
+ *
+ * <h2>Что переводится само, а что открывает приложение</h2>
+ * {@link Builder#define} принимает строку, число, логическое, список и карту — их
+ * язык знает сам. Свой тип он не знает и знать не должен: открыть его — решение
+ * приложения, и принимается оно {@link Builder#expose}. Поэтому {@code define}
+ * с чужим объектом без {@code expose} — не молчаливая строка {@code "Game@1a2b"}
+ * в скрипте, а отказ на сборке движка.
  */
 public final class WdlEngine {
+
+    /**
+     * Под каким именем движок ставит мост приложения. Тем же, что зовёт себя
+     * {@link JavaBridge}: библиотека в корне одна, и имя ей нужно только
+     * для диагностики.
+     */
+    private static final String HOST_LIBRARY = "java";
 
     private final Output output;
     private final ModuleSource sources;
     private final Map<String, Supplier<Library>> modules;
     private final Map<String, Supplier<Library>> rootLibraries;
     private final Map<String, Value> globals;
+    /** Схемы типов, открытых скрипту, — по одной свежей на запуск (см. {@link #hostLibrary}). */
+    private final List<Supplier<FromJava>> exposed;
+    /** Объекты приложения, которым нужен мост: имя → объект. Общие на все запуски. */
+    private final Map<String, Object> hosted;
+    /** Что мосту позволено. */
+    private final JavaPolicy javaPolicy;
     /** Считать ли время стадий. По умолчанию — нет: движок не считает того, о чём не просили. */
     private final boolean metricsEnabled;
     /** Куда сообщать о каждой законченной стадии, или {@code null}. */
@@ -83,10 +115,81 @@ public final class WdlEngine {
         this.output = builder.output;
         this.sources = builder.sources;
         this.modules = Map.copyOf(builder.modules);
-        this.rootLibraries = Map.copyOf(builder.rootLibraries);
         this.globals = Map.copyOf(builder.globals);
+        this.exposed = List.copyOf(builder.exposed);
+        this.hosted = Collections.unmodifiableMap(new LinkedHashMap<>(builder.hosted));
+        this.javaPolicy = builder.javaPolicy;
         this.metricsEnabled = builder.metricsEnabled;
         this.metricsListener = builder.metricsListener;
+        this.rootLibraries = Collections.unmodifiableMap(withHostBridge(builder.rootLibraries));
+    }
+
+    /**
+     * Добавляет к библиотекам корня мост приложения, если приложению есть что отдать.
+     * <p>
+     * <b>Последней</b>, и это существенно: библиотеки ставятся по порядку, поэтому
+     * объект приложения перекроет одноимённое имя из {@code stdlib}, а не наоборот.
+     * Тем же порядком, каким {@link Builder#define} перекрывает всё вообще.
+     */
+    private Map<String, Supplier<Library>> withHostBridge(Map<String, Supplier<Library>> declared) {
+        Map<String, Supplier<Library>> roots = new LinkedHashMap<>(declared);
+        if (exposed.isEmpty() && hosted.isEmpty()) {
+            return roots;
+        }
+        if (!hosted.isEmpty() && exposed.isEmpty() && !javaPolicy.wrapUnknown()) {
+            // Отказ здесь, а не на первом запуске: обернуть объект нечем ни при каких
+            // данных, и ждать выполнения ради предсказуемой ошибки незачем.
+            throw new IllegalStateException("объект приложения нечем показать скрипту: "
+                    + "имена " + hosted.keySet() + " заданы define(...), но ни один тип "
+                    + "не открыт. Откройте их expose(Тип.class) или разрешите обёртки "
+                    + "неизвестных типов: policy(JavaPolicy.builder().wrapUnknown(true).build())");
+        }
+        if (roots.putIfAbsent(HOST_LIBRARY, this::hostLibrary) != null) {
+            throw new IllegalStateException("имя '" + HOST_LIBRARY + "' занято своей "
+                    + "библиотекой: expose(...) и library(\"" + HOST_LIBRARY + "\", ...) "
+                    + "вместе не уживаются — оставьте что-то одно");
+        }
+        return roots;
+    }
+
+    /**
+     * Мост этого запуска: открытые типы плюс объекты приложения, обёрнутые им же.
+     * <p>
+     * Собирается заново на каждый экземпляр — по той же причине, по которой библиотеки
+     * задаются фабриками: классы моста принадлежат запуску (у класса свои {@code statics}),
+     * и общий на процесс мост переносил бы состояние одного скрипта в следующий.
+     * Схемы {@link FromJava} тоже берутся свежие: мост проставляет им свой переводчик,
+     * и одна схема на два запуска связала бы их обёртки между собой.
+     */
+    private Library hostLibrary() {
+        JavaBridge.Builder building = JavaBridge.open().policy(javaPolicy);
+        exposed.forEach(schema -> building.expose(schema.get()));
+        JavaBridge bridge = building.build();
+        return Module.named(HOST_LIBRARY)
+                .install(scope -> {
+                    bridge.installTo(scope);
+                    hosted.forEach((name, object) -> scope.define(name, wrapped(bridge, name, object)));
+                })
+                .onClose(bridge::close)
+                .build();
+    }
+
+    /**
+     * Объект приложения как значение языка — с отказом на языке того, кто вызвал API.
+     * <p>
+     * {@link WdlRuntimeError} здесь был бы неправдой: ошибся не автор скрипта, а тот,
+     * кто собрал движок. То же правило, что и в {@link Values#of}.
+     */
+    private static Value wrapped(JavaBridge bridge, String name, Object object) {
+        try {
+            return bridge.wrap(object);
+        } catch (WdlRuntimeError refused) {
+            throw new IllegalArgumentException("нечем показать скрипту имя '" + name + "': "
+                    + object.getClass().getName() + " мосту не открыт. Добавьте "
+                    + "expose(" + object.getClass().getSimpleName() + ".class) или разрешите "
+                    + "обёртки неизвестных типов: "
+                    + "policy(JavaPolicy.builder().wrapUnknown(true).build())", refused);
+        }
     }
 
     public static Builder builder() {
@@ -138,9 +241,15 @@ public final class WdlEngine {
         }
     }
 
-    /** Разбирает текст. Имя нужно только для сообщений об ошибках. */
+    /**
+     * Разбирает текст. Имя нужно только для сообщений об ошибках — но нужно:
+     * приложение, грузящее сотню скриптов из своих ресурсов, обязано узнавать
+     * в ошибке, который из них упал.
+     */
     public WdlScript compile(String code, String name) {
-        return compile(Source.ofString(code), sources != null ? sources : ModuleSource.none());
+        Objects.requireNonNull(name, "name");
+        return compile(new Source(name, code),
+                sources != null ? sources : ModuleSource.none());
     }
 
     /** Разбирает текст под именем {@code "<script>"}. */
@@ -253,6 +362,9 @@ public final class WdlEngine {
         private final Map<String, Supplier<Library>> modules = new LinkedHashMap<>();
         private final Map<String, Supplier<Library>> rootLibraries = new LinkedHashMap<>();
         private final Map<String, Value> globals = new LinkedHashMap<>();
+        private final List<Supplier<FromJava>> exposed = new ArrayList<>();
+        private final Map<String, Object> hosted = new LinkedHashMap<>();
+        private JavaPolicy javaPolicy = JavaPolicy.strict();
         private boolean metricsEnabled;
         private Consumer<Measurement> metricsListener;
 
@@ -364,7 +476,70 @@ public final class WdlEngine {
          * имён здесь одно, как и везде в языке.
          */
         public Builder define(String name, Object value) {
-            globals.put(requireName(name), Values.of(value));
+            String key = requireName(name);
+            try {
+                globals.put(key, Values.of(value));
+                hosted.remove(key);
+            } catch (IllegalArgumentException notPlain) {
+                // Объект приложения: перевода «сам собой» ему нет, и заворачивает его
+                // мост — но не сейчас, а на запуске. Классы моста принадлежат запуску,
+                // как и всё живое, поэтому здесь остаётся сам объект.
+                hosted.put(key, value);
+                globals.remove(key);
+            }
+            return this;
+        }
+
+        /**
+         * Открыть скрипту Java-тип: конструкторы, методы, поля, статику.
+         * <p>
+         * Это ответ на «как отдать движку свой движок»: {@code expose(Game.class)} —
+         * и скрипт зовёт его методы, а {@code define("game", game)} кладёт рядом
+         * готовый объект. Ни того, ни другого {@link #define} в одиночку не может:
+         * сам собой в язык переводится строка, число и коллекция, а чужой тип —
+         * решение приложения, и принимается оно здесь.
+         * <pre>{@code
+         * WdlEngine engine = WdlEngine.builder()
+         *         .expose(Game.class)
+         *         .define("game", game)
+         *         .build();
+         * }</pre>
+         */
+        public Builder expose(Class<?> type) {
+            Objects.requireNonNull(type, "type");
+            return expose(() -> FromJava.everythingOf(type));
+        }
+
+        /** То же под своим именем: {@code expose(GameEngine.class, "Game")}. */
+        public Builder expose(Class<?> type, String scriptName) {
+            Objects.requireNonNull(type, "type");
+            String named = requireName(scriptName);
+            return expose(() -> FromJava.everythingOf(type).as(named));
+        }
+
+        /**
+         * Тип описанием: видно ровно то, что перечисляет {@link FromJava}.
+         * <p>
+         * Фабрика, а не готовая схема, по той же причине, по которой фабрикой
+         * задаётся {@link #module}: схема принадлежит запуску — мост проставляет ей
+         * свой переводчик, и одна схема на два запуска связала бы их обёртки.
+         * <pre>{@code
+         * .expose(() -> FromJava.of(Game.class).as("Game")
+         *         .method("spawn").bean("score").noConstructors())
+         * }</pre>
+         */
+        public Builder expose(Supplier<FromJava> schema) {
+            exposed.add(Objects.requireNonNull(schema, "schema"));
+            return this;
+        }
+
+        /**
+         * Что мосту позволено сверх перечисленного: обёртки неизвестных типов,
+         * поиск типа по имени. По умолчанию — {@link JavaPolicy#strict()}:
+         * видно ровно то, что открыли.
+         */
+        public Builder policy(JavaPolicy value) {
+            this.javaPolicy = Objects.requireNonNull(value, "policy");
             return this;
         }
 

@@ -4,7 +4,11 @@ import ru.wds.wdl.module.Library;
 import ru.wds.wdl.stdlib.Http;
 import ru.wds.wdl.stdlib.Io;
 import ru.wds.wdl.stdlib.Json;
+import ru.wds.wdl.stdlib.Meta;
 import ru.wds.wdl.stdlib.Std;
+import ru.wds.wdl.stdlib.Times;
+import ru.wds.wdl.stdlib.gui.Gui;
+import ru.wds.wdl.stdlib.net.Sockets;
 import ru.wds.wdl.stdlib.thread.Threads;
 
 import java.util.LinkedHashMap;
@@ -37,7 +41,8 @@ public enum Stdlib {
     NONE,
 
     /**
-     * Всё, что не трогает мир снаружи: математика {@code std} и {@code sys.json}.
+     * Всё, что не трогает мир снаружи: математика {@code std}, {@code sys.json},
+     * {@code sys.meta} и {@code sys.time}.
      * <p>
      * Набор для скрипта, пришедшего от пользователя: считать, разбирать и собирать
      * данные он может, читать файлы и ходить в сеть — нет. Класса {@code File}
@@ -52,8 +57,12 @@ public enum Stdlib {
     SAFE,
 
     /**
-     * Всё: {@code std}, {@code sys.io}, {@code sys.json}, {@code sys.net.http},
-     * {@code sys.thread}.
+     * Весь набор {@code sys}: {@code std}, {@code sys.io}, {@code sys.json},
+     * {@code sys.meta}, {@code sys.net.http}, {@code sys.net.socket},
+     * {@code sys.time}, {@code sys.gui}, {@code sys.thread} — то же, что перечисляет
+     * {@code Sys.registry()} в {@code wdl-stdlib}. Списка два, потому что
+     * {@code wdl-stdlib} подключён сюда как {@code implementation} и назвать
+     * {@code Sys} в сигнатуре нельзя; совпадение проверяет {@code StdlibTest}.
      * <p>
      * Набор для скрипта, которому доверяют, — своего, лежащего рядом с приложением.
      * Это же берёт консольный {@code wdl}.
@@ -75,12 +84,21 @@ public enum Stdlib {
             case SAFE -> {
                 modules.put("std", Std::library);
                 modules.put("sys/json", Json::library);
+                // Даты и метаданные декораторов мира не трогают: java.time неизменяем
+                // и умеет только арифметику, sys/meta собирает карту по значению,
+                // которое скрипт и так держит в руках.
+                modules.put("sys/meta", Meta::library);
+                modules.put("sys/time", Times::library);
             }
             case STANDARD -> {
                 modules.put("std", Std::library);
                 modules.put("sys/io", Io::library);
                 modules.put("sys/json", Json::library);
+                modules.put("sys/meta", Meta::library);
                 modules.put("sys/net/http", Http::library);
+                modules.put("sys/net/socket", Sockets::library);
+                modules.put("sys/time", Times::library);
+                modules.put("sys/gui", Gui::library);
                 modules.put("sys/thread", Threads::library);
             }
         }

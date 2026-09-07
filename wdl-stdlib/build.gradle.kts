@@ -1,5 +1,5 @@
 plugins {
-    id("wdl.java-conventions")
+    id("wdl.publish-conventions")
     `java-library`
 }
 

@@ -28,6 +28,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew :wdl-cli:run --args="--metrics examples/modules/plain.wdl"  # время стадий
 ./gradlew :wdl-cli:repl --console=plain              # REPL (отдельная задача: нужен живой stdin)
 ./gradlew :wdl-cli:installDist                       # → wdl-cli/build/install/wdl/bin/wdl
+
+./gradlew publishToMavenLocal    # библиотечные модули в ~/.m2 (ru.wds.wdl:wdl-api:<версия>)
+./gradlew publish                # они же в build/repo — каталог-репозиторий для раздачи
+./gradlew publishToMavenLocal -Pversion=0.1.0        # публикация без -SNAPSHOT
 ```
 
 JDK 21+ (toolchain из `gradle/libs.versions.toml`), Gradle Wrapper 9.0.
@@ -40,7 +44,9 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
    `checkNoRuntimeDependencies` (`wdl-core/build.gradle.kts`), встроенной в `check`.
    Нужна библиотека — ей место в `stdlib`, `api`, `tools` или `cli`.
 2. **Репозитории объявляются только в `settings.gradle.kts`** (`FAIL_ON_PROJECT_REPOS`).
-   Версии — только через `gradle/libs.versions.toml`.
+   Версии — только через `gradle/libs.versions.toml`. Адрес, *куда* публикуют
+   (`publishing { repositories }` в `wdl.publish-conventions`), это правило не задевает:
+   запрет про поиск зависимостей, а не про выгрузку.
 3. **Никакой изменяемой статики в ядре.** Всё состояние — на экземпляре, контекст
    идёт аргументом; это то, что делает изоляцию нескольких интерпретаторов в одном
    процессе настоящей. Даже таблицы в `Operators` отдаются через `unmodifiableMap`.
@@ -68,7 +74,7 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 | `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source`, `metrics`, `module` | ничего |
 | `wdl-bridge` | всё для встраивания: `bridge` (`Module`, `NativeClass`, `NativeTrait`, `NativeInstance`, `MemberSource`) и `bridge.reflect` (мост рефлексией: `JavaBridge`, `FromJava`, `Marshal`, `JavaPolicy`) | core |
 | `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, `sys.time`, реестр `Sys` | core, bridge |
-| `wdl-api` | фасад для встраивания `WdlEngine` (пока заготовка) | core, stdlib |
+| `wdl-api` | фасад для встраивания: `WdlEngine` (сборка движка, `expose`/`define`), `WdlScript`, `WdlInstance`, `WdlCallable`, `Values` | core, bridge, stdlib |
 | `wdl-tools` | `AstDumper`, `TokenDumper`, `analysis` (имена), `catalog` (внешние имена), `service` (языковой сервис) | core |
 | `wdl-lsp` | языковой сервер LSP: перевод ответов `service` в JSON-RPC (lsp4j) | tools, stdlib |
 | `wdl-cli` | picocli-точка входа, REPL | api, tools |
@@ -159,6 +165,9 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   только в `LexerMode.LOSSLESS`, текст у них пустой (содержимое читается по `span`),
   а `RUNTIME` не меняется ни на строку — равенство двух потоков закреплено
   `LosslessLexerTest`.
+* **Новый модуль наружу**: `id("wdl.publish-conventions")` вместо `wdl.java-conventions`
+  в `plugins` — конвенция добавляет `maven-publish`, javadoc-jar и pom. Модулям-приложениям
+  (`wdl-cli`, `wdl-lsp`) она не нужна: их раздают дистрибутивом, а не координатами.
 * **Встроенная функция**: одна запись в `Builtins.installTo` — имя, `Arity`, лямбда.
   Всё нужное от среды приходит через `CallContext`.
 * **Член значения** (`a.size`, `a.sort()`): строка в наборе своего типа
