@@ -1,6 +1,8 @@
 package ru.wds.wdl.api;
 
 import ru.wds.wdl.ast.expr.Expr;
+import ru.wds.wdl.debug.DebugListener;
+import ru.wds.wdl.debug.DebugSession;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.module.Library;
 import ru.wds.wdl.lexer.Lexer;
@@ -96,6 +98,15 @@ public final class WdlInstance implements AutoCloseable {
     /** Библиотеки, положенные в корень: {@code Modules} про них не знает, закрывать нам. */
     private final List<Library> rootLibraries = new ArrayList<>();
     private final Interpreter interpreter = new Interpreter();
+    /** Кому рассказывать об остановках, или {@code null}: слушатель движка. */
+    private final DebugListener debugListener;
+    /**
+     * Сессия отладки этого запуска; {@code null}, пока её не спросили.
+     * <p>
+     * По одной на запуск, а не на движок: сессия помнит остановленные потоки
+     * и подключена к одному {@code Run}, а запусков по одному рецепту бывает много.
+     */
+    private volatile DebugSession debugger;
 
     private Execution done;
     private boolean closed;
@@ -133,6 +144,53 @@ public final class WdlInstance implements AutoCloseable {
                 // движка, снаружи туда не дотянуться.
                 .withModules(new ModuleUnits(sources, sink))
                 .withNativeModules(NativeModules.of(engine.modules()));
+        this.debugListener = engine.debugListener();
+        if (engine.debugEnabled()) {
+            // Режим launch: сессия существует до первой инструкции, поэтому точку
+            // останова можно поставить и на первой строке файла.
+            this.debugger = newDebugger();
+        }
+    }
+
+    /**
+     * Сессия отладки этого запуска: точки останова, остановленные потоки, шаги,
+     * вычисление в кадре.
+     * <p>
+     * Заводится по первому спросу, если движок не завёл её сам
+     * ({@link WdlEngine.Builder#debug(boolean)}), и с этой минуты запуск идёт через
+     * отладчик. Это и есть <b>режим attach</b>: приложение со встроенным движком
+     * работает, скрипт считает, и в этот момент отладчик подключается к живому запуску.
+     * Никакого «включите отладку заранее» для этого не требуется — иначе отлаживать
+     * можно было бы только то, что заранее собирались отлаживать.
+     * <p>
+     * Обратное действие — {@link DebugSession#detach()}: точки перестают срабатывать,
+     * стоящие потоки идут дальше, а запуск возвращается к цене выключенной отладки.
+     */
+    public DebugSession debugger() {
+        checkOpen();
+        DebugSession known = debugger;
+        if (known != null) {
+            return known;
+        }
+        synchronized (this) {
+            if (debugger == null) {
+                debugger = newDebugger();
+            }
+            return debugger;
+        }
+    }
+
+    /** Заведена ли отладка — без того, чтобы её завести этим вопросом. */
+    public boolean debugging() {
+        return debugger != null;
+    }
+
+    private DebugSession newDebugger() {
+        DebugSession session = debugListener == null
+                ? new DebugSession()
+                : new DebugSession(debugListener);
+        session.attach(context);
+        return session;
     }
 
     /**
@@ -297,6 +355,10 @@ public final class WdlInstance implements AutoCloseable {
         // пока пользователь закроет окна.
         Measure closing = context.metrics().begin(Stage.SHUTDOWN, subject());
         try {
+            // Отладка отпускается первой: поток, стоящий на точке останова, шагов
+            // больше не делает, и ждать его пять секунд в stopThreads() значило бы
+            // ждать человека, который отошёл от отладчика.
+            releaseDebugger();
             stopThreads();
             context.shutdownModules();
             closeRootLibraries();
@@ -341,6 +403,14 @@ public final class WdlInstance implements AutoCloseable {
     /** Над чем работали стадии этого запуска — имя файла скрипта. */
     private String subject() {
         return unit.source() != null ? unit.source().name() : "<script>";
+    }
+
+    /** Отпускает сессию отладки, если она была заведена. */
+    private void releaseDebugger() {
+        DebugSession session = debugger;
+        if (session != null) {
+            session.detach();
+        }
     }
 
     /** Библиотеки корня — в порядке, обратном созданию. */

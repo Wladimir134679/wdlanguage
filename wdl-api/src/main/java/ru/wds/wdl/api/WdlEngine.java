@@ -5,6 +5,7 @@ import ru.wds.wdl.bridge.Module;
 import ru.wds.wdl.bridge.reflect.FromJava;
 import ru.wds.wdl.bridge.reflect.JavaBridge;
 import ru.wds.wdl.bridge.reflect.JavaPolicy;
+import ru.wds.wdl.debug.DebugListener;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.module.Library;
 import ru.wds.wdl.runtime.Limits;
@@ -118,6 +119,10 @@ public final class WdlEngine {
     private final Limits limits;
     /** Считать ли вызовы. По умолчанию — нет: профиль дороже метрик и просят его реже. */
     private final boolean profileEnabled;
+    /** Заводить ли сессию отладки сразу при создании запуска. */
+    private final boolean debugEnabled;
+    /** Кому рассказывать об остановках, или {@code null}. */
+    private final DebugListener debugListener;
 
     private WdlEngine(Builder builder) {
         this.output = builder.output;
@@ -130,6 +135,8 @@ public final class WdlEngine {
         this.metricsEnabled = builder.metricsEnabled;
         this.metricsListener = builder.metricsListener;
         this.profileEnabled = builder.profileEnabled;
+        this.debugEnabled = builder.debugEnabled;
+        this.debugListener = builder.debugListener;
         this.limits = builder.limits();
         this.rootLibraries = Collections.unmodifiableMap(withHostBridge(builder.rootLibraries));
     }
@@ -381,6 +388,16 @@ public final class WdlEngine {
         return profileEnabled ? collector : Profiler.off();
     }
 
+    /** Заводить ли отладку сразу — {@link Builder#debug(boolean)}. */
+    boolean debugEnabled() {
+        return debugEnabled;
+    }
+
+    /** Слушатель остановок для сессий этого движка, или {@code null}. */
+    DebugListener debugListener() {
+        return debugListener;
+    }
+
     Map<String, Supplier<Library>> modules() {
         return modules;
     }
@@ -410,6 +427,8 @@ public final class WdlEngine {
         private boolean metricsEnabled;
         private Consumer<Measurement> metricsListener;
         private boolean profileEnabled;
+        private boolean debugEnabled;
+        private DebugListener debugListener;
         /** Пределы, заданные явно, или {@code null} — тогда их выбирает набор. */
         private Limits limits;
         /** Последний заданный набор стандартной библиотеки — от него зависит умолчание. */
@@ -506,6 +525,40 @@ public final class WdlEngine {
          */
         public Builder profile(boolean enabled) {
             this.profileEnabled = enabled;
+            return this;
+        }
+
+        /**
+         * Заводить ли отладку у каждого запуска этого движка.
+         * <p>
+         * Это <b>режим launch</b>: сессия существует до первой инструкции скрипта,
+         * поэтому точку останова можно поставить на самой первой строке. Режим
+         * {@code attach} этого ключа не требует вовсе — {@link WdlInstance#debugger()}
+         * заводит сессию по первому спросу и подключается к уже работающему запуску.
+         * <p>
+         * По умолчанию — нет, и стоит это ноль: без сессии {@code Run.debugging()}
+         * остаётся {@code false}, а точки съёма сворачиваются в чтение поля. Со включённой
+         * отладкой скрипт идёт медленнее — как под профилем; цена названа
+         * в {@code docs/debugging.md}.
+         */
+        public Builder debug(boolean enabled) {
+            this.debugEnabled = enabled;
+            return this;
+        }
+
+        /**
+         * То же самое плюс слушатель, которому сессия каждого запуска расскажет
+         * об остановках.
+         * <p>
+         * Слушатель здесь, а не у сессии, по той же причине, по какой у построителя
+         * живёт слушатель метрик: движок — рецепт, и запусков по нему бывает много,
+         * а доставать сессию у каждого ради одной и той же подписки незачем. Своего
+         * слушателя запуск всё равно вправе поставить сам —
+         * {@code instance.debugger().listener(...)}.
+         */
+        public Builder debug(DebugListener listener) {
+            this.debugListener = Objects.requireNonNull(listener, "listener");
+            this.debugEnabled = true;
             return this;
         }
 
