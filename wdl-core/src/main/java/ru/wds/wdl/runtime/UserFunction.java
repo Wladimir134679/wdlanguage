@@ -342,7 +342,7 @@ public final class UserFunction implements FunctionValue {
         }
 
         try {
-            interpreter.visit(declaration.body(), inner);
+            interpreter.execute(declaration.body(), inner);
         } catch (ControlSignal.Return signal) {
             return signal.value();
         } catch (WdlError error) {

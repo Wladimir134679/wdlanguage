@@ -225,9 +225,14 @@ public final class Interpreter
                 // возвращает Void, и менять это ради одного случая — платить правкой
                 // всех реализаций за то, что нужно только на верхнем уровне файла.
                 if (statement instanceof ExprStmt expression) {
+                    // Отладчику эта развилка безразлична: инструкция здесь такая же,
+                    // как любая другая, и остановиться перед ней надо так же. Поэтому
+                    // точка съёма зовётся отдельно — единственное место, где она
+                    // не приходит вместе с 'step'.
+                    at(statement, scoped);
                     result = valueOf(expression.expr(), scoped);
                 } else {
-                    visit(statement, scoped);
+                    step(statement, scoped);
                 }
             }
         } catch (ControlSignal signal) {
@@ -278,6 +283,61 @@ public final class Interpreter
     /** Вычисление выражения внутри дерева — без страховок, их место на границе. */
     private Value valueOf(Expr expr, ExecutionContext context) {
         return visit(expr, context);
+    }
+
+    /**
+     * Выполняет инструкцию — и это <b>единственный</b> способ, которым интерпретатор
+     * их выполняет.
+     * <p>
+     * Ради этого «единственный» и заведён метод: инструкции выполняются из полутора
+     * десятков мест (верхний уровень файла, блок, ветки {@code if}, тело цикла, шаг
+     * цикла, ветка {@code catch}, отложенное действие, ветка {@code match}, тело
+     * функции), и точка останова, поставленная в одном из них, но забытая в другом,
+     * — это отладчик, который «иногда не срабатывает». Проверить такое глазами нельзя,
+     * а через одну дверь — можно.
+     * <p>
+     * <b>Цена на обычном пути — чтение поля и сравнение.</b> Правило то же, что
+     * у {@code Limits.counting()} и {@code Profiler.recording()}: сначала флаг,
+     * потом всё остальное. Ни таблицы точек, ни снимка окружения здесь не строится,
+     * пока отладчик не подключён; при выключенной отладке JIT сворачивает ветку
+     * целиком, и остаётся ровно вызов {@link #visit}, который был тут и раньше.
+     *
+     * @see #at(Stmt, ExecutionContext)
+     */
+    private void step(Stmt stmt, ExecutionContext context) {
+        Run run = context.run();
+        if (run.debugging()) {
+            run.debugger().at(stmt, context);
+        }
+        visit(stmt, context);
+    }
+
+    /**
+     * Точка съёма отладчика без выполнения: инструкция уже выбрана, но выполнит её
+     * вызывающий сам.
+     * <p>
+     * Нужна ровно одному месту — инструкции-выражению на верхнем уровне файла,
+     * где значение последнего выражения становится результатом файла и потому
+     * вычисляется мимо посетителя. Заводить ради этого второй {@code step}
+     * с возвратом значения было бы хуже: два пути выполнения инструкций — это
+     * ровно то, от чего {@link #step} и защищает.
+     */
+    private void at(Stmt stmt, ExecutionContext context) {
+        Run run = context.run();
+        if (run.debugging()) {
+            run.debugger().at(stmt, context);
+        }
+    }
+
+    /**
+     * Выполняет инструкцию, пришедшую снаружи интерпретатора: тело функции
+     * ({@link UserFunction}), тело конструктора ({@link WdlClass}).
+     * <p>
+     * Отдельный метод, а не публичный {@link #step}, чтобы имя говорило, откуда
+     * зовут; проходит он через ту же единственную дверь.
+     */
+    void execute(Stmt stmt, ExecutionContext context) {
+        step(stmt, context);
     }
 
     // --- инструкции ----------------------------------------------------------
@@ -373,7 +433,7 @@ public final class Interpreter
         ExecutionContext inner = context.nested();
         if (!stmt.hasDefer()) {
             for (Stmt statement : stmt.statements()) {
-                visit(statement, inner);
+                step(statement, inner);
             }
             return null;
         }
@@ -385,7 +445,7 @@ public final class Interpreter
         RuntimeException flying = null;
         try {
             for (Stmt statement : stmt.statements()) {
-                visit(statement, scoped);
+                step(statement, scoped);
             }
         } catch (RuntimeException exit) {
             // Любой выход — нормальный, через return, break, continue, ошибку
@@ -402,9 +462,9 @@ public final class Interpreter
     @Override
     public Void visitIf(IfStmt stmt, ExecutionContext context) {
         if (valueOf(stmt.condition(), context).isTruthy()) {
-            visit(stmt.thenBranch(), context);
+            step(stmt.thenBranch(), context);
         } else if (stmt.hasElse()) {
-            visit(stmt.elseBranch(), context);
+            step(stmt.elseBranch(), context);
         }
         return null;
     }
@@ -432,7 +492,7 @@ public final class Interpreter
     public Void visitFor(ForStmt stmt, ExecutionContext context) {
         ExecutionContext loop = context.nested();
         if (stmt.init() != null) {
-            visit(stmt.init(), loop);
+            step(stmt.init(), loop);
         }
         while (stmt.condition() == null || valueOf(stmt.condition(), loop).isTruthy()) {
             context.run().checkpoint(stmt.span());
@@ -442,7 +502,7 @@ public final class Interpreter
             // Шаг выполняется и после continue. Пропускать его — самый простой способ
             // превратить обычный цикл в вечный, и язык так делать не станет.
             if (stmt.step() != null) {
-                visit(stmt.step(), loop);
+                step(stmt.step(), loop);
             }
         }
         return null;
@@ -1258,7 +1318,7 @@ public final class Interpreter
                 held.add(value);
                 inner.scope().define(resource.name(), value);
             }
-            visit(stmt.body(), inner);
+            step(stmt.body(), inner);
         } catch (RuntimeException exit) {
             flying = exit;
         }
@@ -1322,7 +1382,7 @@ public final class Interpreter
         }
         for (Deferred.Action action : pending.inRunOrder()) {
             try {
-                visit(action.body(), action.context());
+                step(action.body(), action.context());
             } catch (RuntimeException failed) {
                 flying = onTheWayOut(flying, failed, context);
             }
@@ -1412,7 +1472,7 @@ public final class Interpreter
     private void handle(TryStmt.Catch handler, WdlRuntimeError error, ExecutionContext context) {
         ExecutionContext inner = context.nested();
         inner.scope().define(handler.name(), materialize(error, context));
-        visit(handler.body(), inner);
+        step(handler.body(), inner);
     }
 
     /**
@@ -1537,7 +1597,7 @@ public final class Interpreter
      */
     private boolean runLoopBody(Stmt body, ExecutionContext context) {
         try {
-            visit(body, context);
+            step(body, context);
         } catch (ControlSignal.Break ignored) {
             return true;
         } catch (ControlSignal.Continue ignored) {
@@ -1722,7 +1782,7 @@ public final class Interpreter
         }
         try {
             // Свою область блок заводит сам — см. visitBlock.
-            visit(branch.body(), context);
+            step(branch.body(), context);
         } catch (ControlSignal.Yield yielded) {
             return yielded.value();
         }

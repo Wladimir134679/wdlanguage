@@ -1,5 +1,6 @@
 package ru.wds.wdl.runtime;
 
+import ru.wds.wdl.debug.Debugger;
 import ru.wds.wdl.metrics.Metrics;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
@@ -226,6 +227,42 @@ public final class ExecutionContext implements CallContext {
     /** Пределы этого запуска; по умолчанию — {@link Limits#none()}. */
     public Limits limits() {
         return run.limits();
+    }
+
+    /**
+     * Тот же контекст, но под отладкой: шаги скрипта пойдут в этот приёмник.
+     * <p>
+     * В отличие от метрик и профиля, ставить его можно и <b>посреди работы</b>:
+     * отладчик подключается к живому запуску встроенного движка, и требовать
+     * перезапуска игры ради точки останова значило бы не иметь режима {@code attach}
+     * вовсе. Снимается тот же приёмник передачей {@link Debugger#off()}.
+     * <p>
+     * Цена включения названа в {@code docs/debugging.md} и платится только здесь:
+     * пока отладчик не задан, движок не проверяет ничего, кроме одного
+     * {@code boolean} на шаге.
+     */
+    public ExecutionContext withDebugger(Debugger debugger) {
+        run.useDebugger(debugger);
+        return this;
+    }
+
+    /** Приёмник отладки этого запуска; по умолчанию — выключенный. */
+    public Debugger debugger() {
+        return run.debugger();
+    }
+
+    /**
+     * Имя того, что сейчас выполняется: функция текущего кадра или файл на верхнем
+     * уровне.
+     * <p>
+     * Нужно панели кадров отладчика, и берётся оттуда же, откуда его берёт трассировка
+     * ошибки, — второго списка имён ради этого не заводится.
+     */
+    public String functionName() {
+        if (frame != null) {
+            return frame.function();
+        }
+        return unit.source() != null ? unit.source().name() : "<script>";
     }
 
     /**
