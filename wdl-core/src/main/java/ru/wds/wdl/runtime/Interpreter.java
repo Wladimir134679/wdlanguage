@@ -5,6 +5,7 @@ import ru.wds.wdl.ast.expr.*;
 import ru.wds.wdl.ast.op.*;
 import ru.wds.wdl.ast.stmt.*;
 import ru.wds.wdl.ast.visitor.*;
+import ru.wds.wdl.debug.Debugger;
 import ru.wds.wdl.metrics.Measure;
 import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.Unit;
@@ -225,12 +226,9 @@ public final class Interpreter
                 // возвращает Void, и менять это ради одного случая — платить правкой
                 // всех реализаций за то, что нужно только на верхнем уровне файла.
                 if (statement instanceof ExprStmt expression) {
-                    // Отладчику эта развилка безразлична: инструкция здесь такая же,
-                    // как любая другая, и остановиться перед ней надо так же. Поэтому
-                    // точка съёма зовётся отдельно — единственное место, где она
-                    // не приходит вместе с 'step'.
-                    at(statement, scoped);
-                    result = valueOf(expression.expr(), scoped);
+                    // Отладчику эта развилка безразлична: 'stepValue' — та же дверь,
+                    // что и 'step', только со значением.
+                    result = stepValue(expression, scoped);
                 } else {
                     step(statement, scoped);
                 }
@@ -307,26 +305,46 @@ public final class Interpreter
     private void step(Stmt stmt, ExecutionContext context) {
         Run run = context.run();
         if (run.debugging()) {
-            run.debugger().at(stmt, context);
+            Debugger debugger = run.debugger();
+            debugger.at(stmt, context);
+            try {
+                visit(stmt, context);
+            } catch (WdlRuntimeError error) {
+                // Ошибка ещё не улетела наружу, и кадры целы: отсюда отладчик показывает
+                // место, где она случилась, а не место, где её поймают. FatalError сюда
+                // не попадает намеренно — это конец запуска, а не ошибка скрипта.
+                debugger.failed(error);
+                throw error;
+            }
+            return;
         }
         visit(stmt, context);
     }
 
     /**
-     * Точка съёма отладчика без выполнения: инструкция уже выбрана, но выполнит её
-     * вызывающий сам.
+     * Инструкция-выражение верхнего уровня файла: та же дверь, но со значением.
      * <p>
-     * Нужна ровно одному месту — инструкции-выражению на верхнем уровне файла,
-     * где значение последнего выражения становится результатом файла и потому
-     * вычисляется мимо посетителя. Заводить ради этого второй {@code step}
-     * с возвратом значения было бы хуже: два пути выполнения инструкций — это
-     * ровно то, от чего {@link #step} и защищает.
+     * Нужна ровно одному месту — последнему выражению файла, значение которого
+     * становится значением файла и потому вычисляется мимо посетителя инструкций
+     * (тот возвращает {@code Void}). Отладчику эта развилка безразлична: инструкция
+     * здесь такая же, как любая другая, и остановиться перед ней — и на ошибке
+     * внутри неё — надо так же.
+     *
+     * @see #step(Stmt, ExecutionContext)
      */
-    private void at(Stmt stmt, ExecutionContext context) {
+    private Value stepValue(ExprStmt stmt, ExecutionContext context) {
         Run run = context.run();
         if (run.debugging()) {
-            run.debugger().at(stmt, context);
+            Debugger debugger = run.debugger();
+            debugger.at(stmt, context);
+            try {
+                return valueOf(stmt.expr(), context);
+            } catch (WdlRuntimeError error) {
+                debugger.failed(error);
+                throw error;
+            }
         }
+        return valueOf(stmt.expr(), context);
     }
 
     /**

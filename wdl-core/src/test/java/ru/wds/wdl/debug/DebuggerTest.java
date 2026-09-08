@@ -111,6 +111,15 @@ class DebuggerTest {
             return event;
         }
 
+        /** Дожидается конца скрипта, который обязан упасть, и отдаёт ошибку. */
+        Throwable awaitFailure() throws InterruptedException {
+            runner.join(PATIENCE_MS);
+            assertFalse(runner.isAlive(), "скрипт не закончился");
+            Throwable failed = failure.get();
+            assertNotNull(failed, "скрипт дошёл до конца, хотя ошибка была непойманной");
+            return failed;
+        }
+
         void awaitFinish() throws InterruptedException {
             runner.join(PATIENCE_MS);
             assertFalse(runner.isAlive(), "скрипт не закончился");
@@ -396,6 +405,122 @@ class DebuggerTest {
                 fixture.session.breakpoints().clear();
                 fixture.session.resumeAll();
                 fixture.awaitFinish();
+            }
+        });
+    }
+
+    // --- останов на ошибке ---------------------------------------------------
+
+    @Test
+    @DisplayName("Останов на ошибке ставит поток там, где ошибка случилась")
+    void stopsWhereTheErrorHappened() throws Exception {
+        assertTimeoutPreemptively(Duration.ofMillis(PATIENCE_MS * 2), () -> {
+            String code = """
+                    def divide(a, b) {
+                    return a / b;
+                    }
+                    answer = divide(1, 0)
+                    """;
+            try (Fixture fixture = script(code)) {
+                fixture.session.stopOnError(true);
+                fixture.start();
+
+                SuspendedEvent stop = fixture.awaitStop();
+                assertEquals(StopReason.ERROR, stop.reason());
+                assertNotNull(stop.error(), "в событии нет самой ошибки");
+                assertEquals("деление на ноль", stop.error().getMessage());
+
+                // Кадры целы: раскрутка ещё не началась, и виден путь к месту ошибки,
+                // а не путь к тому, кто её поймает.
+                List<DebugFrame> frames = stop.frames();
+                assertEquals(2, frames.size(), "ожидались кадр divide и верхний уровень");
+                DebugFrame inner = frames.get(0);
+                assertEquals("divide", inner.function());
+                assertEquals(2, inner.line(), "встали не на инструкции с ошибкой");
+                assertEquals(0, number(inner.value("b")));
+
+                fixture.session.resumeAll();
+                // Останов ошибку не отменяет: после возобновления она летит наружу.
+                assertTrue(fixture.awaitFailure().getMessage().contains("деление на ноль"));
+            }
+        });
+    }
+
+    @Test
+    @DisplayName("Об одной ошибке сообщается один раз, а не на каждой инструкции по пути наружу")
+    void reportsOneErrorOnce() throws Exception {
+        assertTimeoutPreemptively(Duration.ofMillis(PATIENCE_MS * 2), () -> {
+            String code = """
+                    def inner() {
+                    if (true) {
+                    throw new Exception("нарочно");
+                    }
+                    }
+                    def outer() {
+                    for (i in 1..2) {
+                    inner()
+                    }
+                    }
+                    outer()
+                    """;
+            try (Fixture fixture = script(code)) {
+                fixture.session.stopOnError(true);
+                fixture.start();
+
+                SuspendedEvent stop = fixture.awaitStop();
+                assertEquals(StopReason.ERROR, stop.reason());
+                assertEquals(3, stop.top().line(), "встали не в самом глубоком месте");
+
+                fixture.session.resumeAll();
+                fixture.awaitFailure();
+                // Ошибка прошла наружу через 'if', тело функции, тело цикла и вызов —
+                // и на каждой из этих инструкций сообщила о себе снова.
+                assertTrue(fixture.stops.isEmpty(),
+                        () -> "об одной ошибке сообщили несколько раз: " + fixture.stops);
+            }
+        });
+    }
+
+    @Test
+    @DisplayName("Пойманная ошибка тоже останавливает, и после возобновления её ловит catch")
+    void stopsOnCaughtErrorToo() throws Exception {
+        assertTimeoutPreemptively(Duration.ofMillis(PATIENCE_MS * 2), () -> {
+            String code = """
+                    result = "ничего"
+                    try {
+                    throw new Exception("нарочно");
+                    } catch (e) {
+                    result = "поймали"
+                    }
+                    """;
+            try (Fixture fixture = script(code)) {
+                fixture.session.stopOnError(true);
+                fixture.start();
+
+                SuspendedEvent stop = fixture.awaitStop();
+                assertEquals(StopReason.ERROR, stop.reason());
+                assertEquals(3, stop.top().line());
+
+                fixture.session.resumeAll();
+                fixture.awaitFinish();
+                assertEquals("поймали", fixture.name("result").display(),
+                        "останов на ошибке помешал её поймать");
+            }
+        });
+    }
+
+    @Test
+    @DisplayName("Без переключателя ошибка проходит мимо отладчика")
+    void errorStopIsOffByDefault() throws Exception {
+        assertTimeoutPreemptively(Duration.ofMillis(PATIENCE_MS * 2), () -> {
+            try (Fixture fixture = script("""
+                    a = 1
+                    b = a / 0
+                    """)) {
+                assertFalse(fixture.session.stopsOnError(), "останов на ошибке включён без просьбы");
+                fixture.start();
+                fixture.awaitFailure();
+                assertTrue(fixture.stops.isEmpty(), "остановился на ошибке, хотя не просили");
             }
         });
     }

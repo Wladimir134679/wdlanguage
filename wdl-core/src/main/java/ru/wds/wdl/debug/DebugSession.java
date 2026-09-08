@@ -9,6 +9,7 @@ import ru.wds.wdl.parser.Parser;
 import ru.wds.wdl.runtime.ExecutionContext;
 import ru.wds.wdl.runtime.Interpreter;
 import ru.wds.wdl.runtime.Run;
+import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Source;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Value;
@@ -93,6 +94,9 @@ public final class DebugSession implements Debugger {
     /** Просьба встать всем: ставится паузой и остановкой под политикой «все». */
     private volatile boolean pauseAll;
 
+    /** Останавливаться ли на ошибке выполнения; по умолчанию — нет. */
+    private volatile boolean stopOnError;
+
     /** Куда подключились; {@code null}, пока не подключены. */
     private volatile ExecutionContext attached;
     private volatile Run run;
@@ -168,6 +172,29 @@ public final class DebugSession implements Debugger {
         this.policy = Objects.requireNonNull(replacement, "policy");
     }
 
+    /**
+     * Останавливаться ли на ошибке выполнения; по умолчанию — нет.
+     * <p>
+     * Останов случается <b>до раскрутки</b>: поток стоит там, где ошибка родилась,
+     * и кадры показывают путь к ней, а не путь к тому {@code catch}, который её
+     * поймает. За это приходится платить тем, что ловят пойманное: ошибка внутри
+     * {@code try} — обычное течение скрипта, но отличить её от непойманной, не зная,
+     * есть ли выше {@code try}, нельзя. Поэтому переключатель и выключен по умолчанию:
+     * первая версия останавливается на любой ошибке, и включает её тот, кто именно
+     * этого и хочет.
+     * <p>
+     * Останов ошибку не отменяет: после возобновления она летит наружу той же дорогой.
+     * Отладчик здесь — зритель, а не обработчик.
+     */
+    public void stopOnError(boolean stop) {
+        this.stopOnError = stop;
+    }
+
+    /** Останавливается ли сессия на ошибках выполнения. */
+    public boolean stopsOnError() {
+        return stopOnError;
+    }
+
     /** Сколько ждать вычисления в кадре, прежде чем прервать его. */
     public void evalTimeout(long millis) {
         if (millis <= 0) {
@@ -184,6 +211,10 @@ public final class DebugSession implements Debugger {
         // Запоминается место всегда, даже когда останавливаться не собираемся:
         // на нём стоит панель кадров того потока, который встанет следующим.
         state.record(stmt, context);
+        if (state.unwinding) {
+            // Поток шагает дальше — значит, раскрутка кончилась и ошибку поймали.
+            state.unwinding = false;
+        }
         if (detached || state.evaluating) {
             return;
         }
@@ -216,6 +247,32 @@ public final class DebugSession implements Debugger {
             return;
         }
         suspend(state, StopReason.PAUSE);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * Останавливает поток только на <b>первом</b> сообщении об этой ошибке: одна
+     * ошибка идёт наружу через всю цепочку вложенных инструкций и сообщает о себе
+     * на каждой, а стоять надо там, где она случилась. Первым приходит самое
+     * глубокое место, а всё, что приходит следом без единого шага между сообщениями,
+     * — это она же на пути наружу.
+     */
+    @Override
+    public void failed(WdlRuntimeError error) {
+        if (!stopOnError || detached) {
+            return;
+        }
+        ThreadState state = local.get();
+        if (state.evaluating || state.unwinding) {
+            return;
+        }
+        state.unwinding = true;
+        if (state.top() < 0) {
+            // Ошибка раньше первой инструкции: показывать нечего.
+            return;
+        }
+        suspend(state, StopReason.ERROR, error);
     }
 
     /** Надо ли этому потоку встать здесь — и если да, то почему. */
@@ -253,6 +310,10 @@ public final class DebugSession implements Debugger {
      * и делать это за него из чужого потока нельзя.
      */
     private void suspend(ThreadState state, StopReason reason) {
+        suspend(state, reason, null);
+    }
+
+    private void suspend(ThreadState state, StopReason reason, WdlRuntimeError error) {
         synchronized (lock) {
             if (policy == SuspendPolicy.ALL) {
                 pauseAll = true;
@@ -267,7 +328,7 @@ public final class DebugSession implements Debugger {
         }
         // Слушателю сообщается вне замка: обработчик вправе тут же возобновить поток,
         // а делать это, держа наш замок, значило бы звать чужой код под ним.
-        listener.suspended(new SuspendedEvent(state.info(), reason, framesOf(state)));
+        listener.suspended(new SuspendedEvent(state.info(), reason, framesOf(state), error));
         try {
             park(state);
         } finally {

@@ -1,5 +1,7 @@
 package ru.wds.wdl.debug;
 
+import ru.wds.wdl.runtime.WdlRuntimeError;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -18,13 +20,23 @@ import java.util.Objects;
  * @param thread кто встал
  * @param reason почему
  * @param frames кадры от текущего к верхнему уровню
+ * @param error  ошибка, из-за которой встали, — только при {@link StopReason#ERROR},
+ *               иначе {@code null}. Она лежит здесь, а не достаётся отдельным
+ *               запросом, по той же причине, что и кадры: к моменту второго вопроса
+ *               ошибка уже улетит наружу, и спрашивать будет не о чем
  */
-public record SuspendedEvent(ThreadInfo thread, StopReason reason, List<DebugFrame> frames) {
+public record SuspendedEvent(ThreadInfo thread, StopReason reason, List<DebugFrame> frames,
+                             WdlRuntimeError error) {
 
     public SuspendedEvent {
         Objects.requireNonNull(thread, "thread");
         Objects.requireNonNull(reason, "reason");
         frames = List.copyOf(frames);
+    }
+
+    /** Остановка без ошибки: точка останова, шаг, пауза. */
+    public SuspendedEvent(ThreadInfo thread, StopReason reason, List<DebugFrame> frames) {
+        this(thread, reason, frames, null);
     }
 
     /** Кадр, в котором поток стоит, или {@code null}, если кадров нет вовсе. */
@@ -34,6 +46,8 @@ public record SuspendedEvent(ThreadInfo thread, StopReason reason, List<DebugFra
 
     @Override
     public String toString() {
-        return thread.name() + ": " + reason.title() + (top() == null ? "" : " в " + top());
+        return thread.name() + ": " + reason.title()
+                + (top() == null ? "" : " в " + top())
+                + (error == null ? "" : ": " + error.getMessage());
     }
 }

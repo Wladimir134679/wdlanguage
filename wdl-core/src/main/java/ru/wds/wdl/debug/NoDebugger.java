@@ -2,10 +2,11 @@ package ru.wds.wdl.debug;
 
 import ru.wds.wdl.ast.stmt.Stmt;
 import ru.wds.wdl.runtime.ExecutionContext;
+import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 
 /**
- * Выключённая отладка: один объект на весь процесс, оба метода пусты.
+ * Выключённая отладка: один объект на весь процесс, все методы пусты.
  * <p>
  * Заглушка нужна не ради экономии проверки на {@code null} — на горячем пути её
  * и так не спрашивают, там стоит {@code Run.debugging()}. Она нужна затем, чтобы
@@ -26,5 +27,9 @@ final class NoDebugger implements Debugger {
 
     @Override
     public void poll(Span span) {
+    }
+
+    @Override
+    public void failed(WdlRuntimeError error) {
     }
 }
