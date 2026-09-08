@@ -34,7 +34,7 @@ import java.util.List;
  */
 final class JsonReader {
 
-    /** Предел вложенности: та же причина, что у {@code MAX_CALL_DEPTH} в ядре. */
+    /** Предел вложенности: та же причина, что у предела вложенности вызовов в ядре. */
     private static final int MAX_DEPTH = 200;
 
     private final String text;

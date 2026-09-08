@@ -55,14 +55,13 @@
  *   <tr><td>{@link ru.wds.wdl.api.WdlCallable}</td><td>функция скрипта в руках приложения</td></tr>
  *   <tr><td>{@link ru.wds.wdl.api.Values}</td><td>перевод значений языка в Java и обратно</td></tr>
  *   <tr><td>{@link ru.wds.wdl.api.WdlException}</td><td>ошибка с местом в тексте скрипта</td></tr>
+ *   <tr><td>{@link ru.wds.wdl.runtime.Limits}</td><td>пределы запуска: шаги, время, потоки</td></tr>
  * </table>
  *
  * <h2>Чего здесь пока нет</h2>
  * <ul>
- *   <li><b>Лимитов</b>: {@code maxSteps} и {@code timeout}. Предел глубины вызовов есть
- *       и сейчас ({@code ExecutionContext.MAX_CALL_DEPTH}), но он константа; настраиваемым
- *       станет вместе с остальными — их место в {@code runtime.Run}, где уже лежит
- *       всё остальное про запуск.</li>
+ *   <li><b>Лимита памяти</b>: шаги, время и потоки движок считает ({@code Limits}),
+ *       а байты — нет. Это учёт в каждом контейнере, отдельная работа.</li>
  *   <li><b>Моста к произвольному Java-объекту</b>: {@code player.getName()} без описания
  *       класса руками. Пока это {@code bridge.NativeClass}.</li>
  * </ul>

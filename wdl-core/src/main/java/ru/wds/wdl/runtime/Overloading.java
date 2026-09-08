@@ -336,7 +336,7 @@ public final class Overloading {
      * написанный на wdl, своим быть не перестаёт. У нативного класса тело и так идёт
      * через {@code Foreign} внутри самого класса, и оборачивать его второй раз незачем.
      * Рекурсия оператора отдельной защиты не требует — она упирается
-     * в {@link ExecutionContext#MAX_CALL_DEPTH}, как любой вызов.
+     * в предел вложенности ({@link Limits#maxCallDepth()}), как любой вызов.
      */
     private static Value apply(FunctionValue function, Value argument, String symbol, Span span,
                                CallContext context) {

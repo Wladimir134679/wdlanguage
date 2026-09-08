@@ -6,6 +6,7 @@ import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.parser.Parser;
 import ru.wds.wdl.runtime.ExecutionContext;
 import ru.wds.wdl.runtime.Interpreter;
+import ru.wds.wdl.runtime.Limits;
 import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Source;
@@ -24,6 +25,11 @@ final class Scripts {
 
     /** Вывод скрипта, у которого есть весь набор {@code sys.*}. */
     static String printed(String code) {
+        return printed(code, Limits.none());
+    }
+
+    /** То же, но запуск работает под заданными пределами: шаги, время, квота потоков. */
+    static String printed(String code, Limits limits) {
         StringBuilder output = new StringBuilder();
         Source source = Source.ofString(code);
         Diagnostics diagnostics = new Diagnostics(source);
@@ -31,7 +37,8 @@ final class Scripts {
         assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
 
         ExecutionContext context = ExecutionContext.fresh((Output) output::append)
-                .withNativeModules(Sys.modules());
+                .withNativeModules(Sys.modules())
+                .withLimits(limits);
         try {
             new Interpreter().run(program, context);
         } finally {

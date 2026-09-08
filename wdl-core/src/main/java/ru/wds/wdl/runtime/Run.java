@@ -10,6 +10,10 @@ import ru.wds.wdl.runtime.members.MemberTable;
 import ru.wds.wdl.source.Span;
 
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Один запуск скрипта: всё, что принадлежит ему целиком, а не области видимости
@@ -62,23 +66,30 @@ import java.util.Objects;
  * Счётчик внешних входов — свойство потока, а не сеанса: цепочка «скрипт → приложение →
  * скрипт» у каждого потока своя, и складывать их в одно число значило бы, что восемь
  * рабочих потоков упираются в предел на четвёртом обороте каждый.
+ *
+ * <h2>Лимиты выполнения</h2>
+ * {@link Limits} — то, чем запуск отвечает на «а если скрипт чужой»: шаги, время
+ * и квота потоков. Проверка одна на всё и живёт в {@link #checkpoint(Span)}; зовут её
+ * оттуда же, откуда раньше спрашивали флаг прерывания, — из циклов интерпретатора,
+ * из тела функции и из создания экземпляра. Точек ровно столько, потому что
+ * зациклиться, не пройдя ни разу ни через итерацию, ни через вызов, нельзя,
+ * а считать узлы дерева значило бы платить в самой горячей точке за точность,
+ * которой никто не пользуется.
+ * <p>
+ * <b>Время сторожит отдельный поток.</b> Мягкая проверка дедлайна в {@code checkpoint}
+ * не достаёт того, кто ушёл в одну долгую операцию на Java: {@code th.sleep(600000)},
+ * чтение из сокета, ожидание замка не проходят ни одной точки. Поэтому по истечении
+ * срока сторож ({@link #startWatchdog}) прерывает потоки, которые сейчас внутри
+ * запуска, — прерывание блокирующие библиотеки уже понимают и отвечают на него
+ * остановкой выполнения.
+ * Непрерываемый счёт (сортировка миллиона элементов) этим не останавливается ничем:
+ * {@code Thread.stop} из JDK убран, и это записано честно — в {@code docs/limits.md}.
  */
 public final class Run {
 
-    /**
-     * Сколько раз в скрипт можно войти снаружи <b>на одном потоке</b>, не выйдя обратно.
-     * <p>
-     * Цепочка «скрипт зовёт библиотеку, библиотека зовёт функцию скрипта, та снова
-     * зовёт библиотеку» съедает стек Java, а {@link ExecutionContext#MAX_CALL_DEPTH}
-     * её не видит: он считает кадры скрипта, а на каждом внешнем входе цепочка кадров
-     * начинается заново — новый вход и правда начало нового пути. Поэтому у входов
-     * счёт свой.
-     * <p>
-     * Число небольшое намеренно: рекурсия через приложение — это почти всегда
-     * не замысел, а зациклившийся обработчик, и упереться в предел лучше на десятом
-     * обороте с внятным сообщением, чем на трёхсотом с {@code StackOverflowError}.
-     */
-    static final int MAX_ENTRIES = 32;
+    /** Индексы в массиве состояния потока: {@link #state}. */
+    private static final int ENTRIES = 0;
+    private static final int STEPS = 1;
 
     /**
      * Реестр модулей запуска: где их искать и какие уже выполнены.
@@ -101,6 +112,15 @@ public final class Run {
     private volatile Metrics metrics = Metrics.off();
 
     /**
+     * Пределы этого запуска.
+     * <p>
+     * По умолчанию их нет ({@link Limits#none()}) — движок не платит за то, о чём его
+     * не просили. Задаются при сборке, до первой инструкции скрипта: менять предел
+     * посреди работы значило бы, что «сколько осталось» зависит от момента вопроса.
+     */
+    private volatile Limits limits = Limits.none();
+
+    /**
      * Собранные формы классов и трейтов. Один на запуск, иначе объявление класса
      * внутри функции давало бы новую форму на каждый вызов, а {@code is} перестал бы
      * узнавать свои же экземпляры.
@@ -121,13 +141,46 @@ public final class Run {
     private final MemberTable members = new MemberTable();
 
     /**
-     * Открытые внешние входы <b>этого потока</b>.
+     * Состояние потока: открытые внешние входы и шаги, ещё не влитые в общий счётчик.
      * <p>
-     * Массивом из одного элемента, а не {@code ThreadLocal<Integer>}: счётчик правится
-     * на каждом входе и выходе, и перекладывать бокс в карту потока дважды за вызов
-     * незачем.
+     * Массивом на два числа, а не двумя {@code ThreadLocal}: оба правятся на горячем
+     * пути, и второй поход в карту потока стоил бы ровно столько же, сколько первый.
+     * Боксов здесь тоже нет по той же причине.
      */
-    private final ThreadLocal<int[]> entries = ThreadLocal.withInitial(() -> new int[1]);
+    private final ThreadLocal<long[]> state = ThreadLocal.withInitial(() -> new long[2]);
+
+    /**
+     * Сделанные шаги — общие на запуск.
+     * <p>
+     * Общие, потому что «восемь потоков по лимиту каждый» — это не лимит.
+     * {@link LongAdder}, а не {@code AtomicLong}: складывают его многие, читают редко
+     * (раз в батч), и это ровно тот случай, под который он и сделан.
+     */
+    private final LongAdder steps = new LongAdder();
+
+    /**
+     * Момент, когда время запуска выйдет, в шкале {@link System#nanoTime()};
+     * {@code 0} — таймаута нет или отсчёт ещё не начат.
+     * <p>
+     * Ставится при <b>первом входе в скрипт</b>, а не при создании запуска: сборка
+     * движка, чтение файлов и разбор модулей не должны съедать бюджет скрипта.
+     */
+    private final AtomicLong deadline = new AtomicLong();
+
+    /** Вышло ли время. Ставит сторож или первая же проверка дедлайна. */
+    private volatile boolean expired;
+
+    /** Сторож времени или {@code null}, если таймаута нет. */
+    private volatile Thread watchdog;
+
+    /**
+     * Потоки, находящиеся внутри запуска прямо сейчас.
+     * <p>
+     * Нужны сторожу: прерывать он вправе именно их — и потоки скрипта, и поток
+     * приложения, который вошёл в скрипт и там застрял. {@link RunThreads} знает
+     * только про первых.
+     */
+    private final Set<Thread> inside = ConcurrentHashMap.newKeySet();
 
     /** Закрыт ли запуск. После закрытия вход в скрипт даёт остановку выполнения. */
     private volatile boolean closed;
@@ -183,6 +236,21 @@ public final class Run {
         this.metrics = Objects.requireNonNull(replacement, "metrics");
     }
 
+    /** Пределы этого запуска. */
+    public Limits limits() {
+        return limits;
+    }
+
+    /** Задаёт пределы. Зовётся при сборке, до первой инструкции скрипта. */
+    void useLimits(Limits replacement) {
+        this.limits = Objects.requireNonNull(replacement, "limits");
+    }
+
+    /** Сколько шагов скрипт уже сделал: влитые в общий счётчик, без остатков в потоках. */
+    public long steps() {
+        return steps.sum();
+    }
+
     /**
      * Открывает внешний вход в скрипт: считает вход этого потока.
      * <p>
@@ -190,6 +258,8 @@ public final class Run {
      * {@link Interpreter#run} и из {@link UserFunction#call}, когда поток ещё
      * не внутри этого запуска. Изнутри скрипта не зовётся вовсе: там уже вошли,
      * и платить за это второй раз незачем.
+     * <p>
+     * Здесь же начинается отсчёт времени: первый вход ставит дедлайн и заводит сторожа.
      *
      * @param span место, которому принадлежит вопрос, — для сообщения об отказе
      */
@@ -199,21 +269,34 @@ public final class Run {
             // выполнение по ним нечестно — обработчик такое ловить не должен.
             throw FatalError.runClosed(span);
         }
-        int[] depth = entries.get();
-        if (depth[0] >= MAX_ENTRIES) {
-            throw FatalError.tooDeep(span, "Слишком длинная цепочка вызовов между скриптом "
+        long[] slot = state.get();
+        if (slot[ENTRIES] >= limits.maxEntries()) {
+            throw FatalError.tooDeep(span, limits.maxEntries(),
+                    "Слишком длинная цепочка вызовов между скриптом "
                     + "и приложением: проверьте, не зовёт ли обработчик сам себя");
         }
-        depth[0]++;
+        if (slot[ENTRIES]++ == 0) {
+            inside.add(Thread.currentThread());
+        }
+        armTimeout();
     }
 
     /** Закрывает внешний вход. Зовётся только в {@code finally} к {@link #enter}. */
     void leave() {
-        int[] depth = entries.get();
-        if (--depth[0] == 0) {
+        long[] slot = state.get();
+        flushSteps(slot);
+        if (--slot[ENTRIES] == 0) {
+            inside.remove(Thread.currentThread());
             // Не держим запись в карте потока: пул живёт дольше запуска, и оставленный
             // счётчик тянул бы за собой ссылку на закончившийся сеанс.
-            entries.remove();
+            state.remove();
+            if (expired) {
+                // Флаг прерывания поставил сторож этого запуска — наружу он не уходит.
+                // Поток приложения, вошедший в скрипт, прерывается законно: он внутри
+                // скрипта. Но унести флаг обратно и получить InterruptedException
+                // где-нибудь в своём коде приложение не должно.
+                Thread.interrupted();
+            }
         }
     }
 
@@ -225,10 +308,153 @@ public final class Run {
      * этого запуска», — но она отвечает не на тот вопрос: приложение вправе держать
      * контекст запуска у себя и звать функцию с ним из любого потока. Контекст сказал бы
      * «свой», вход не был бы засчитан, и цепочка «скрипт → приложение → скрипт»
-     * перестала бы упираться в {@link #MAX_ENTRIES}.
+     * перестала бы упираться в предел входов.
      */
     boolean insideCurrentThread() {
-        return entries.get()[0] > 0;
+        return state.get()[ENTRIES] > 0;
+    }
+
+    /**
+     * Точка проверки: не пора ли остановить выполнение.
+     * <p>
+     * Одна на все причины — прерывание снаружи, исчерпание шагов, истечение времени, —
+     * и зовётся она оттуда, где скрипт делает шаг: из циклов ({@link Interpreter}),
+     * из тела функции ({@link UserFunction}) и из создания экземпляра
+     * ({@link WdlClass}). Своего обхода дерева она не заводит и заводить не должна.
+     * <p>
+     * <b>Выключенные лимиты стоят ровно столько, сколько стоила прежняя проверка
+     * флага</b>: чтение поля и сравнение. Ни {@code nanoTime}, ни общего счётчика
+     * на этом пути нет.
+     *
+     * @param span место, которому принадлежит шаг, — оно попадёт в сообщение
+     */
+    void checkpoint(Span span) {
+        if (Thread.currentThread().isInterrupted()) {
+            throw stopped(span);
+        }
+        Limits current = limits;
+        if (!current.counting()) {
+            return;
+        }
+        long[] slot = state.get();
+        if (++slot[STEPS] < current.stepBatch()) {
+            return;
+        }
+        long batch = slot[STEPS];
+        slot[STEPS] = 0;
+        steps.add(batch);
+        long max = current.maxSteps();
+        if (max > 0 && steps.sum() >= max) {
+            throw FatalError.stepsExhausted(span, max);
+        }
+        long at = deadline.get();
+        if (at != 0 && System.nanoTime() - at >= 0) {
+            expired = true;
+            throw FatalError.timedOut(span, current.timeout());
+        }
+    }
+
+    /**
+     * Чем именно остановлено выполнение прерванного потока.
+     * <p>
+     * Разница видна и в сообщении, и в трассировке: «прервано снаружи» и «вышло время»
+     * — разные события, и хозяину запуска они говорят разное. Прерывание от сторожа
+     * узнаётся по {@link #expired}: другого способа отличить свой {@code interrupt}
+     * от чужого у потока нет.
+     */
+    private FatalError stopped(Span span) {
+        return expired ? FatalError.timedOut(span, limits.timeout()) : FatalError.interrupted(span);
+    }
+
+    /**
+     * Называет остановку своим именем на границе запуска.
+     * <p>
+     * Библиотека, вышедшая из блокирующего вызова по {@code interrupt}, честно отвечает
+     * «выполнение прервано» — про сторожа она не знает и знать не должна. Но хозяину
+     * запуска, поставившему таймаут, нужен ответ про <b>время</b>: «прервано» он читает
+     * как «кто-то нажал стоп», а никто не нажимал.
+     */
+    FatalError explain(FatalError stop) {
+        if (!expired || !stop.isInterruption()) {
+            return stop;
+        }
+        return FatalError.timedOut(stop.span(), limits.timeout()).inSource(stop.source());
+    }
+
+    /** Вливает остаток шагов потока в общий счётчик. */
+    private void flushSteps(long[] slot) {
+        if (slot[STEPS] > 0) {
+            steps.add(slot[STEPS]);
+            slot[STEPS] = 0;
+        }
+    }
+
+    /**
+     * Начинает отсчёт времени, если таймаут задан и отсчёт ещё не начат.
+     * <p>
+     * Гонку двух первых входов разрешает {@code compareAndSet}: сторож один на запуск,
+     * и завести его вправе только тот, кто поставил дедлайн.
+     */
+    private void armTimeout() {
+        long nanos = limits.timeoutNanos();
+        if (nanos == 0 || deadline.get() != 0) {
+            return;
+        }
+        long at = System.nanoTime() + nanos;
+        // Ноль в этой шкале — «отсчёт не начат», поэтому настоящий момент нулём быть
+        // не может: сдвиг на наносекунду дешевле второго поля-признака.
+        if (at == 0) {
+            at = 1;
+        }
+        if (deadline.compareAndSet(0, at)) {
+            startWatchdog(at);
+        }
+    }
+
+    /**
+     * Заводит сторожа времени.
+     * <p>
+     * <b>Обычным {@code new Thread}, а не через {@link RunThreads},</b> и это
+     * единственное такое место. Правило «поток только через реестр» защищает от того,
+     * чтобы поток, переживший закрытие, позвал функцию скрипта по закрытым модулям;
+     * сторож же кода скрипта не выполняет вовсе — он умеет только {@code interrupt}.
+     * А попади он в реестр, он считался бы в квоту потоков скрипта и прерывал бы
+     * сам себя.
+     */
+    private void startWatchdog(long at) {
+        // Стек маленький намеренно: тело сторожа — цикл ожидания, кадров ему не надо.
+        Thread guard = new Thread(null, () -> watch(at), "wdl-timeout", 64L * 1024);
+        guard.setDaemon(true);
+        watchdog = guard;
+        guard.start();
+    }
+
+    /** Тело сторожа: дождаться срока и прервать тех, кто внутри. */
+    private void watch(long at) {
+        try {
+            long left;
+            while ((left = at - System.nanoTime()) > 0) {
+                // Миллисекунды с округлением вверх: проснуться на наносекунду раньше
+                // значило бы крутиться в цикле до самого срока.
+                Thread.sleep(left / 1_000_000L + 1);
+            }
+        } catch (InterruptedException stop) {
+            // Запуск закрылся раньше срока — сторожить больше нечего.
+            return;
+        }
+        if (closed) {
+            return;
+        }
+        expired = true;
+        interruptInside();
+    }
+
+    /** Прерывает всех, кто сейчас внутри запуска, — и потоки скрипта, и вошедших. */
+    private void interruptInside() {
+        for (Thread thread : inside) {
+            thread.interrupt();
+        }
+        threads.interruptAll();
     }
 
     /**
@@ -238,9 +464,16 @@ public final class Run {
      * сколько нужно им, чтобы заметить прерывание, — и позвать функцию по уже закрытым
      * модулям они не должны. Внятная остановка тут честнее, чем работа по закрытому
      * соединению.
+     * <p>
+     * Здесь же снимается сторож времени: сеанса больше нет, сторожить нечего.
      */
     void close() {
         closed = true;
+        Thread guard = watchdog;
+        if (guard != null) {
+            watchdog = null;
+            guard.interrupt();
+        }
     }
 
     /** Закрыт ли запуск. */

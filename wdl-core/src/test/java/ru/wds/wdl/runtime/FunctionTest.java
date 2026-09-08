@@ -327,7 +327,7 @@ class FunctionTest {
     @Test
     @DisplayName("разумная глубина рекурсии проходит целиком")
     void deepEnoughRecursionWorks() {
-        int depth = ExecutionContext.MAX_CALL_DEPTH - 2;
+        int depth = Limits.DEFAULT_CALL_DEPTH - 2;
         assertEquals("дно", printed("def вниз(n) => n <= 0 ? \"дно\" : вниз(n - 1)\nprintln(вниз(" + depth + "))"));
     }
 
@@ -338,7 +338,7 @@ class FunctionTest {
         // нарочно крошечный. Проверяется вторая линия защиты — та, что превращает
         // StackOverflowError в остановку выполнения с внятным сообщением.
         Unit unit = parse("def вниз(n) => n <= 0 ? 0 : вниз(n - 1)\nвниз("
-                + (ExecutionContext.MAX_CALL_DEPTH - 2) + ")");
+                + (Limits.DEFAULT_CALL_DEPTH - 2) + ")");
 
         Throwable[] thrown = new Throwable[1];
         Thread thread = new Thread(null, () -> {

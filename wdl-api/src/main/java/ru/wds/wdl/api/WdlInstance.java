@@ -111,6 +111,9 @@ public final class WdlInstance implements AutoCloseable {
         engine.globals().forEach(root::define);
         this.context = fresh
                 .withMetrics(sink)
+                // Пределы — свойство запуска, и ставятся они здесь, до первой инструкции
+                // скрипта: отсчёт времени начнётся сам, на первом входе в скрипт.
+                .withLimits(engine.limits())
                 // Приёмник достаётся и реестру модулей: их разбор случается внутри
                 // движка, снаружи туда не дотянуться.
                 .withModules(new ModuleUnits(sources, sink))

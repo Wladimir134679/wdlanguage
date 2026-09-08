@@ -316,16 +316,22 @@ final class WdlClass implements ClassValue {
         run.enter(span);
         try {
             return create(arguments, caller, span);
+        } catch (FatalError stop) {
+            throw run.explain(stop);
         } finally {
             run.leave();
         }
     }
 
     private Value create(Arguments arguments, CallContext caller, Span span) {
-        if (caller.callDepth() >= ExecutionContext.MAX_CALL_DEPTH) {
+        // Создание — такой же шаг скрипта, как вызов: и считается так же, и лимитами
+        // ограничивается теми же.
+        run.checkpoint(span);
+        int depth = run.limits().maxCallDepth();
+        if (caller.callDepth() >= depth) {
             // Создание считается вызовом: 'class Node(next = new Node())' обязано
             // остановить выполнение, а не свалить чужое приложение StackOverflowError.
-            throw FatalError.tooDeep(span, "Проверьте создание '" + name() + "'");
+            throw FatalError.tooDeep(span, depth, "Проверьте создание '" + name() + "'");
         }
 
         Map<Shape, Header> bound = bindLineage(arguments, caller, span);

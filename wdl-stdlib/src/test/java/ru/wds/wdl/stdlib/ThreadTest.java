@@ -2,6 +2,7 @@ package ru.wds.wdl.stdlib;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import ru.wds.wdl.runtime.Limits;
 
 import java.time.Duration;
 
@@ -392,6 +393,49 @@ class ThreadTest {
                 holder.interrupt()
                 holder.join(3000)
                 """)));
+    }
+
+    @Test
+    @DisplayName("квота потоков: сверх неё spawn отказывает — обычной ошибкой, ловимой")
+    void spawnRespectsQuota() {
+        // Отказ — не остановка выполнения: «потоков больше не дам» это про операцию,
+        // и скрипт вправе поймать его, подождать и попробовать снова.
+        assertTimeoutPreemptively(LIMIT, () -> assertEquals("отказ", Scripts.printed("""
+                import sys.thread as th
+
+                busy = th.spawn(def () { th.sleep(3000) })
+                try {
+                    th.spawn(def () => 1)
+                    println("завёлся")
+                } catch (e) {
+                    println("отказ")
+                }
+                busy.interrupt()
+                """, Limits.builder().maxThreads(1).build())));
+    }
+
+    @Test
+    @DisplayName("квота считает и потоки пула — целиком, а закрытый пул её возвращает")
+    void poolTakesQuotaAndGivesItBack() {
+        // Пул занимает место по числу потоков, которое вправе держать, а не по числу
+        // заведённых: иначе th.pool(1000) проходил бы любую проверку, пока в него
+        // не положили задачу.
+        assertTimeoutPreemptively(LIMIT, () -> assertEquals("отказ ок", Scripts.printed("""
+                import sys.thread as th
+
+                first = th.pool(4)
+                try {
+                    th.pool(4)
+                    println("создан")
+                } catch (e) {
+                    println("отказ")
+                }
+                first.close()
+                second = th.pool(4)
+                doubled = second.map([1, 2], def (x) => x * 2)
+                println(doubled[0] + doubled[1] == 6 ? "ок" : "не то")
+                second.close()
+                """, Limits.builder().maxThreads(4).build())));
     }
 
     @Test

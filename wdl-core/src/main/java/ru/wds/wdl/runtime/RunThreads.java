@@ -7,10 +7,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Потоки одного запуска: кто их завёл, кто их остановит.
+ * Потоки одного запуска: кто их завёл, кто их остановит, сколько их можно.
  * <p>
  * Реестр существует ради одного вопроса — <b>что происходит при закрытии запуска</b>.
  * Без него ответ был «ничего»: колбэк сокета заводил сырой {@code new Thread}, никем
@@ -23,11 +25,30 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Для встроенного движка ответ однозначен: мод не вправе не дать игре закрыться,
  * а скрипт настроек — серверу. Поэтому поток скрипта не держит процесс живым,
  * а дождаться его — явное дело автора: {@code t.join()}.
+ *
+ * <h2>Квота</h2>
+ * Здесь же считается {@link Limits#maxThreads()} — предел, без которого
+ * {@code for (;;) th.spawn(...)} кладёт не скрипт, а приложение. Счёт один
+ * ({@link #used}) на оба способа завести поток: одиночный {@link #start}
+ * и {@linkplain #reserve место под пул}. Пул занимает своё место целиком при создании,
+ * а не по факту старта потоков, — иначе {@code th.pool(1000)} проходил бы проверку,
+ * пока в него не положили задачу.
+ * <p>
+ * Разделение множеств {@link #live} и {@link #pooled} нужно ровно за этим: потоки пула
+ * прерываются и ждутся наравне с остальными, но в квоте их место уже занято резервом,
+ * и считать их второй раз было бы двойным счётом.
  */
 public final class RunThreads implements ScriptThreads {
 
-    /** Живые потоки. Множество, а не список: снимаются они в произвольном порядке. */
+    /** Живые потоки {@code th.spawn}. Множество, а не список: снимаются в произвольном порядке. */
     private final Set<Thread> live = ConcurrentHashMap.newKeySet();
+
+    /** Живые потоки пулов: место под них уже занято резервом, счёт им отдельный. */
+    private final Set<Thread> pooled = ConcurrentHashMap.newKeySet();
+
+    /** Занятые места квоты: потоки {@code spawn} плюс размеры открытых пулов. */
+    private final AtomicInteger used = new AtomicInteger();
+
     private final AtomicInteger counter = new AtomicInteger();
     private final Run run;
 
@@ -43,6 +64,7 @@ public final class RunThreads implements ScriptThreads {
             // функции скрипта упрётся в ту же проверку, только уже без внятного места.
             throw new IllegalStateException("запуск закрыт: новый поток скрипта не заводится");
         }
+        take(1);
         String title = name != null && !name.isBlank()
                 ? name
                 : "wdl-" + counter.incrementAndGet();
@@ -51,6 +73,9 @@ public final class RunThreads implements ScriptThreads {
                 body.run();
             } finally {
                 live.remove(Thread.currentThread());
+                // Место освобождается вместе с потоком, а не при закрытии запуска:
+                // скрипт, честно дождавшийся 'join', вправе завести следующий.
+                used.decrementAndGet();
             }
         }, title, STACK_SIZE);
         thread.setDaemon(true);
@@ -61,9 +86,62 @@ public final class RunThreads implements ScriptThreads {
             thread.start();
         } catch (RuntimeException | Error failed) {
             live.remove(thread);
+            used.decrementAndGet();
             throw failed;
         }
         return thread;
+    }
+
+    @Override
+    public Quota reserve(String prefix, int size) {
+        if (size <= 0) {
+            throw new IllegalArgumentException("размер пула должен быть положительным: " + size);
+        }
+        if (run.isClosed()) {
+            throw new IllegalStateException("запуск закрыт: новый пул не заводится");
+        }
+        take(size);
+        return new PoolQuota(prefix, size);
+    }
+
+    /**
+     * Занимает {@code count} мест квоты или отказывает.
+     * <p>
+     * Циклом с {@code compareAndSet}, а не {@code addAndGet} с откатом: откат
+     * на мгновение показывал бы квоту переполненной, и два потока, заводящих поток
+     * одновременно, отказывали бы друг другу оба.
+     */
+    private void take(int count) {
+        int max = run.limits().maxThreads();
+        if (max <= 0) {
+            used.addAndGet(count);
+            return;
+        }
+        while (true) {
+            int now = used.get();
+            if (now + count > max) {
+                throw new LimitExceeded("потоков скрипта разрешено " + max
+                        + ", занято " + now + ", запрошено ещё " + count);
+            }
+            if (used.compareAndSet(now, now + count)) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * Прерывает потоки запуска, не дожидаясь их.
+     * <p>
+     * Зовёт сторож времени: скрипт, застрявший в {@code th.sleep} или в ожидании
+     * канала, до точки проверки уже не дойдёт, и достать его можно только так.
+     */
+    void interruptAll() {
+        for (Thread thread : live) {
+            thread.interrupt();
+        }
+        for (Thread thread : pooled) {
+            thread.interrupt();
+        }
     }
 
     /**
@@ -78,12 +156,12 @@ public final class RunThreads implements ScriptThreads {
      * @return имена тех, кто не завершился, — для строки в логе; пусто, если все вышли
      */
     List<String> stopAndJoin(long timeoutMillis) {
-        for (Thread thread : live) {
-            thread.interrupt();
-        }
+        interruptAll();
         long deadline = System.nanoTime() + timeoutMillis * 1_000_000L;
         List<String> stubborn = new ArrayList<>();
-        for (Thread thread : live) {
+        List<Thread> waiting = new ArrayList<>(live);
+        waiting.addAll(pooled);
+        for (Thread thread : waiting) {
             long left = (deadline - System.nanoTime()) / 1_000_000L;
             try {
                 // Ноль для join() означает «ждать вечно», поэтому бюджет, ушедший
@@ -104,6 +182,49 @@ public final class RunThreads implements ScriptThreads {
 
     /** Сколько потоков скрипта живо прямо сейчас. */
     int liveCount() {
-        return live.size();
+        return live.size() + pooled.size();
+    }
+
+    /** Сколько мест квоты занято: потоки {@code spawn} плюс размеры открытых пулов. */
+    int usedQuota() {
+        return used.get();
+    }
+
+    /** Занятое пулом место: его фабрика потоков и освобождение при закрытии. */
+    private final class PoolQuota implements Quota {
+
+        private final String prefix;
+        private final int size;
+        private final AtomicInteger numbers = new AtomicInteger();
+        /** Закрыть можно дважды (пул закрывают и скрипт, и библиотека) — освободить один раз. */
+        private final AtomicBoolean released = new AtomicBoolean();
+
+        private PoolQuota(String prefix, int size) {
+            this.prefix = prefix == null || prefix.isBlank() ? "wdl-pool" : prefix;
+            this.size = size;
+        }
+
+        @Override
+        public ThreadFactory factory() {
+            return body -> {
+                Thread thread = new Thread(null, () -> {
+                    try {
+                        body.run();
+                    } finally {
+                        pooled.remove(Thread.currentThread());
+                    }
+                }, prefix + "-" + numbers.incrementAndGet(), STACK_SIZE);
+                thread.setDaemon(true);
+                pooled.add(thread);
+                return thread;
+            };
+        }
+
+        @Override
+        public void close() {
+            if (released.compareAndSet(false, true)) {
+                used.addAndGet(-size);
+            }
+        }
     }
 }

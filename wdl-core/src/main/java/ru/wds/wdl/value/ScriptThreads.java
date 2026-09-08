@@ -1,5 +1,8 @@
 package ru.wds.wdl.value;
 
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
+
 /**
  * Потоки, заведённые скриптом: то, через что библиотека их создаёт.
  * <p>
@@ -15,13 +18,20 @@ package ru.wds.wdl.value;
  *
  * <h2>Размер стека задаётся явно</h2>
  * И это не тонкая настройка. Предел вложенности вызовов в языке — свойство движка
- * ({@code ExecutionContext.MAX_CALL_DEPTH}), а сколько кадров влезет — свойство потока,
+ * ({@code Limits.maxCallDepth()}), а сколько кадров влезет — свойство потока,
  * который движку не подчиняется: в потоке с коротким стеком рекурсия упрётся
  * в {@code StackOverflowError} задолго до своего предела, и вместо ошибки скрипта
  * с местом в исходнике автор получит остановку без объяснений. Поэтому поток скрипта
  * создаётся со стеком {@link #STACK_SIZE}, а не с тем, что достанется.
+ *
+ * <h2>Квота</h2>
+ * Реестр — ещё и место, где считается, сколько потоков скрипту разрешено
+ * ({@code Limits.maxThreads}). Считаются оба способа их завести: одиночный
+ * {@link #start} и {@linkplain #reserve пул}, — иначе квота обходилась бы одной
+ * строкой {@code th.pool(1000)}. Пул занимает своё место целиком в момент создания
+ * и освобождает его при закрытии: пул на шестьдесят четыре потока и правда стоит
+ * шестьдесят четыре, даже пока задач в нём нет.
  */
-@FunctionalInterface
 public interface ScriptThreads {
 
     /**
@@ -44,11 +54,62 @@ public interface ScriptThreads {
      * @param name имя потока — оно же попадёт в диагностику; {@code null} — придумать
      * @param body тело; его ошибки ловит вызывающий, а не реестр
      * @return запущенный поток
+     * @throws LimitExceeded если квота потоков запуска исчерпана
      */
     Thread start(String name, Runnable body);
 
     /**
-     * Реестра нет: поток просто создаётся и запускается.
+     * Занимает место под потоки пула и отдаёт фабрику, которая их создаёт.
+     * <p>
+     * Отдельно от {@link #start}, потому что пулу нужен <b>незапущенный</b> поток:
+     * {@code ExecutorService} стартует его сам, когда решит. А квота занимается сразу
+     * и целиком — по числу потоков, которое пул вправе завести, а не по числу
+     * заведённых: иначе {@code th.pool(1000)} проходил бы любую проверку, пока
+     * в него не положили задачу.
+     * <p>
+     * Возвращённый {@link Quota} закрывает тот, кто закрывает пул, — место
+     * освобождается и достаётся следующему.
+     *
+     * @param prefix начало имени потоков — оно попадёт в диагностику
+     * @param size   сколько потоков пул вправе держать
+     * @throws LimitExceeded если квота потоков запуска исчерпана
+     */
+    Quota reserve(String prefix, int size);
+
+    /**
+     * Занятое пулом место: фабрика его потоков плюс освобождение.
+     * <p>
+     * {@code close()} без {@code throws} — чтобы закрытие пула не обрастало
+     * обработчиком там, где освобождать нечего.
+     */
+    interface Quota extends AutoCloseable {
+
+        /** Фабрика потоков пула: демоны с явным стеком, учтённые запуском. */
+        ThreadFactory factory();
+
+        @Override
+        void close();
+    }
+
+    /**
+     * Квота потоков запуска исчерпана.
+     * <p>
+     * Не {@code WdlError}: ядро не знает, из какого места скрипта пришёл вызов, — знает
+     * библиотека, и она же переводит это в обычную ошибку скрипта с местом
+     * ({@code sys.thread}). И ошибка это <b>обычная</b>, ловимая: «потоков больше
+     * не дам» — про неудавшуюся операцию, а не про остановленное выполнение, и скрипт
+     * вправе подождать и попробовать снова. Зациклиться на такой попытке он не сможет:
+     * цикл упрётся в шаги и время.
+     */
+    class LimitExceeded extends IllegalStateException {
+
+        public LimitExceeded(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Реестра нет: поток просто создаётся и запускается, квота не считается.
      * <p>
      * Значение по умолчанию для вызывающего без запуска — тест, собирающий вывод
      * в строку, или приложение, зовущее функцию со своим {@link CallContext}.
@@ -56,11 +117,38 @@ public interface ScriptThreads {
      * худший исход из возможных.
      */
     static ScriptThreads unmanaged() {
-        return (name, body) -> {
-            Thread thread = new Thread(null, body, name == null ? "wdl-thread" : name, STACK_SIZE);
-            thread.setDaemon(true);
-            thread.start();
-            return thread;
+        return new ScriptThreads() {
+
+            @Override
+            public Thread start(String name, Runnable body) {
+                Thread thread = daemon(name == null ? "wdl-thread" : name, body);
+                thread.start();
+                return thread;
+            }
+
+            @Override
+            public Quota reserve(String prefix, int size) {
+                AtomicInteger counter = new AtomicInteger();
+                return new Quota() {
+
+                    @Override
+                    public ThreadFactory factory() {
+                        return body -> daemon(prefix + "-" + counter.incrementAndGet(), body);
+                    }
+
+                    @Override
+                    public void close() {
+                        // Считать было нечего — освобождать тоже.
+                    }
+                };
+            }
         };
+    }
+
+    /** Незапущенный поток скрипта: демон с явным стеком. */
+    private static Thread daemon(String name, Runnable body) {
+        Thread thread = new Thread(null, body, name, STACK_SIZE);
+        thread.setDaemon(true);
+        return thread;
     }
 }

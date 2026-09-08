@@ -2,6 +2,8 @@ package ru.wds.wdl.api;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import ru.wds.wdl.runtime.Limits;
+import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.stdlib.Sys;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,13 +28,19 @@ class StdlibTest {
     }
 
     @Test
-    @DisplayName("SAFE — подмножество STANDARD без файлов, сети и потоков")
+    @DisplayName("SAFE — подмножество STANDARD без файлов, сети и окон")
     void safeIsSubsetWithoutWorld() {
         var safe = Stdlib.SAFE.modules().keySet();
         assertTrue(Stdlib.STANDARD.modules().keySet().containsAll(safe), safe.toString());
         assertTrue(safe.stream().noneMatch(name -> name.startsWith("sys/io")
-                || name.startsWith("sys/net") || name.startsWith("sys/gui")
-                || name.startsWith("sys/thread")), safe.toString());
+                || name.startsWith("sys/net") || name.startsWith("sys/gui")), safe.toString());
+    }
+
+    @Test
+    @DisplayName("SAFE даёт потоки — но вместе с пределами выполнения")
+    void safeGivesThreadsUnderLimits() {
+        assertTrue(Stdlib.SAFE.modules().containsKey("sys/thread"));
+        assertEquals(Limits.safeDefaults(), WdlEngine.safe(Output.discarding()).limits());
     }
 
     @Test

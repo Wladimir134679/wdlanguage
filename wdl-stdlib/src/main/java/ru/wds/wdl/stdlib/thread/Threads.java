@@ -15,6 +15,7 @@ import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.Signature;
 import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.CallContext;
+import ru.wds.wdl.value.ScriptThreads;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.MapValue;
@@ -23,7 +24,6 @@ import ru.wds.wdl.value.types.StringValue;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
 
 /**
  * Модуль {@code sys.thread}: потоки скрипта.
@@ -75,7 +75,7 @@ public final class Threads {
     private static final int MAX_POOL_SIZE = 512;
 
     /** Пулы этого запуска — их же закрывать, если скрипт забыл. */
-    private final List<ExecutorService> pools = new CopyOnWriteArrayList<>();
+    private final List<Pool.Running> pools = new CopyOnWriteArrayList<>();
 
     private Threads() {
     }
@@ -183,7 +183,14 @@ public final class Threads {
                         throw arguments.bad(0, "число потоков",
                                 "ожидалось от 1 до " + MAX_POOL_SIZE);
                     }
-                    return Pool.create(poolClass, (int) size, pools);
+                    try {
+                        return Pool.create(poolClass, (int) size, context, pools);
+                    } catch (ScriptThreads.LimitExceeded full) {
+                        // Квота — не поломка движка, а отказ операции: скрипт вправе
+                        // закрыть лишний пул и попробовать снова, а место в исходнике
+                        // известно только здесь.
+                        throw new WdlRuntimeError(span, "пул не создан: " + full.getMessage());
+                    }
                 }));
     }
 
@@ -232,7 +239,7 @@ public final class Threads {
      * безобидно.
      */
     private void shutdownPools() {
-        pools.forEach(ExecutorService::shutdownNow);
+        pools.forEach(Pool::shutdown);
         pools.clear();
     }
 
@@ -254,7 +261,15 @@ public final class Threads {
     private static Value spawn(NativeClass threadClass, CallContext context, Span span,
                                String title, Callback body) {
         ThreadHandle.State state = new ThreadHandle.State();
-        Thread thread = context.threads().start(title, () -> run(state, context, body));
+        Thread thread;
+        try {
+            thread = context.threads().start(title, () -> run(state, context, body));
+        } catch (ScriptThreads.LimitExceeded full) {
+            // Обычная ошибка скрипта, а не остановка выполнения: «потоков больше не дам»
+            // — про неудавшуюся операцию, и обработчик здесь осмыслен. Зациклиться
+            // на повторных попытках скрипт не сможет — цикл упрётся в шаги и время.
+            throw new WdlRuntimeError(span, "поток не заведён: " + full.getMessage());
+        }
         ThreadHandle handle = new ThreadHandle(threadClass, thread, state);
         handle.put("name", StringValue.of(thread.getName()));
         handle.put("id", IntValue.of(thread.threadId()));

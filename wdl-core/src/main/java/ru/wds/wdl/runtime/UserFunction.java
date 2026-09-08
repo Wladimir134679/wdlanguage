@@ -186,7 +186,7 @@ public final class UserFunction implements FunctionValue {
      * <p>
      * Разница между этими двумя случаями ровно одна и вся здесь: вызов изнутри уже
      * внутри запуска, а вызов снаружи в него входит — и этот вход считается
-     * ({@link Run#MAX_ENTRIES}) и проверяется на закрытие. Дальше кода два раза
+     * ({@link Limits#maxEntries()}) и проверяется на закрытие. Дальше кода два раза
      * не написано — тело одно, и оно не знает, кто его начал.
      */
     @Override
@@ -213,6 +213,8 @@ public final class UserFunction implements FunctionValue {
         run.enter(span);
         try {
             return guarded(context, arguments, span);
+        } catch (FatalError stop) {
+            throw run.explain(stop);
         } finally {
             run.leave();
         }
@@ -249,16 +251,15 @@ public final class UserFunction implements FunctionValue {
     }
 
     private Value body(CallContext context, Arguments arguments, Span span) {
-        // Прерывание проверяется и здесь, а не только в циклах: рекурсия без цикла —
-        // такое же зацикливание, и остановить её снаружи надо той же кнопкой.
-        if (Thread.currentThread().isInterrupted()) {
-            throw FatalError.interrupted(span);
-        }
-        if (context.callDepth() >= ExecutionContext.MAX_CALL_DEPTH) {
+        // Вызов — такой же шаг скрипта, как итерация цикла: рекурсия без цикла — то же
+        // зацикливание, и останавливают её те же лимиты и та же кнопка снаружи.
+        run.checkpoint(span);
+        int depth = run.limits().maxCallDepth();
+        if (context.callDepth() >= depth) {
             // Рекурсия без выхода — не «эта операция не удалась», а «выполнение дальше
             // не идёт»: поймать такое обработчиком нельзя, иначе цикл с try съел бы
             // собственную защиту от зацикливания.
-            throw FatalError.tooDeep(span, "Проверьте условие выхода из '" + name() + "'");
+            throw FatalError.tooDeep(span, depth, "Проверьте условие выхода из '" + name() + "'");
         }
 
         Environment local = closure.child();

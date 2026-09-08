@@ -7,6 +7,7 @@ import ru.wds.wdl.bridge.reflect.JavaBridge;
 import ru.wds.wdl.bridge.reflect.JavaPolicy;
 import ru.wds.wdl.diagnostic.Diagnostics;
 import ru.wds.wdl.module.Library;
+import ru.wds.wdl.runtime.Limits;
 import ru.wds.wdl.lexer.Lexer;
 import ru.wds.wdl.lexer.Token;
 import ru.wds.wdl.metrics.Measure;
@@ -25,6 +26,7 @@ import ru.wds.wdl.value.Value;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -110,6 +112,8 @@ public final class WdlEngine {
     private final boolean metricsEnabled;
     /** Куда сообщать о каждой законченной стадии, или {@code null}. */
     private final Consumer<Measurement> metricsListener;
+    /** Пределы выполнения: шаги, время, квота потоков. */
+    private final Limits limits;
 
     private WdlEngine(Builder builder) {
         this.output = builder.output;
@@ -121,6 +125,7 @@ public final class WdlEngine {
         this.javaPolicy = builder.javaPolicy;
         this.metricsEnabled = builder.metricsEnabled;
         this.metricsListener = builder.metricsListener;
+        this.limits = builder.limits();
         this.rootLibraries = Collections.unmodifiableMap(withHostBridge(builder.rootLibraries));
     }
 
@@ -216,7 +221,15 @@ public final class WdlEngine {
         return builder().stdlib(Stdlib.STANDARD).output(output).build();
     }
 
-    /** Движок для скрипта, которому не доверяют: считает и разбирает данные, мира не трогает. */
+    /**
+     * Движок для скрипта, которому не доверяют: считает и разбирает данные, мира
+     * не трогает, работает под {@linkplain Limits#safeDefaults() пределами}.
+     * <p>
+     * Пределы здесь не украшение, а половина обещания: без них
+     * {@code while (true) {}} висит навсегда, а {@code for (;;) th.spawn(...)} кладёт
+     * приложение. Свои задаются {@link Builder#limits}, а снять их можно явным
+     * {@code limits(Limits.none())} — это уже решение приложения, а не умолчание.
+     */
     public static WdlEngine safe(Output output) {
         return builder().stdlib(Stdlib.SAFE).output(output).build();
     }
@@ -323,6 +336,11 @@ public final class WdlEngine {
         return output;
     }
 
+    /** Пределы выполнения этого движка; по умолчанию — {@link Limits#none()}. */
+    public Limits limits() {
+        return limits;
+    }
+
     /**
      * Новый накопитель замеров — по одному на скрипт и на экземпляр.
      * <p>
@@ -367,8 +385,62 @@ public final class WdlEngine {
         private JavaPolicy javaPolicy = JavaPolicy.strict();
         private boolean metricsEnabled;
         private Consumer<Measurement> metricsListener;
+        /** Пределы, заданные явно, или {@code null} — тогда их выбирает набор. */
+        private Limits limits;
+        /** Последний заданный набор стандартной библиотеки — от него зависит умолчание. */
+        private Stdlib preset;
 
         private Builder() {
+        }
+
+        /**
+         * Пределы выполнения: шаги, время, квота потоков.
+         * <p>
+         * По умолчанию их нет — движок не платит за то, о чём его не просили, — кроме
+         * набора {@link Stdlib#SAFE}: он ставит {@link Limits#safeDefaults()} сам,
+         * потому что своё обещание («скрипт от пользователя не уронит хозяина») без
+         * пределов не держит. Явный вызов сильнее умолчания в обе стороны:
+         * {@code limits(Limits.none())} снимает их и у безопасного набора.
+         */
+        public Builder limits(Limits value) {
+            this.limits = Objects.requireNonNull(value, "limits");
+            return this;
+        }
+
+        /** Короткая форма: сколько шагов можно скрипту; {@code 0} — без предела. */
+        public Builder maxSteps(long steps) {
+            return limits(current().toBuilder().maxSteps(steps).build());
+        }
+
+        /** Короткая форма: сколько может работать запуск; {@link Duration#ZERO} — без предела. */
+        public Builder timeout(Duration limit) {
+            return limits(current().toBuilder().timeout(limit).build());
+        }
+
+        /** Короткая форма: сколько потоков разрешено скрипту; {@code 0} — без предела. */
+        public Builder maxThreads(int threads) {
+            return limits(current().toBuilder().maxThreads(threads).build());
+        }
+
+        /**
+         * Пределы, от которых отсчитываются короткие формы.
+         * <p>
+         * Заданные явно, иначе те, что дал бы набор: {@code stdlib(SAFE).maxSteps(1000)}
+         * обязан оставить при себе таймаут и квоту потоков безопасного набора, а не
+         * обнулить их за компанию.
+         */
+        private Limits current() {
+            return limits != null ? limits : defaults();
+        }
+
+        /** Пределы по умолчанию для выбранного набора библиотек. */
+        private Limits defaults() {
+            return preset == Stdlib.SAFE ? Limits.safeDefaults() : Limits.none();
+        }
+
+        /** Пределы собранного движка: заданные явно или те, что следуют из набора. */
+        private Limits limits() {
+            return current();
         }
 
         /**
@@ -419,6 +491,7 @@ public final class WdlEngine {
          */
         public Builder stdlib(Stdlib preset) {
             Objects.requireNonNull(preset, "preset");
+            this.preset = preset;
             modules.putAll(preset.modules());
             rootLibraries.putAll(preset.rootLibraries());
             return this;

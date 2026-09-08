@@ -25,10 +25,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Пул потоков и его обещания: {@code th.pool(4)}, {@code pool.submit}, {@code pool.map}.
@@ -77,9 +75,9 @@ final class Pool {
                                 args.callback(1, "функция"), span))
 
                 .method("close", Arity.exactly(0), (self, context, args, span) -> {
-                    ExecutorService service = self.state(ExecutorService.class);
-                    if (service != null) {
-                        service.shutdownNow();
+                    Running running = self.state(Running.class);
+                    if (running != null) {
+                        shutdown(running);
                         self.state((Object) null);
                     }
                     return NullValue.NULL;
@@ -128,40 +126,61 @@ final class Pool {
                 "за этим значением нет задачи: обещание отдаёт pool.submit");
     }
 
-    /** Создаёт пул на заданное число потоков. */
-    static Value create(NativeClass poolClass, int size, List<ExecutorService> opened) {
-        ExecutorService service = Executors.newFixedThreadPool(size, factory());
-        opened.add(service);
-        NativeInstance instance = new NativeInstance(poolClass);
-        instance.put("size", IntValue.of(size));
-        instance.state(service);
-        return instance;
+    /**
+     * Открытый пул: его исполнитель и занятое им место в квоте потоков запуска.
+     * <p>
+     * Двух вещей, а не одной, потому что закрытие пула — это оба действия сразу:
+     * остановить потоки и вернуть их место. Пул, потоки которого остановлены,
+     * но место осталось занятым, тихо съедал бы квоту до конца запуска.
+     */
+    record Running(ExecutorService service, ScriptThreads.Quota quota) {
     }
 
     /**
-     * Потоки пула: демоны с явным стеком.
+     * Создаёт пул на заданное число потоков.
      * <p>
-     * Стек — по той же причине, что и у {@code th.spawn}: предел вложенности вызовов
-     * в языке рассчитан на нормальный стек, а поток с коротким упрётся
-     * в {@code StackOverflowError} раньше своего предела. Демоны — потому что пул
-     * не вправе не дать процессу завершиться; закрывает его {@code close()}.
+     * Потоки берутся у запуска ({@code CallContext.threads()}), а не у своей
+     * {@code ThreadFactory}, и это то же правило, что у {@code th.spawn}: поток,
+     * о котором запуск не знает, переживает закрытие и не считается в квоте.
+     * Пул занимает место целиком в момент создания — по числу потоков, которое он
+     * вправе держать, а не по числу заведённых.
+     *
+     * @throws ScriptThreads.LimitExceeded если квота потоков запуска исчерпана;
+     *                                     переводит её в ошибку скрипта вызывающий,
+     *                                     которому известно место в исходнике
      */
-    private static ThreadFactory factory() {
-        AtomicInteger counter = new AtomicInteger();
-        return body -> {
-            Thread thread = new Thread(null, body, "wdl-pool-" + counter.incrementAndGet(),
-                    ScriptThreads.STACK_SIZE);
-            thread.setDaemon(true);
-            return thread;
-        };
+    static Value create(NativeClass poolClass, int size, CallContext context,
+                        List<Running> opened) {
+        ScriptThreads.Quota quota = context.threads().reserve("wdl-pool", size);
+        ExecutorService service;
+        try {
+            service = Executors.newFixedThreadPool(size, quota.factory());
+        } catch (RuntimeException | Error failed) {
+            // Место занято, а пула нет — вернуть его надо здесь: другого владельца
+            // у этой квоты уже не появится.
+            quota.close();
+            throw failed;
+        }
+        Running running = new Running(service, quota);
+        opened.add(running);
+        NativeInstance instance = new NativeInstance(poolClass);
+        instance.put("size", IntValue.of(size));
+        instance.state(running);
+        return instance;
+    }
+
+    /** Останавливает потоки пула и возвращает занятое им место. Идемпотентно. */
+    static void shutdown(Running running) {
+        running.service().shutdownNow();
+        running.quota().close();
     }
 
     private static ExecutorService executor(NativeInstance self, Span span) {
-        ExecutorService service = self.state(ExecutorService.class);
-        if (service == null) {
+        Running running = self.state(Running.class);
+        if (running == null) {
             throw new WdlRuntimeError(span, "пул закрыт: задачи в него больше не принимаются");
         }
-        return service;
+        return running.service();
     }
 
     private static Value submit(NativeClass futureClass, ExecutorService service,

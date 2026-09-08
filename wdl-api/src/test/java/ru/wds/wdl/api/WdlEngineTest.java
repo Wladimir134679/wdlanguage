@@ -8,6 +8,7 @@ import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.runtime.Environment;
+import ru.wds.wdl.runtime.Limits;
 import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
@@ -588,6 +589,39 @@ class WdlEngineTest {
         }
 
         assertEquals(List.of(Stage.LEX, Stage.PARSE, Stage.EXECUTE, Stage.SHUTDOWN), stages);
+    }
+
+    @Test
+    @DisplayName("SAFE ставит пределы сам, STANDARD и minimal — нет")
+    void safePresetBringsLimits() {
+        assertEquals(Limits.safeDefaults(),
+                WdlEngine.builder().stdlib(Stdlib.SAFE).build().limits());
+        assertEquals(Limits.none(), WdlEngine.standard(Output.discarding()).limits());
+        assertEquals(Limits.none(), WdlEngine.minimal().limits());
+    }
+
+    @Test
+    @DisplayName("явные пределы сильнее умолчания набора — в обе стороны")
+    void explicitLimitsWin() {
+        assertEquals(Limits.none(),
+                WdlEngine.builder().stdlib(Stdlib.SAFE).limits(Limits.none()).build().limits());
+        // Короткая форма меняет одно поле, а не обнуляет остальные: таймаут и квота
+        // безопасного набора обязаны остаться при себе.
+        Limits tightened = WdlEngine.builder().stdlib(Stdlib.SAFE).maxSteps(1000).build().limits();
+        assertEquals(1000, tightened.maxSteps());
+        assertEquals(Limits.SAFE_TIMEOUT, tightened.timeout());
+        assertEquals(Limits.SAFE_THREADS, tightened.maxThreads());
+    }
+
+    @Test
+    @DisplayName("зациклившийся скрипт останавливается пределом, а не висит")
+    void loopingScriptIsStopped() {
+        WdlEngine engine = WdlEngine.builder().stdlib(Stdlib.SAFE).maxSteps(10_000).build();
+        assertTimeoutPreemptively(Duration.ofSeconds(10), () -> {
+            WdlException failed = assertThrows(WdlException.class,
+                    () -> engine.run("while (true) { }"));
+            assertTrue(failed.getMessage().contains("исчерпал отведённые"), failed.getMessage());
+        });
     }
 
     @Test

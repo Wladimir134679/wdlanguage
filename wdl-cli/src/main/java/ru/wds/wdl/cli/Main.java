@@ -20,6 +20,7 @@ import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.runtime.ExecutionContext;
+import ru.wds.wdl.runtime.Limits;
 import ru.wds.wdl.runtime.Interpreter;
 import ru.wds.wdl.runtime.Output;
 import ru.wds.wdl.runtime.WdlError;
@@ -55,6 +56,7 @@ import java.nio.charset.UnsupportedCharsetException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -131,6 +133,25 @@ public final class Main implements Callable<Integer> {
      */
     @Option(names = {"--debug"}, description = "Показывать Java-стек у ошибок из библиотек")
     private boolean showJavaTrace;
+
+    /**
+     * Пределы выполнения: по умолчанию их нет.
+     * <p>
+     * Консольный {@code wdl} запускает свой скрипт, а не чужой, — и обрывать его
+     * на середине без просьбы было бы наглостью. Просьба выглядит так:
+     * {@code wdl --timeout=5 --max-steps=1000000 script.wdl}.
+     */
+    @Option(names = {"--max-steps"}, paramLabel = "<n>",
+            description = "Оборвать скрипт после n шагов (итераций и вызовов)")
+    private long maxSteps;
+
+    @Option(names = {"--timeout"}, paramLabel = "<секунды>",
+            description = "Оборвать скрипт через столько секунд")
+    private double timeoutSeconds;
+
+    @Option(names = {"--max-threads"}, paramLabel = "<n>",
+            description = "Сколько потоков разрешено скрипту (th.spawn и th.pool)")
+    private int maxThreads;
 
     @Option(names = {"--catalog"},
             description = "Показать имена, доступные скриптам: встроенные, std и модули sys.*")
@@ -618,14 +639,33 @@ public final class Main implements Callable<Integer> {
         return value == null ? NullValue.NULL : StringValue.of(value);
     }
 
-    private static ExecutionContext standardContext() {
+    private ExecutionContext standardContext() {
         ExecutionContext context = ExecutionContext.fresh(Output.standard());
         Std.install(context.scope());
         context.scope().define("args", ArrayValue.of(List.of()));
         // Встроенные модули (sys.io, sys.json, sys.net.http) даёт тот же запуск и тем же
         // способом: набором, а не флагом. Приложение, встраивающее движок, собирает свой —
         // и скрипту доступно ровно то, что в нём есть.
-        return context.withNativeModules(Sys.modules());
+        return context.withNativeModules(Sys.modules()).withLimits(limits());
+    }
+
+    /**
+     * Пределы из флагов командной строки.
+     * <p>
+     * Ничего не задано — {@link Limits#none()}: то же умолчание, что и у движка,
+     * и по той же причине.
+     */
+    private Limits limits() {
+        if (maxSteps <= 0 && timeoutSeconds <= 0 && maxThreads <= 0) {
+            return Limits.none();
+        }
+        return Limits.builder()
+                .maxSteps(Math.max(maxSteps, 0))
+                .timeout(timeoutSeconds > 0
+                        ? Duration.ofNanos((long) (timeoutSeconds * 1_000_000_000L))
+                        : Duration.ZERO)
+                .maxThreads(Math.max(maxThreads, 0))
+                .build();
     }
 
     private static void showDiagnostics(Diagnostics diagnostics) {

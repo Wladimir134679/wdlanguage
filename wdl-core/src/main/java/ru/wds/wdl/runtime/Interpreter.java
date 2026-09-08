@@ -106,6 +106,10 @@ public final class Interpreter
         run.enter(Span.point(0));
         try {
             return body.get();
+        } catch (FatalError stop) {
+            // Причину остановки называет запуск: библиотека, вышедшая из блокирующего
+            // вызова, знает только про прерывание, а сторож времени — это таймаут.
+            throw run.explain(stop);
         } finally {
             run.leave();
         }
@@ -382,7 +386,7 @@ public final class Interpreter
     @Override
     public Void visitWhile(WhileStmt stmt, ExecutionContext context) {
         while (valueOf(stmt.condition(), context).isTruthy()) {
-            checkInterrupted(stmt.span());
+            context.run().checkpoint(stmt.span());
             if (runLoopBody(stmt.body(), context)) {
                 break;
             }
@@ -405,7 +409,7 @@ public final class Interpreter
             visit(stmt.init(), loop);
         }
         while (stmt.condition() == null || valueOf(stmt.condition(), loop).isTruthy()) {
-            checkInterrupted(stmt.span());
+            context.run().checkpoint(stmt.span());
             if (runLoopBody(stmt.body(), loop)) {
                 break;
             }
@@ -1538,7 +1542,7 @@ public final class Interpreter
      */
     private boolean iteration(ForEachStmt stmt, ExecutionContext context,
                               Value key, Value element) {
-        checkInterrupted(stmt.span());
+        context.run().checkpoint(stmt.span());
         ExecutionContext step = context.nested();
         if (stmt.withKey()) {
             define(step, stmt.key(), key);
@@ -1551,21 +1555,6 @@ public final class Interpreter
     private static void define(ExecutionContext step, UnpackTarget name, Value value) {
         if (name.writes()) {
             step.scope().define(((VariableExpr) name.target()).name(), value);
-        }
-    }
-
-    /**
-     * Даёт остановить зациклившийся скрипт снаружи — обычным
-     * {@link Thread#interrupt()}. Три строки на цикл против «приложение висит,
-     * и сделать с этим нечего».
-     * <p>
-     * Это {@link FatalError}, а не ошибка скрипта, и разница здесь принципиальная:
-     * {@code while (true) { try { ... } catch (e) {} }} поймал бы прерывание и продолжил
-     * работу — ровно то, ради чего приложение и звало {@code interrupt()}.
-     */
-    private static void checkInterrupted(Span span) {
-        if (Thread.currentThread().isInterrupted()) {
-            throw FatalError.interrupted(span);
         }
     }
 
