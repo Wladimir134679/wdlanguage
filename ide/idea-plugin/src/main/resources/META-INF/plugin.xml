@@ -30,5 +30,27 @@
                   implementationClass="ru.wds.wdl.idea.WdlFileType" fieldName="INSTANCE"/>
         <platform.lsp.serverSupportProvider
                 implementation="ru.wds.wdl.idea.WdlLspServerSupportProvider"/>
+
+        <!-- Профилировщик: кнопка «Профилировать», окно с отчётом, подсказки в редакторе. -->
+        <executor implementation="ru.wds.wdl.idea.profile.WdlProfileExecutor"/>
+        <programRunner implementation="ru.wds.wdl.idea.profile.WdlProfileRunner"/>
+        <toolWindow id="wdl Profile" anchor="bottom" canCloseContents="true"
+                    icon="AllIcons.Actions.Profile"
+                    factoryClass="ru.wds.wdl.idea.profile.WdlProfileToolWindowFactory"/>
+        <notificationGroup id="wdl" displayType="BALLOON"/>
     </extensions>
+
+    <projectListeners>
+        <listener class="ru.wds.wdl.idea.profile.ProfileEditorListener"
+                  topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
+    </projectListeners>
+
+    <actions>
+        <action id="wdl.profile.open" class="ru.wds.wdl.idea.profile.OpenProfileAction"
+                text="Открыть профиль wdl…"
+                description="Показать в окне профиля отчёт wdl --profile-out, снятый раньше или на другой машине"
+                icon="AllIcons.Actions.Profile">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

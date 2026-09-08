@@ -11,6 +11,8 @@ import com.intellij.openapi.util.JDOMExternalizerUtil;
 import com.intellij.util.execution.ParametersListUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
+import ru.wds.wdl.idea.profile.WdlProfileExecutor;
+import ru.wds.wdl.idea.profile.WdlProfileSession;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,7 +28,14 @@ public final class WdlRunConfiguration extends RunConfigurationBase<RunConfigura
         super(project, factory, name);
     }
 
-    private Path directory() {
+    /**
+     * Рабочий каталог запуска.
+     * <p>
+     * Он же — то, от чего разрешаются относительные пути в отчёте профилировщика:
+     * процесс запускался отсюда, и {@code wdl} назвал главный файл так, как его дали
+     * в командной строке.
+     */
+    public Path directory() {
         Path root = WdlProjectRoot.of(getProject());
         return workingDirectory.isBlank() ? root : root.resolve(workingDirectory).normalize();
     }
@@ -57,10 +66,24 @@ public final class WdlRunConfiguration extends RunConfigurationBase<RunConfigura
         return options;
     }
 
-    GeneralCommandLine createCommandLine(Path launcher) {
+    public GeneralCommandLine createCommandLine(Path launcher) {
+        return createCommandLine(launcher, null);
+    }
+
+    /**
+     * Командная строка запуска; {@code profileOut} — файл, куда просят положить профиль.
+     * <p>
+     * Флаг дописывается здесь, а не хранится в настройках: профилирование — действие,
+     * и одна и та же конфигурация обязана запускаться обычным способом без риска
+     * забыть снятый флажок.
+     */
+    public GeneralCommandLine createCommandLine(Path launcher, Path profileOut) {
         GeneralCommandLine command = WdlCommandLine.create(launcher, "ru.wds.wdl.cli.Main");
         command.withWorkDirectory(directory().toFile());
         command.addParameters(options());
+        if (profileOut != null) {
+            command.addParameters("--profile-out", profileOut.toString());
+        }
         command.addParameters("--project-root", WdlProjectRoot.of(getProject()).toString());
         command.addParameter("--");
         command.addParameter(directory().resolve(target).normalize().toString());
@@ -73,13 +96,19 @@ public final class WdlRunConfiguration extends RunConfigurationBase<RunConfigura
     }
 
     @Override public RunProfileState getState(@NotNull Executor executor, @NotNull ExecutionEnvironment environment) {
+        boolean profiling = WdlProfileExecutor.ID.equals(executor.getId());
         return new CommandLineState(environment) {
             @Override protected @NotNull ProcessHandler startProcess() throws ExecutionException {
                 Path launcher = WdlCommandLine.findCli(getProject(), interpreter);
                 if (launcher == null) throw new ExecutionException("wdl не найден; выполните installWdl");
-                GeneralCommandLine command = createCommandLine(launcher);
+                Path profileOut = profiling ? WdlProfileSession.createReportFile() : null;
+                GeneralCommandLine command = createCommandLine(launcher, profileOut);
                 OSProcessHandler handler = new KillableColoredProcessHandler(command);
                 ProcessTerminatedListener.attach(handler);
+                if (profileOut != null) {
+                    WdlProfileSession.collectOn(handler, getProject(), profileOut, directory(),
+                            getName() + " · " + java.time.LocalTime.now().withNano(0));
+                }
                 return handler;
             }
         };

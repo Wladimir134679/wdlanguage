@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "script": "examples\\profiling.wdl",
+  "calls": 21901,
+  "self_ns": 198836700,
+  "wall_ns": 341678600,
+  "threads": 1,
+  "sites": [
+    {
+      "kind": "function",
+      "name": "fib",
+      "file": "examples\\profiling.wdl",
+      "line": 6,
+      "offset": 197,
+      "calls": 21891,
+      "total_ns": 107898000,
+      "self_ns": 107898000,
+      "max_ns": 107898000
+    },
+    {
+      "kind": "function",
+      "name": "sumTo",
+      "file": "examples\\profiling.wdl",
+      "line": 14,
+      "offset": 332,
+      "calls": 1,
+      "total_ns": 76952200,
+      "self_ns": 76952200,
+      "max_ns": 76952200
+    },
+    {
+      "kind": "script",
+      "name": "examples\\profiling.wdl",
+      "file": "examples\\profiling.wdl",
+      "line": 1,
+      "offset": 0,
+      "calls": 1,
+      "total_ns": 198836700,
+      "self_ns": 7379600,
+      "max_ns": 198836700
+    },
+    {
+      "kind": "function",
+      "name": "report",
+      "file": "examples\\profiling.wdl",
+      "line": 23,
+      "offset": 532,
+      "calls": 1,
+      "total_ns": 189557600,
+      "self_ns": 2464100,
+      "max_ns": 189557600
+    },
+    {
+      "kind": "native",
+      "name": "println",
+      "file": "",
+      "line": 0,
+      "offset": -1,
+      "calls": 3,
+      "total_ns": 2336900,
+      "self_ns": 2336900,
+      "max_ns": 1818800
+    },
+    {
+      "kind": "constructor",
+      "name": "Point",
+      "file": "examples\\profiling.wdl",
+      "line": 28,
+      "offset": 650,
+      "calls": 2,
+      "total_ns": 993600,
+      "self_ns": 993600,
+      "max_ns": 947900
+    },
+    {
+      "kind": "function",
+      "name": "lengthSquared",
+      "file": "examples\\profiling.wdl",
+      "line": 29,
+      "offset": 674,
+      "calls": 2,
+      "total_ns": 812300,
+      "self_ns": 812300,
+      "max_ns": 685800
+    }
+  ],
+  "edges": [
+    {
+      "caller": 0,
+      "callee": 0,
+      "calls": 21890,
+      "total_ns": 1407756900
+    },
+    {
+      "caller": 2,
+      "callee": 3,
+      "calls": 1,
+      "total_ns": 189557600
+    },
+    {
+      "caller": 3,
+      "callee": 0,
+      "calls": 1,
+      "total_ns": 107898000
+    },
+    {
+      "caller": 3,
+      "callee": 1,
+      "calls": 1,
+      "total_ns": 76952200
+    },
+    {
+      "caller": 3,
+      "callee": 4,
+      "calls": 2,
+      "total_ns": 2243300
+    },
+    {
+      "caller": 2,
+      "callee": 5,
+      "calls": 2,
+      "total_ns": 993600
+    },
+    {
+      "caller": 2,
+      "callee": 6,
+      "calls": 2,
+      "total_ns": 812300
+    },
+    {
+      "caller": 2,
+      "callee": 4,
+      "calls": 1,
+      "total_ns": 93600
+    }
+  ]
+}

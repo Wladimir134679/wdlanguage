@@ -189,6 +189,10 @@ wdl --profile-out profile.json examples/profiling.wdl
 Пишется он тем же `JsonWriter`, что и `sys.json` и `--catalog`: у машинного вывода
 в проекте один формат и одна реализация.
 
+Первый читатель этого файла — плагин IntelliJ IDEA: кнопка «Профилировать» запускает
+конфигурацию с этим флагом и показывает отчёт окном
+([ide/idea-plugin/README.md](../ide/idea-plugin/README.md#профилирование)).
+
 ## Как это устроено внутри
 
 * `Profiler` — приёмник, `ProfileReport` — отчёт, `CallProfiler` — и то, и другое
