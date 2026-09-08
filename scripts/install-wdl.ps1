@@ -10,12 +10,13 @@ foreach ($launcher in @((Join-Path $cliHome 'bin\wdl.bat'), (Join-Path $lspHome 
 $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
 try {
     $oldPath = $key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-    $oldHomes = @($key.GetValue('WDL_HOME'), $key.GetValue('WDL_LSP_HOME'))
-    $bins = @((Join-Path $cliHome 'bin'), (Join-Path $lspHome 'bin'))
+    $oldHomes = @($key.GetValue('WDL_HOME'), $key.GetValue('WDL_LSP_HOME'), $key.GetValue('WDL_DAP_HOME'))
+    $bins = @((Join-Path $cliHome 'bin'), (Join-Path $lspHome 'bin'), (Join-Path $dapHome 'bin'))
     $remove = @($bins) + @($oldHomes | Where-Object { $_ } | ForEach-Object { Join-Path $_ 'bin' })
     $entries = @($oldPath -split ';' | Where-Object { $_ -and $_.TrimEnd('\') -notin $remove })
     $key.SetValue('WDL_HOME', $cliHome, [Microsoft.Win32.RegistryValueKind]::String)
     $key.SetValue('WDL_LSP_HOME', $lspHome, [Microsoft.Win32.RegistryValueKind]::String)
+    $key.SetValue('WDL_DAP_HOME', $dapHome, [Microsoft.Win32.RegistryValueKind]::String)
     $key.SetValue('Path', (($bins + $entries) -join ';'), [Microsoft.Win32.RegistryValueKind]::ExpandString)
 } finally { $key.Dispose() }
 # Let newly launched applications pick up the changed user environment.

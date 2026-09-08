@@ -18,16 +18,17 @@ tasks.register<Exec>("buildIdeaPlugin") {
 
 tasks.register("prepareWdl") {
     group = "distribution"
-    description = "Собирает и проверяет модули, CLI/LSP дистрибутивы и ZIP плагина IDEA."
+    description = "Собирает и проверяет модули, дистрибутивы CLI/LSP/DAP и ZIP плагина IDEA."
     dependsOn(subprojects.map { "${it.path}:build" })
-    dependsOn(":wdl-cli:installDist", ":wdl-lsp:installDist", "buildIdeaPlugin")
+    dependsOn(":wdl-cli:installDist", ":wdl-lsp:installDist", ":wdl-dap:installDist",
+        "buildIdeaPlugin")
 }
 
 tasks.register<Exec>("installWdl") {
     group = "distribution"
-    description = "Собирает CLI/LSP и добавляет их пути из этого checkout в окружение пользователя."
+    description = "Собирает CLI/LSP/DAP и добавляет их пути из этого checkout в окружение пользователя."
     dependsOn(subprojects.map { "${it.path}:assemble" })
-    dependsOn(":wdl-cli:installDist", ":wdl-lsp:installDist")
+    dependsOn(":wdl-cli:installDist", ":wdl-lsp:installDist", ":wdl-dap:installDist")
     workingDir = rootDir
     commandLine(if (windows) listOf("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
         "-File", file("scripts/install-wdl.ps1").absolutePath, "-Repository", rootDir.absolutePath)

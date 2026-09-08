@@ -15,6 +15,11 @@
         переменная окружения <code>WDL_LSP_HOME</code>, сборка
         <code>wdl-lsp/build/install/wdl-lsp</code> внутри открытого проекта,
         затем <code>PATH</code>.
+        <p>
+        Отладка идёт по протоколу DAP через адаптер <code>wdl-dap</code> — точки
+        останова, шаги, кадры, переменные и вычисление выражения в кадре. Адаптер
+        ищется так же: <code>wdl.dap.home</code>, <code>WDL_DAP_HOME</code>,
+        <code>wdl-dap/build/install/wdl-dap</code>, <code>PATH</code>.
     ]]></description>
 
     <!-- Клиент LSP доступен только в платных IDE JetBrains. -->
@@ -30,6 +35,11 @@
                   implementationClass="ru.wds.wdl.idea.WdlFileType" fieldName="INSTANCE"/>
         <platform.lsp.serverSupportProvider
                 implementation="ru.wds.wdl.idea.WdlLspServerSupportProvider"/>
+
+        <!-- Отладчик: точки останова в редакторе и сеанс поверх адаптера wdl-dap. -->
+        <programRunner implementation="ru.wds.wdl.idea.debug.WdlDebugRunner"/>
+        <xdebugger.breakpointType implementation="ru.wds.wdl.idea.debug.WdlBreakpointType"/>
+        <xdebugger.breakpointType implementation="ru.wds.wdl.idea.debug.WdlErrorBreakpointType"/>
 
         <!-- Профилировщик: кнопка «Профилировать», окно с отчётом, подсказки в редакторе. -->
         <executor implementation="ru.wds.wdl.idea.profile.WdlProfileExecutor"/>

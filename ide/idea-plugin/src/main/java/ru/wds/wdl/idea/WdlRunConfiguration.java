@@ -40,6 +40,35 @@ public final class WdlRunConfiguration extends RunConfigurationBase<RunConfigura
         return workingDirectory.isBlank() ? root : root.resolve(workingDirectory).normalize();
     }
 
+    /**
+     * Корень импортов: он же корень проекта IDEA.
+     * <p>
+     * Один и тот же для запуска, анализа и отладки — иначе {@code import lib.math}
+     * находил бы в редакторе один файл, а в запуске другой.
+     */
+    public Path projectRoot() {
+        return WdlProjectRoot.of(getProject());
+    }
+
+    /**
+     * Файл, который будет выполнен: цель, разрешённая от рабочего каталога, а каталог
+     * — как {@code main.wdl} внутри него. То же правило, что у консольного {@code wdl}.
+     */
+    public Path scriptFile() {
+        Path file = directory().resolve(target).normalize();
+        return Files.isDirectory(file) ? file.resolve("main.wdl") : file;
+    }
+
+    /** Аргументы скрипта: то, что он увидит как {@code args}. */
+    public java.util.List<String> arguments() {
+        return ParametersListUtil.parse(scriptArguments);
+    }
+
+    /** Параметры интерпретатора из настроек конфигурации. */
+    public java.util.List<String> interpreterFlags() {
+        return options();
+    }
+
     @Override public void checkConfiguration() throws RuntimeConfigurationException {
         try {
             options();

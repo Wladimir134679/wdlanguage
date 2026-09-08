@@ -3,9 +3,11 @@ set -euo pipefail
 repo=$(cd -- "$1" && pwd -P)
 cli="$repo/wdl-cli/build/install/wdl"
 lsp="$repo/wdl-lsp/build/install/wdl-lsp"
+dap="$repo/wdl-dap/build/install/wdl-dap"
 test -f "$cli/bin/wdl"
 test -f "$lsp/bin/wdl-lsp"
-chmod +x "$cli/bin/wdl" "$lsp/bin/wdl-lsp"
+test -f "$dap/bin/wdl-dap"
+chmod +x "$cli/bin/wdl" "$lsp/bin/wdl-lsp" "$dap/bin/wdl-dap"
 config="${XDG_CONFIG_HOME:-$HOME/.config}/wdl"
 mkdir -p -- "$config"
 # POSIX shell quoting also handles spaces and apostrophes in checkout paths.
@@ -13,8 +15,10 @@ quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 {
     printf 'export WDL_HOME=%s\n' "$(quote "$cli")"
     printf 'export WDL_LSP_HOME=%s\n' "$(quote "$lsp")"
+    printf 'export WDL_DAP_HOME=%s\n' "$(quote "$dap")"
     printf '%s\n' 'case ":$PATH:" in *":$WDL_HOME/bin:"*) ;; *) PATH="$WDL_HOME/bin:$PATH" ;; esac'
-    printf '%s\n' 'case ":$PATH:" in *":$WDL_LSP_HOME/bin:"*) ;; *) PATH="$WDL_LSP_HOME/bin:$PATH" ;; esac' 'export PATH'
+    printf '%s\n' 'case ":$PATH:" in *":$WDL_LSP_HOME/bin:"*) ;; *) PATH="$WDL_LSP_HOME/bin:$PATH" ;; esac'
+    printf '%s\n' 'case ":$PATH:" in *":$WDL_DAP_HOME/bin:"*) ;; *) PATH="$WDL_DAP_HOME/bin:$PATH" ;; esac' 'export PATH'
 } > "$config/env.sh"
 line=". $(quote "$config/env.sh") # wdl environment"
 profiles=("$HOME/.profile" "$HOME/.bashrc" "${ZDOTDIR:-$HOME}/.zshrc")

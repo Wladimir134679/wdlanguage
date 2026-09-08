@@ -18,5 +18,6 @@ include(
     "wdl-cli",
     "wdl-tools",
     "wdl-lsp",
+    "wdl-dap",
     "wdl-game",
 )

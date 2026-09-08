@@ -29,6 +29,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew :wdl-cli:run --args="--profile examples/profiling.wdl"      # горячие функции
 ./gradlew :wdl-cli:repl --console=plain              # REPL (отдельная задача: нужен живой stdin)
 ./gradlew :wdl-cli:installDist                       # → wdl-cli/build/install/wdl/bin/wdl
+./gradlew :wdl-dap:installDist                       # адаптер отладки: → wdl-dap/build/install/wdl-dap/bin/wdl-dap
 
 ./gradlew :wdl-game:run                              # пинг-понг: игра на Java, правила скриптами
 ./gradlew :wdl-game:installDist                          # → wdl-game/build/install/wdgame/bin/wdgame
@@ -81,6 +82,7 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 | `wdl-api` | фасад для встраивания: `WdlEngine` (сборка движка, `expose`/`define`), `WdlScript`, `WdlInstance`, `WdlCallable`, `Values` | core, bridge, stdlib |
 | `wdl-tools` | `AstDumper`, `TokenDumper`, `analysis` (имена), `catalog` (внешние имена), `service` (языковой сервис) | core |
 | `wdl-lsp` | языковой сервер LSP: перевод ответов `service` в JSON-RPC (lsp4j) | tools, stdlib |
+| `wdl-dap` | адаптер отладки DAP: перевод `DebugSession` в JSON-RPC (lsp4j.debug), `WdlDebugServer` для встроенного движка | api, tools, stdlib |
 | `wdl-cli` | picocli-точка входа, REPL | api, tools |
 | `wdl-game` | WDGame: движок (`game.engine`, про язык не знает), пинг-понг на нём (`game.pong`, тоже не знает), типы для скрипта (`game.script`), модуль `game` и встроенные скрипты правил (`Games`, `PongScripts`, ресурсы `pong/*.wdl`); хозяин `GameLauncher` | core, bridge, api |
 
@@ -200,9 +202,20 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   только в `LexerMode.LOSSLESS`, текст у них пустой (содержимое читается по `span`),
   а `RUNTIME` не меняется ни на строку — равенство двух потоков закреплено
   `LosslessLexerTest`.
+* **Новый запрос DAP**: метод `IDebugProtocolServer` в `WdlDebugAdapter`, тело —
+  через `reply(...)`, чтобы отказ стал ответом об ошибке с русским текстом,
+  а не аварией транспорта. Числа протокола переводит `References` (поток, кадр,
+  раскрытое значение), место в файле — `Sources` (путь к виду `Source.name()`,
+  строка в смещение через `BreakpointPlaces`). Возможность объявляется
+  в `Capabilities` **только после того, как сделана**: объявленная раньше, она
+  приносит запросы, на которые нечем ответить. Тест — в `AdapterTest` (без
+  транспорта), строка — в `docs/debugging.md`. Клиентская половина живёт
+  в плагине (`ide/idea-plugin/.../idea/debug`), и там правило одно: запросы
+  к адаптеру зовутся из пула, никогда из потока событий IDEA.
 * **Новый модуль наружу**: `id("wdl.publish-conventions")` вместо `wdl.java-conventions`
   в `plugins` — конвенция добавляет `maven-publish`, javadoc-jar и pom. Модулям-приложениям
-  (`wdl-cli`, `wdl-lsp`) она не нужна: их раздают дистрибутивом, а не координатами.
+  (`wdl-cli`, `wdl-lsp`, `wdl-dap`) она не нужна: их раздают дистрибутивом,
+  а не координатами.
 * **Новый лимит**: поле в `runtime/Limits` (ноль — «без предела») → проверка
   в `Run.checkpoint` (или там, где ресурс выдаётся, как квота потоков в `RunThreads`) →
   фабрика сообщения в `FatalError` → короткая форма в `WdlEngine.Builder` и флаг
