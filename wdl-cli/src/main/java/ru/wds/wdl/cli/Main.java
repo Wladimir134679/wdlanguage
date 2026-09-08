@@ -16,6 +16,11 @@ import ru.wds.wdl.metrics.Metrics;
 import ru.wds.wdl.metrics.MetricsCollector;
 import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.parser.Parser;
+import ru.wds.wdl.profile.CallEdge;
+import ru.wds.wdl.profile.CallProfile;
+import ru.wds.wdl.profile.CallProfiler;
+import ru.wds.wdl.profile.CallSite;
+import ru.wds.wdl.profile.Profiler;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.Unit;
@@ -37,6 +42,7 @@ import ru.wds.wdl.tools.catalog.Origin;
 import ru.wds.wdl.tools.catalog.SymbolDescriptor;
 import ru.wds.wdl.tools.TokenDumper;
 import ru.wds.wdl.value.types.ArrayValue;
+import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.StringValue;
@@ -58,7 +64,9 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.concurrent.Callable;
 
@@ -77,7 +85,9 @@ import java.util.concurrent.Callable;
                 + "путь считается от корня проекта (--project-root).%n"
                 + "Встроенные модули: sys.io (файлы), sys.json, sys.net.http, std.%n%n"
                 + "Время стадий: wdl --metrics script.wdl;%n"
-                + "строка на каждую законченную стадию — wdl --metrics-each script.wdl."
+                + "строка на каждую законченную стадию — wdl --metrics-each script.wdl.%n"
+                + "Горячие функции: wdl --profile script.wdl;%n"
+                + "тот же профиль машине — wdl --profile-out profile.json script.wdl."
 )
 public final class Main implements Callable<Integer> {
 
@@ -100,6 +110,9 @@ public final class Main implements Callable<Integer> {
 
     /** Числа в метриках печатаются по-русски: «12,4 мс», как и вся остальная диагностика. */
     private static final Locale RUSSIAN = Locale.forLanguageTag("ru");
+
+    /** Версия формата файла профиля: растёт, когда состав полей меняется несовместимо. */
+    private static final int PROFILE_FORMAT_VERSION = 1;
 
     @Option(names = {"-t", "--tokens"}, description = "Показать поток токенов")
     private boolean showTokens;
@@ -125,6 +138,30 @@ public final class Main implements Callable<Integer> {
     @Option(names = {"--metrics-each"},
             description = "То же плюс строка на каждую стадию по мере её завершения")
     private boolean showEachMeasurement;
+
+    /**
+     * Профиль печатается туда же, куда и метрики, и по той же причине: вывод скрипта —
+     * это данные.
+     * <p>
+     * Отдельным флагом от {@code --metrics}, потому что это другая цена: профиль
+     * считает каждый вызов, и скрипт под ним идёт медленнее. Просивший время стадий
+     * за это платить не должен.
+     */
+    @Option(names = {"--profile"},
+            description = "Показать самые горячие функции после выполнения")
+    private boolean showProfile;
+
+    /**
+     * Тот же профиль машине — файлом, а не в поток.
+     * <p>
+     * Файлом затем, что читатель у него один: другая программа (плагин IDE, скрипт
+     * сравнения прогонов), а стандартный вывод к этому моменту занят выводом самого
+     * скрипта. Профиль при этом включается сам: просить его файлом и не получить
+     * содержимого было бы странно.
+     */
+    @Option(names = {"--profile-out"}, paramLabel = "<файл>",
+            description = "Записать профиль в файл JSON (включает профиль)")
+    private Path profileFile;
 
     /**
      * Java-стек нужен не автору скрипта, а тому, кто чинит движок или библиотеку,
@@ -236,14 +273,110 @@ public final class Main implements Callable<Integer> {
      */
     private int execute(Path path) {
         MetricsCollector metrics = collectingMetrics() ? newCollector() : null;
+        CallProfiler profile = collectingProfile() ? Profiler.collecting() : null;
         try {
-            return runPipeline(path, metrics != null ? metrics : Metrics.off());
+            return runPipeline(path, metrics != null ? metrics : Metrics.off(),
+                    profile != null ? profile : Profiler.off());
         } finally {
             if (metrics != null) {
                 System.err.print(metrics.finish().render());
                 System.err.flush();
             }
+            if (profile != null) {
+                reportProfile(profile.finish(), path);
+            }
         }
+    }
+
+    private boolean collectingProfile() {
+        return showProfile || profileFile != null;
+    }
+
+    /**
+     * Показывает профиль: таблицей человеку, файлом машине — или и тем, и другим.
+     * <p>
+     * Файл пишется и тогда, когда скрипт упал: профиль до падения — тоже ответ,
+     * и ровно он нужен, когда скрипт оборвался по таймауту.
+     */
+    private void reportProfile(CallProfiler profile, Path script) {
+        if (showProfile) {
+            System.err.print(profile.render());
+            System.err.flush();
+        }
+        if (profileFile == null) {
+            return;
+        }
+        try {
+            Files.writeString(profileFile, renderProfileAsJson(profile, script),
+                    StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            // Не код возврата: скрипт-то отработал, и подменять его результат неудачей
+            // записи отчёта было бы неправдой о самом запуске.
+            System.err.println("Не удалось записать профиль в " + profileFile
+                    + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Профиль машине: тем же {@code JsonWriter}, что и каталог имён.
+     * <p>
+     * Времена — в наносекундах, целыми: округляет тот, кто показывает, а не тот,
+     * кто отдаёт. Рёбра ссылаются на записи номерами в массиве {@code sites} — так
+     * дерево вызовов собирается на стороне читателя без сверки имён.
+     */
+    private static String renderProfileAsJson(CallProfiler profile, Path script) {
+        List<CallProfile> sites = profile.all();
+        Map<CallSite, Integer> numbers = new LinkedHashMap<>();
+        List<Value> described = new ArrayList<>(sites.size());
+        for (CallProfile entry : sites) {
+            numbers.put(entry.site(), numbers.size());
+            described.add(siteAsJson(entry));
+        }
+        List<Value> links = new ArrayList<>();
+        for (CallEdge edge : profile.edges()) {
+            Integer caller = numbers.get(edge.caller());
+            Integer callee = numbers.get(edge.callee());
+            if (caller == null || callee == null) {
+                continue;
+            }
+            MapValue link = new MapValue();
+            link.put("caller", IntValue.of(caller));
+            link.put("callee", IntValue.of(callee));
+            link.put("calls", IntValue.of(edge.calls()));
+            link.put("total_ns", IntValue.of(edge.totalNanos()));
+            links.add(link);
+        }
+        MapValue root = new MapValue();
+        // Версия формата — первым полем и с первого дня: читатель у файла внешний
+        // (плагин IDE), обновляется он отдельно от wdl, и «поле пропало» он обязан
+        // отличать от «файл не тот».
+        root.put("version", IntValue.of(PROFILE_FORMAT_VERSION));
+        root.put("script", StringValue.of(script.toString()));
+        root.put("calls", IntValue.of(profile.calls()));
+        root.put("self_ns", IntValue.of(profile.self().toNanos()));
+        root.put("wall_ns", IntValue.of(profile.wall().toNanos()));
+        root.put("threads", IntValue.of(profile.threads()));
+        root.put("sites", ArrayValue.of(described));
+        root.put("edges", ArrayValue.of(links));
+        return JsonWriter.stringify(root, 2) + System.lineSeparator();
+    }
+
+    /** Одна запись профиля: что это, где объявлено и во что обошлось. */
+    private static MapValue siteAsJson(CallProfile entry) {
+        CallSite site = entry.site();
+        MapValue described = new MapValue();
+        described.put("kind", StringValue.of(site.kind().name().toLowerCase(Locale.ROOT)));
+        described.put("name", StringValue.of(site.name()));
+        described.put("file", StringValue.of(site.file()));
+        described.put("line", IntValue.of(site.line()));
+        // Смещение — то, чем позиционируется редактор: пересчитывать строку и столбец
+        // обратно ему не нужно. Минус один — «места в тексте нет».
+        described.put("offset", IntValue.of(site.span().isNone() ? -1 : site.span().start()));
+        described.put("calls", IntValue.of(entry.calls()));
+        described.put("total_ns", IntValue.of(entry.totalNanos()));
+        described.put("self_ns", IntValue.of(entry.selfNanos()));
+        described.put("max_ns", IntValue.of(entry.maxNanos()));
+        return described;
     }
 
     private boolean collectingMetrics() {
@@ -266,9 +399,10 @@ public final class Main implements Callable<Integer> {
      * Конвейер: исходник → токены → дерево → выполнение.
      *
      * @param metrics приёмник времени стадий; {@link Metrics#off()}, когда не просили
+     * @param profile приёмник вызовов; {@link Profiler#off()}, когда не просили
      * @return код возврата процесса
      */
-    private int runPipeline(Path path, Metrics metrics) {
+    private int runPipeline(Path path, Metrics metrics, Profiler profile) {
         Source source;
         try {
             if (!Files.isRegularFile(path)) {
@@ -337,7 +471,8 @@ public final class Main implements Callable<Integer> {
 
         // Вывод скрипта идёт в консоль процесса — это решение консольного запуска,
         // а не ядра: встроенный движок по умолчанию не печатает никуда.
-        ExecutionContext context = standardContext().withMetrics(metrics).withModules(modules);
+        ExecutionContext context = standardContext().withMetrics(metrics)
+                .withProfiler(profile).withModules(modules);
         context.scope().define("args", ArrayValue.of(scriptArguments.stream()
                 .<Value>map(StringValue::of).toList()));
         try {

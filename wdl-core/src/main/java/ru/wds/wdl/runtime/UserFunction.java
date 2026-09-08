@@ -2,6 +2,10 @@ package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.module.Unit;
+import ru.wds.wdl.profile.CallKind;
+import ru.wds.wdl.profile.CallSite;
+import ru.wds.wdl.profile.Probe;
+import ru.wds.wdl.profile.Profiler;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arguments;
 import ru.wds.wdl.value.Arity;
@@ -83,6 +87,18 @@ public final class UserFunction implements FunctionValue {
      * не меняется, поэтому и безопасно в любом числе потоков без всякого замка.
      */
     private final DeclaredAnnotations annotations;
+    /**
+     * Запись этой функции в профиле; строится при первом вызове с включённым профилем.
+     * <p>
+     * Лениво, а не в конструкторе, потому что значение-функция создаётся вычислением
+     * литерала — замыкание в цикле даёт новое значение на каждой итерации, — и платить
+     * за профиль там, где его не просили, незачем.
+     * <p>
+     * Без {@code volatile}: гонка двух потоков даёт два одинаковых по {@code equals}
+     * объекта, и профиль от этого не меняется — ключ у него объявление, а не ссылка.
+     * Синхронизация ради экономии одной записи в поле стоила бы дороже самой записи.
+     */
+    private CallSite site;
 
     public UserFunction(FunctionExpr declaration, Environment closure, Unit unit, Run run,
                  Interpreter interpreter, ReentrantLock guard) {
@@ -261,7 +277,35 @@ public final class UserFunction implements FunctionValue {
             // собственную защиту от зацикливания.
             throw FatalError.tooDeep(span, depth, "Проверьте условие выхода из '" + name() + "'");
         }
+        // Здесь же — точка съёма профиля: вызов функции скрипта и есть то, что профиль
+        // считает. Выключенный профиль стоит чтения поля и сравнения — запись строится
+        // только тогда, когда её кто-то ждёт.
+        Profiler profiler = run.profiler();
+        if (!profiler.recording()) {
+            return invoke(context, arguments, span);
+        }
+        Probe probe = profiler.enter(site());
+        try {
+            return invoke(context, arguments, span);
+        } finally {
+            // Из finally: вызов, кончившийся ошибкой, тоже потратил время, а функция,
+            // которая всегда бросает, обязана быть видна в профиле.
+            probe.close();
+        }
+    }
 
+    /** Запись этой функции в профиле — по объявлению, а не по значению. */
+    private CallSite site() {
+        CallSite known = site;
+        if (known == null) {
+            known = CallSite.of(CallKind.FUNCTION, name(), unit.source(), declaration.span());
+            site = known;
+        }
+        return known;
+    }
+
+    /** Тело вызова: локальная область, параметры, дерево. */
+    private Value invoke(CallContext context, Arguments arguments, Span span) {
         Environment local = closure.child();
         // Контекст создаётся до связывания: в нём же вычисляются значения по умолчанию,
         // и оттого они видят параметры, связанные левее, — область у них одна и та же.

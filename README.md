@@ -78,6 +78,9 @@
 * [Метрики](docs/metrics.md) — время стадий конвейера: флаг `--metrics` в консоли,
   отчёт и логирование стадий из приложения, почему сумма замеров не равна времени
   по часам.
+* [Профилировщик](docs/profiling.md) — какая функция горячая: флаг `--profile`
+  в консоли, «всего» и «сам», граф вызовов, отчёт из приложения и выгрузка в JSON
+  для плагина IDE.
 * [Встраивание](docs/embedding.md) — как приложение добавляет в язык свои функции,
   классы и библиотеки, и почему скрипт не видит разницы.
 * [Игра со встроенными скриптами](docs/game.md) — пинг-понг на Java, правила
@@ -117,6 +120,7 @@
 ./gradlew :wdl-cli:run --args="examples/threads.wdl"              # потоки и synchronized
 ./gradlew :wdl-cli:run --args="examples/threads_pool.wdl"         # пул, канал, защёлка
 ./gradlew :wdl-cli:run --args="--metrics examples/modules/plain.wdl" # время стадий
+./gradlew :wdl-cli:run --args="--profile examples/profiling.wdl"  # горячие функции
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"          # показать дерево
 ./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl" # показать токены
 ./gradlew :wdl-cli:run --args="--catalog"                         # что доступно скриптам
@@ -140,7 +144,7 @@
 - Working directory: $FileDir$
 ```
 
-Ключи интерпретатора (`--metrics`, `--metrics-each`, `--ast`, `--tokens`, `--debug`)
+Ключи интерпретатора (`--metrics`, `--profile`, `--ast`, `--tokens`, `--debug`)
 дописываются в эту строку где угодно — всё, что начинается с дефиса, уходит `wdl`,
 а позиционными остаются файл, каталог и кодировка:
 
@@ -256,6 +260,12 @@ Java-объект заворачивается тем же мостом (`bridge
 во что ушёл запуск, а встраивающее приложение включает то же одной строкой сборки
 (`.metrics(true)`) и получает отчёт геттерами — см. [docs/metrics.md](docs/metrics.md).
 Выключенные метрики не стоят ничего.
+Тем же способом включается профиль: `wdl --profile script.wdl` показывает, какая
+функция горячая и сколько времени она провела сама, а не в том, что позвала;
+`--profile-out profile.json` отдаёт то же машине, приложение просит `.profile(true)`
+и читает `instance.profile()` — см. [docs/profiling.md](docs/profiling.md). Профиль
+считает каждый вызов и оттого замедляет скрипт, поэтому он отдельный флаг, а не часть
+метрик; выключенный не стоит ничего.
 Слова `has` и `yield` стали ключевыми — скрипт с переменной по такому имени
 перестанет разбираться; обращение `obj.has(k)` при этом работает как прежде:
 после точки ключевое слово читается как имя члена.
@@ -272,7 +282,8 @@ Java-объект заворачивается тем же мостом (`bridge
 [docs/annotations.md](docs/annotations.md),
 [docs/errors.md](docs/errors.md),
 [docs/modules.md](docs/modules.md), [docs/threads.md](docs/threads.md),
-[docs/metrics.md](docs/metrics.md) и [docs/expressions.md](docs/expressions.md).
+[docs/metrics.md](docs/metrics.md), [docs/profiling.md](docs/profiling.md)
+и [docs/expressions.md](docs/expressions.md).
 
 Решения парсера и интерпретатора, определяющие остальное:
 

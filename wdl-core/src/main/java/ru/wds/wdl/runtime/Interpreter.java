@@ -8,6 +8,10 @@ import ru.wds.wdl.ast.visitor.*;
 import ru.wds.wdl.metrics.Measure;
 import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.Unit;
+import ru.wds.wdl.profile.CallKind;
+import ru.wds.wdl.profile.CallSite;
+import ru.wds.wdl.profile.Probe;
+import ru.wds.wdl.profile.Profiler;
 import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.DeclaredTrait;
 import ru.wds.wdl.resolve.LinkError;
@@ -170,10 +174,32 @@ public final class Interpreter
         Measure measure = running.metrics().begin(Stage.EXECUTE, subjectOf(unit),
                 unit.key() != null);
         try {
-            return statements(program, running);
+            return profiled(program, running, unit);
         } finally {
             // Из finally: время скрипта, упавшего на середине, — тоже ответ.
             measure.close();
+        }
+    }
+
+    /**
+     * Верхний уровень файла как запись профиля — корень его графа вызовов.
+     * <p>
+     * Без этой записи собственное время файла («скрипт сам крутил цикл») смешалось бы
+     * с временем функций, которые он позвал, а у вызовов с верхнего уровня не было бы
+     * вызывающего. Считается там же, где стадия {@code EXECUTE}, и по той же причине:
+     * место одно на всех — и главный скрипт, и модуль, и строка REPL приходят сюда.
+     */
+    private Value profiled(Program program, ExecutionContext running, Unit unit) {
+        Profiler profiler = running.run().profiler();
+        if (!profiler.recording()) {
+            return statements(program, running);
+        }
+        Probe probe = profiler.enter(CallSite.of(CallKind.SCRIPT, subjectOf(unit),
+                unit.source(), Span.point(0)));
+        try {
+            return statements(program, running);
+        } finally {
+            probe.close();
         }
     }
 
@@ -1770,10 +1796,42 @@ public final class Interpreter
         }
 
         if (function instanceof UserFunction) {
+            // Свою функцию профиль считает изнутри — там, где считаются шаг и глубина
+            // вызова: она приходит сюда не только отсюда, но и от приложения.
             return function.call(context, arguments, expr.span());
         }
-        // Тело написано на Java — значит, оттуда может прилететь что угодно.
-        // Правило «что своё, что чужое» одно на весь движок и живёт в Foreign.
+        return foreign(expr, function, arguments, context);
+    }
+
+    /**
+     * Вызов того, что написано не на wdl: встроенной функции, метода значения, функции
+     * библиотеки, метода за мостом.
+     * <p>
+     * Здесь же третья точка съёма профиля — и единственная, где запись строится на каждом
+     * вызове: у встроенной функции нет ни объявления в тексте, ни объекта, живущего
+     * дольше вызова, в котором её можно было бы запомнить. Платит за это тот, кто
+     * включил профиль; выключенный по-прежнему стоит чтения поля и сравнения.
+     */
+    private Value foreign(CallExpr expr, FunctionValue function, Arguments arguments,
+                          ExecutionContext context) {
+        Profiler profiler = context.run().profiler();
+        if (!profiler.recording()) {
+            return invokeForeign(expr, function, arguments, context);
+        }
+        Probe probe = profiler.enter(CallSite.of(CallKind.NATIVE, function.name()));
+        try {
+            return invokeForeign(expr, function, arguments, context);
+        } finally {
+            probe.close();
+        }
+    }
+
+    /**
+     * Тело написано на Java — значит, оттуда может прилететь что угодно. Правило
+     * «что своё, что чужое» одно на весь движок и живёт в {@link Foreign}.
+     */
+    private Value invokeForeign(CallExpr expr, FunctionValue function, Arguments arguments,
+                                ExecutionContext context) {
         return Foreign.call(expr.span(), null, moduleOf(expr.callee(), context),
                 () -> function.call(context, arguments, expr.span()));
     }

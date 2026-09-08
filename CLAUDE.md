@@ -26,6 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"
 ./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl"
 ./gradlew :wdl-cli:run --args="--metrics examples/modules/plain.wdl"  # время стадий
+./gradlew :wdl-cli:run --args="--profile examples/profiling.wdl"      # горячие функции
 ./gradlew :wdl-cli:repl --console=plain              # REPL (отдельная задача: нужен живой stdin)
 ./gradlew :wdl-cli:installDist                       # → wdl-cli/build/install/wdl/bin/wdl
 
@@ -74,7 +75,7 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 
 | Модуль | Содержимое | Зависит от |
 |---|---|---|
-| `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source`, `metrics`, `module` | ничего |
+| `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source`, `metrics`, `profile`, `module` | ничего |
 | `wdl-bridge` | всё для встраивания: `bridge` (`Module`, `NativeClass`, `NativeTrait`, `NativeInstance`, `MemberSource`) и `bridge.reflect` (мост рефлексией: `JavaBridge`, `FromJava`, `Marshal`, `JavaPolicy`) | core |
 | `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, `sys.time`, реестр `Sys` | core, bridge |
 | `wdl-api` | фасад для встраивания: `WdlEngine` (сборка движка, `expose`/`define`), `WdlScript`, `WdlInstance`, `WdlCallable`, `Values` | core, bridge, stdlib |
@@ -151,6 +152,18 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   лимиты (`Limits.none()`, умолчание) обязаны стоить чтение поля и сравнение: без
   `nanoTime` и без общего счётчика. `Stdlib.SAFE` ставит `Limits.safeDefaults()` сам —
   без них набор своего обещания не держит (`docs/limits.md`).
+* **Профиль снимается в тех же точках, что и шаг.** `runtime/Profiler` в ядре нет:
+  приёмник (`profile/Profiler`), накопитель (`CallProfiler`) и отчёт (`ProfileReport`)
+  — та же пара ролей, что у `Metrics`/`MetricsReport`, и та же дисциплина «выключенное
+  стоит ноль»: точка съёма спрашивает `profiler.recording()` **до** постройки
+  `CallSite`. Мест ровно четыре, и все — там, где скрипт делает шаг: `UserFunction.body`,
+  `WdlClass.create`, ветка чужого кода в `Interpreter.visitCall` и верхний уровень файла
+  в `Interpreter.execute`. Новая точка появляется только вместе с новым шагом, иначе
+  профиль и лимиты разойдутся в ответе на «сколько работы сделано». Ключ записи —
+  **объявление** (вид, имя, файл, интервал), а не значение: замыкание в цикле даёт новое
+  значение на каждой итерации, но в профиле остаётся одной строкой. Собственное время
+  считается вычитанием времени детей, рекурсия своё «всего» второй раз не добавляет,
+  стек открытых вызовов — в `ThreadLocal` (`docs/profiling.md`).
 * **Поток заводится только через `CallContext.threads()`** (`value/ScriptThreads`),
   никогда через `new Thread`: иначе он переживает `close()` и зовёт функцию скрипта
   по закрытым модулям. Единственное исключение — сторож таймаута в `Run`: кода скрипта
@@ -205,6 +218,14 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
   собираются сами. Граница свойства и метода — «устареет ли ответ», а не цена:
   см. `value/Member` и `docs/members.md`. Новый член **не** сопровождается новой
   встроенной функцией.
+* **Новая точка съёма профиля**: элемент в `profile/CallKind` с русским `title()` →
+  обёртка в том месте, где скрипт делает шаг (образец — `UserFunction.body`: сначала
+  `profiler.recording()`, потом `enter(site())`, закрытие из `finally`) → строка
+  в таблице `docs/profiling.md` → тест в `ProfileIntegrationTest`. Место объявления
+  берётся у того, кто его знает (`unit.source()` и `span()` объявления), и кэшируется
+  в самом значении — на выключенном пути записи не строятся вовсе. Новой стадии
+  в `metrics/Stage` при этом **не** заводится: метрики отвечают на другой вопрос
+  и стоят ноль.
 * **Новая стадия для метрик**: элемент в `metrics/Stage` с русским `title()` → охват
   `Measure` **в том месте, которое стадию запускает** (внутрь самой стадии приёмник
   не протаскивается — исключение только `ModuleUnits`, куда снаружи не дотянуться) →

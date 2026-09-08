@@ -6,6 +6,9 @@ import ru.wds.wdl.module.Library;
 import ru.wds.wdl.metrics.MetricsReport;
 import ru.wds.wdl.metrics.Stage;
 import ru.wds.wdl.module.ModuleSource;
+import ru.wds.wdl.profile.CallKind;
+import ru.wds.wdl.profile.CallProfile;
+import ru.wds.wdl.profile.ProfileReport;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.runtime.Limits;
@@ -520,6 +523,84 @@ class WdlEngineTest {
         engine.run("print(\"а\")");
 
         assertEquals("а", log.toString());
+    }
+
+    // --- профиль -------------------------------------------------------------
+
+    @Test
+    @DisplayName("по умолчанию профиля нет и отчёт пуст")
+    void profileOffByDefault() {
+        WdlScript script = engine().compile("def twice(x) => x * 2\ntwice(21)");
+
+        try (WdlInstance instance = script.instance()) {
+            instance.execute();
+            assertTrue(instance.profile().isEmpty());
+            assertEquals("", instance.profile().render());
+            assertEquals(0, instance.profile().calls());
+        }
+    }
+
+    @Test
+    @DisplayName("включённый профиль считает вызовы функций скрипта")
+    void profileCollected() {
+        WdlEngine engine = WdlEngine.builder().stdlib(Stdlib.SAFE).profile(true).build();
+        WdlScript script = engine.compile("""
+                def twice(x) => x * 2
+                total = 0
+                for (i in 1..4) {
+                    total = total + twice(i)
+                }
+                twice(total)
+                """, "hot.wdl");
+
+        ProfileReport report;
+        try (WdlInstance instance = script.instance()) {
+            instance.execute();
+            report = instance.profile();
+            assertFalse(report.isEmpty());
+        }
+
+        CallProfile twice = report.all().stream()
+                .filter(profile -> profile.site().name().equals("twice"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(5, twice.calls());
+        assertEquals(CallKind.FUNCTION, twice.site().kind());
+        assertEquals("hot.wdl", twice.site().file());
+        assertTrue(report.render().contains("twice"), report.render());
+    }
+
+    @Test
+    @DisplayName("профиль у каждого экземпляра свой")
+    void profilePerInstance() {
+        WdlEngine engine = WdlEngine.builder().stdlib(Stdlib.SAFE).profile(true).build();
+        WdlScript script = engine.compile("def twice(x) => x * 2\ntwice(21)");
+
+        try (WdlInstance first = script.instance(); WdlInstance second = script.instance()) {
+            first.execute();
+            assertFalse(first.profile().isEmpty());
+            assertTrue(second.profile().isEmpty(), "второй ещё не выполнялся");
+            assertNotSame(first.profile(), second.profile());
+        }
+    }
+
+    @Test
+    @DisplayName("вызов функции скрипта из приложения тоже попадает в профиль")
+    void profileCountsHostCalls() {
+        WdlEngine engine = WdlEngine.builder().stdlib(Stdlib.SAFE).profile(true).build();
+        WdlScript script = engine.compile("def twice(x) => x * 2");
+
+        try (WdlInstance instance = script.instance()) {
+            instance.execute();
+            instance.function("twice").invoke(21);
+            instance.function("twice").invoke(10);
+
+            CallProfile twice = instance.profile().all().stream()
+                    .filter(profile -> profile.site().name().equals("twice"))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(2, twice.calls(), "вызов снаружи — такой же вызов");
+        }
     }
 
     // --- метрики -------------------------------------------------------------

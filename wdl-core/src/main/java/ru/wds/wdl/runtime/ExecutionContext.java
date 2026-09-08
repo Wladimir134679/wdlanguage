@@ -5,6 +5,7 @@ import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;
 import ru.wds.wdl.module.Unit;
+import ru.wds.wdl.profile.Profiler;
 import ru.wds.wdl.resolve.Linker;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.CallContext;
@@ -183,6 +184,27 @@ public final class ExecutionContext implements CallContext {
     /** Приёмник метрик этого запуска; по умолчанию — выключенный. */
     public Metrics metrics() {
         return run.metrics();
+    }
+
+    /**
+     * Тот же контекст, но со включённым профилем: вызовы пойдут в этот приёмник.
+     * <p>
+     * Отдельно от {@link #withMetrics(Metrics)}, потому что это разные вопросы и разная
+     * цена. Метрики отвечают «во что ушло время запуска» и стоят ноль; профиль отвечает
+     * «какая функция горячая» и стоит двух обращений к часам на каждый вызов. Включать
+     * их одной кнопкой значило бы навязывать вторую цену тому, кто просил первое.
+     * <p>
+     * Ставится при сборке, до первой инструкции скрипта: приёмник — свойство запуска,
+     * и менять его посреди работы значило бы получить профиль половины.
+     */
+    public ExecutionContext withProfiler(Profiler profiler) {
+        run.useProfiler(profiler);
+        return this;
+    }
+
+    /** Приёмник профиля этого запуска; по умолчанию — выключенный. */
+    public Profiler profiler() {
+        return run.profiler();
     }
 
     /**

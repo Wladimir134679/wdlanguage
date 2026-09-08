@@ -80,4 +80,36 @@ class MainTest {
         Files.writeString(file, "println(args);");
         assertEquals(2, run("--typo", file.toString()).status());
     }
+
+    @Test void profileTableGoesToErrorStreamAndKeepsScriptOutputClean() throws Exception {
+        Path file = temp.resolve("hot.wdl");
+        Files.writeString(file, "def twice(x) => x * 2\nprintln(twice(21))\n");
+        Result result = run("--profile", file.toString());
+        assertEquals(0, result.status(), result.err());
+        assertEquals("42", result.out().trim());
+        assertTrue(result.err().contains("профиль"), result.err());
+        assertTrue(result.err().contains("twice"), result.err());
+    }
+
+    @Test void profileFileIsWrittenAsJsonAndTurnsProfilingOn() throws Exception {
+        Path file = temp.resolve("hot.wdl");
+        Files.writeString(file, "def twice(x) => x * 2\nprintln(twice(21))\n");
+        Path report = temp.resolve("profile.json");
+        Result result = run("--profile-out", report.toString(), file.toString());
+        assertEquals(0, result.status(), result.err());
+        assertEquals("42", result.out().trim());
+        assertTrue(result.err().isBlank(), result.err());
+        String json = Files.readString(report);
+        assertTrue(json.contains("\"name\": \"twice\""), json);
+        assertTrue(json.contains("\"kind\": \"function\""), json);
+        assertTrue(json.contains("\"edges\""), json);
+    }
+
+    @Test void profileOfFailedScriptIsStillWritten() throws Exception {
+        Path file = temp.resolve("broken.wdl");
+        Files.writeString(file, "def boom() => 1 / 0\nboom()\n");
+        Path report = temp.resolve("profile.json");
+        assertEquals(1, run("--profile-out", report.toString(), file.toString()).status());
+        assertTrue(Files.readString(report).contains("\"name\": \"boom\""));
+    }
 }

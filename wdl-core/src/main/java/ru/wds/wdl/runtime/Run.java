@@ -1,6 +1,7 @@
 package ru.wds.wdl.runtime;
 
 import ru.wds.wdl.metrics.Metrics;
+import ru.wds.wdl.profile.Profiler;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;
@@ -110,6 +111,16 @@ public final class Run {
      * до первой инструкции скрипта — отсюда и {@code volatile}, как у {@link #modules}.
      */
     private volatile Metrics metrics = Metrics.off();
+
+    /**
+     * Куда сообщается о вызовах этого запуска.
+     * <p>
+     * Свойство запуска ровно по той же причине, что метрики и пределы: «какая функция
+     * самая горячая» — вопрос про сеанс целиком, а не про область видимости. По умолчанию
+     * профиля нет и стоит он ноль ({@link Profiler#off()}); приёмник задаёт хозяин
+     * запуска до первой инструкции скрипта — отсюда и {@code volatile}.
+     */
+    private volatile Profiler profiler = Profiler.off();
 
     /**
      * Пределы этого запуска.
@@ -234,6 +245,22 @@ public final class Run {
     /** Задаёт приёмник метрик. Зовётся при сборке, до первой инструкции скрипта. */
     void useMetrics(Metrics replacement) {
         this.metrics = Objects.requireNonNull(replacement, "metrics");
+    }
+
+    /**
+     * Приёмник профиля этого запуска; по умолчанию — выключенный.
+     * <p>
+     * Публичный, в отличие от {@link #metrics()}: точки съёма живут в тех же местах,
+     * что и {@link #checkpoint(Span)}, — в интерпретаторе, в теле функции и в создании
+     * экземпляра, — и все они спрашивают приёмник здесь.
+     */
+    public Profiler profiler() {
+        return profiler;
+    }
+
+    /** Задаёт приёмник профиля. Зовётся при сборке, до первой инструкции скрипта. */
+    void useProfiler(Profiler replacement) {
+        this.profiler = Objects.requireNonNull(replacement, "profiler");
     }
 
     /** Пределы этого запуска. */

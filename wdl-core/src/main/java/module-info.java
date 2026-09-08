@@ -9,6 +9,7 @@ module ru.wds.wdl.core {
     exports ru.wds.wdl.metrics;
     exports ru.wds.wdl.module;
     exports ru.wds.wdl.parser;
+    exports ru.wds.wdl.profile;
     exports ru.wds.wdl.resolve;
     exports ru.wds.wdl.runtime;
     // Наборы членов встроенных типов: по ним анализатор перечисляет 'a.size'

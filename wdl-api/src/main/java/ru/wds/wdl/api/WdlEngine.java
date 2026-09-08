@@ -15,6 +15,8 @@ import ru.wds.wdl.metrics.Measurement;
 import ru.wds.wdl.metrics.Metrics;
 import ru.wds.wdl.metrics.MetricsCollector;
 import ru.wds.wdl.metrics.Stage;
+import ru.wds.wdl.profile.CallProfiler;
+import ru.wds.wdl.profile.Profiler;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.Unit;
 import ru.wds.wdl.parser.Parser;
@@ -114,6 +116,8 @@ public final class WdlEngine {
     private final Consumer<Measurement> metricsListener;
     /** Пределы выполнения: шаги, время, квота потоков. */
     private final Limits limits;
+    /** Считать ли вызовы. По умолчанию — нет: профиль дороже метрик и просят его реже. */
+    private final boolean profileEnabled;
 
     private WdlEngine(Builder builder) {
         this.output = builder.output;
@@ -125,6 +129,7 @@ public final class WdlEngine {
         this.javaPolicy = builder.javaPolicy;
         this.metricsEnabled = builder.metricsEnabled;
         this.metricsListener = builder.metricsListener;
+        this.profileEnabled = builder.profileEnabled;
         this.limits = builder.limits();
         this.rootLibraries = Collections.unmodifiableMap(withHostBridge(builder.rootLibraries));
     }
@@ -357,6 +362,25 @@ public final class WdlEngine {
         return metricsEnabled ? collector : Metrics.off();
     }
 
+    /**
+     * Новый накопитель профиля — по одному на экземпляр.
+     * <p>
+     * Создаётся всегда, как и накопитель замеров: с выключенным профилем в него просто
+     * ничего не пишут ({@link #profilerOf} отдаёт запуску {@link Profiler#off()}),
+     * а приложение получает пустой отчёт вместо {@code null}.
+     * <p>
+     * Скрипту, в отличие от метрик, накопитель не нужен вовсе: разбор вызовов
+     * не делает, и втягивать в профиль оттуда нечего.
+     */
+    CallProfiler newProfiler() {
+        return Profiler.collecting();
+    }
+
+    /** Приёмник для запуска: накопитель, если профиль включён, иначе выключенный. */
+    Profiler profilerOf(CallProfiler collector) {
+        return profileEnabled ? collector : Profiler.off();
+    }
+
     Map<String, Supplier<Library>> modules() {
         return modules;
     }
@@ -385,6 +409,7 @@ public final class WdlEngine {
         private JavaPolicy javaPolicy = JavaPolicy.strict();
         private boolean metricsEnabled;
         private Consumer<Measurement> metricsListener;
+        private boolean profileEnabled;
         /** Пределы, заданные явно, или {@code null} — тогда их выбирает набор. */
         private Limits limits;
         /** Последний заданный набор стандартной библиотеки — от него зависит умолчание. */
@@ -465,6 +490,22 @@ public final class WdlEngine {
         public Builder metrics(Consumer<Measurement> listener) {
             this.metricsListener = Objects.requireNonNull(listener, "listener");
             this.metricsEnabled = true;
+            return this;
+        }
+
+        /**
+         * Считать ли вызовы: какая функция скрипта самая горячая.
+         * <p>
+         * Отдельным ключом от {@link #metrics(boolean)}, потому что это другой вопрос
+         * и другая цена. Метрики отвечают «во что ушло время запуска» и стоят ноль;
+         * профиль отвечает «где скрипт проводит время» и стоит двух обращений к часам
+         * на каждый вызов — скрипт под профилем идёт медленнее. Включать их одной
+         * кнопкой значило бы навязывать вторую цену тому, кто просил первое.
+         * <p>
+         * По умолчанию — нет. Отчёт потом спрашивают у {@link WdlInstance#profile()}.
+         */
+        public Builder profile(boolean enabled) {
+            this.profileEnabled = enabled;
             return this;
         }
 

@@ -86,6 +86,16 @@ wdl-cli/build/install/wdl/bin/wdl examples/hello.wdl
 | [threads.wdl](threads.wdl) | `th.spawn`, `join`, `interrupt`, `sleep`, `synchronized def`, `th.counter` |
 | [threads_pool.wdl](threads_pool.wdl) | пул и `use`, `pool.map`, `pool.submit` с таймаутом и ошибкой, канал, замок, защёлка |
 
+## Профиль
+
+| Файл | О чём |
+|---|---|
+| [profiling.wdl](profiling.wdl) | рекурсия, цикл, функция-раздатчик и создание экземпляра — то, что по-разному выглядит в `--profile` |
+
+Запускать его стоит с флагом: `wdl --profile examples/profiling.wdl`. Смысл примера
+в различии «всего» и «сам» — у `report` первое велико, а второе почти нулевое: время
+ушло в то, что он позвал. См. [docs/profiling.md](../docs/profiling.md).
+
 Правило, вокруг которого построены оба файла: **атомарно одно обращение, а не
 выражение**. `count = count + 1` из двух потоков теряет обновления, и склеивают
 эти два обращения `synchronized def`, `th.lock()` или `th.counter()` — см.

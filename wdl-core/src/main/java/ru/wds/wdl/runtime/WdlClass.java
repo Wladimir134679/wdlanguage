@@ -4,6 +4,10 @@ import ru.wds.wdl.ast.expr.Argument;
 import ru.wds.wdl.ast.expr.FunctionExpr;
 import ru.wds.wdl.ast.stmt.ClassDeclStmt;
 import ru.wds.wdl.module.Unit;
+import ru.wds.wdl.profile.CallKind;
+import ru.wds.wdl.profile.CallSite;
+import ru.wds.wdl.profile.Probe;
+import ru.wds.wdl.profile.Profiler;
 import ru.wds.wdl.resolve.ClassShape;
 import ru.wds.wdl.resolve.FieldSlot;
 import ru.wds.wdl.resolve.MethodSlot;
@@ -94,6 +98,11 @@ final class WdlClass implements ClassValue {
      * и считать заново нечего.
      */
     private final TypeAnnotations annotations;
+    /**
+     * Запись этого класса в профиле; строится при первом создании с включённым профилем.
+     * Лениво и без {@code volatile} — по тем же причинам, что и у {@code UserFunction}.
+     */
+    private CallSite site;
 
     WdlClass(ClassShape shape, Environment closure, Unit unit, WdlClass parent,
              List<WdlTrait> traits, Run run, Interpreter interpreter) {
@@ -334,6 +343,34 @@ final class WdlClass implements ClassValue {
             throw FatalError.tooDeep(span, depth, "Проверьте создание '" + name() + "'");
         }
 
+        // Точка съёма профиля — там же, где шаг: создание экземпляра считается вызовом
+        // и в профиле выглядит своей строкой. Правило то же, что у функции: выключенный
+        // профиль стоит чтения поля и сравнения.
+        Profiler profiler = run.profiler();
+        if (!profiler.recording()) {
+            return build(arguments, caller, span);
+        }
+        Probe probe = profiler.enter(site());
+        try {
+            return build(arguments, caller, span);
+        } finally {
+            probe.close();
+        }
+    }
+
+    /** Запись этого класса в профиле — по объявлению, как и у функции. */
+    private CallSite site() {
+        CallSite known = site;
+        if (known == null) {
+            known = CallSite.of(CallKind.CONSTRUCTOR, name(), unit.source(),
+                    shape.declaration().span());
+            site = known;
+        }
+        return known;
+    }
+
+    /** Собственно создание: заголовок, поля, скрытые поля, конструктор. */
+    private Value build(Arguments arguments, CallContext caller, Span span) {
         Map<Shape, Header> bound = bindLineage(arguments, caller, span);
         InstanceObjectValue instance = InstanceObjectValue.of(this);
         for (FieldSlot slot : shape.fields().values()) {

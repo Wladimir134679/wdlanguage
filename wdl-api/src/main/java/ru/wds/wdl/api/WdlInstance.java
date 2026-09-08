@@ -9,6 +9,9 @@ import ru.wds.wdl.metrics.Metrics;
 import ru.wds.wdl.metrics.MetricsCollector;
 import ru.wds.wdl.metrics.MetricsReport;
 import ru.wds.wdl.metrics.Stage;
+import ru.wds.wdl.profile.CallProfiler;
+import ru.wds.wdl.profile.ProfileReport;
+import ru.wds.wdl.profile.Profiler;
 import ru.wds.wdl.module.ModuleSource;
 import ru.wds.wdl.module.ModuleUnits;
 import ru.wds.wdl.module.NativeModules;
@@ -83,6 +86,13 @@ public final class WdlInstance implements AutoCloseable {
     private final ExecutionContext context;
     /** Замеры этого запуска — вместе с втянутым сюда разбором скрипта. */
     private final MetricsCollector metrics;
+    /**
+     * Профиль этого запуска.
+     * <p>
+     * Ничего из разбора сюда не втягивается, в отличие от замеров: профиль считает
+     * вызовы, а разбор их не делает.
+     */
+    private final CallProfiler profile;
     /** Библиотеки, положенные в корень: {@code Modules} про них не знает, закрывать нам. */
     private final List<Library> rootLibraries = new ArrayList<>();
     private final Interpreter interpreter = new Interpreter();
@@ -97,6 +107,8 @@ public final class WdlInstance implements AutoCloseable {
         this.metrics = engine.newCollector();
         this.metrics.adopt(compiled);
         Metrics sink = engine.sinkOf(this.metrics);
+        this.profile = engine.newProfiler();
+        Profiler calls = engine.profilerOf(this.profile);
         // Своя корневая область — то, что делает изоляцию запусков настоящей.
         // Здесь же выполняется прелюдия и появляются println, len и классы ошибок.
         ExecutionContext fresh = ExecutionContext.fresh(engine.output());
@@ -111,6 +123,9 @@ public final class WdlInstance implements AutoCloseable {
         engine.globals().forEach(root::define);
         this.context = fresh
                 .withMetrics(sink)
+                // Профиль — свойство запуска ровно как метрики и пределы, и ставится
+                // там же: до первой инструкции скрипта.
+                .withProfiler(calls)
                 // Пределы — свойство запуска, и ставятся они здесь, до первой инструкции
                 // скрипта: отсчёт времени начнётся сам, на первом входе в скрипт.
                 .withLimits(engine.limits())
@@ -292,6 +307,7 @@ public final class WdlInstance implements AutoCloseable {
         } finally {
             closing.close();
             metrics.finish();
+            profile.finish();
         }
     }
 
@@ -307,6 +323,19 @@ public final class WdlInstance implements AutoCloseable {
      */
     public MetricsReport metrics() {
         return metrics;
+    }
+
+    /**
+     * Профиль этого запуска: сколько раз какая функция была вызвана и сколько это
+     * заняло.
+     * <p>
+     * Пуст, если движок собран без {@code profile(true)}: приёмник тогда выключен
+     * и стоит ноль. Спрашивать можно и до {@link #close()} — вызовы, случившиеся
+     * в потоках скрипта после этого, в уже отданный отчёт просто добавятся: отчёт
+     * и накопитель здесь один объект, и читается он на ходу.
+     */
+    public ProfileReport profile() {
+        return profile;
     }
 
     /** Над чем работали стадии этого запуска — имя файла скрипта. */
