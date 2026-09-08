@@ -1,7 +1,10 @@
 package ru.wds.wdl.idea.debug;
 
+import com.intellij.execution.filters.TextConsoleBuilderFactory;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.process.ProcessOutputTypes;
+import com.intellij.execution.ui.ConsoleView;
+import com.intellij.execution.ui.ExecutionConsole;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.util.Key;
@@ -73,6 +76,29 @@ public final class WdlDebugProcess extends XDebugProcess {
     @Override
     protected @Nullable ProcessHandler doGetProcessHandler() {
         return process;
+    }
+
+    /**
+     * Консоль сеанса — и она же единственное место, где виден вывод скрипта.
+     * <p>
+     * Метод переопределён ровно ради одной строки: {@code attachToProcess}. Платформа
+     * её не делает — {@code XDebugProcess.createConsole()} консоль <b>создаёт</b>,
+     * но ни с каким процессом не связывает, и вывод, отданный обработчику процесса,
+     * молча уходит в никуда. У обычного запуска эту связь заводит
+     * {@code RunProfileState}, а у отладки его нет вовсе ({@link WdlDebugRunner}),
+     * поэтому связывать здесь.
+     * <p>
+     * Следом — {@link AdapterProcess#consoleAttached()}: то, что скрипт успел
+     * напечатать до этой минуты, ждёт в нём и только теперь попадает на экран.
+     */
+    @Override
+    public @NotNull ExecutionConsole createConsole() {
+        ConsoleView console = TextConsoleBuilderFactory.getInstance()
+                .createBuilder(getSession().getProject())
+                .getConsole();
+        console.attachToProcess(process);
+        process.consoleAttached();
+        return console;
     }
 
     @Override

@@ -64,6 +64,8 @@ class DebuggerTest {
         private final ExecutionContext context;
         private final Thread runner;
         private volatile Execution done;
+        /** Прервать ли поток скрипта до первой инструкции. */
+        private volatile boolean interrupted;
 
         Fixture(String code, Limits limits) {
             this.source = Source.ofString(code);
@@ -83,6 +85,9 @@ class DebuggerTest {
             Program program = Parser.parseProgram(Lexer.tokenize(source, diagnostics), diagnostics);
             assertFalse(diagnostics.hasErrors(), () -> "ошибки разбора:\n" + diagnostics.renderAll());
             this.runner = new Thread(() -> {
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
                 try {
                     done = new Interpreter().run(Unit.of(source, program), context);
                 } catch (Throwable failed) {
@@ -93,6 +98,16 @@ class DebuggerTest {
         }
 
         void start() {
+            runner.start();
+        }
+
+        /**
+         * Пускает скрипт потоком, который уже прерван, — так его видит закрытие
+         * запуска: {@code stopScriptThreads} прерывает потоки скрипта и ждёт, пока
+         * они выйдут.
+         */
+        void startInterrupted() {
+            interrupted = true;
             runner.start();
         }
 
@@ -158,6 +173,24 @@ class DebuggerTest {
         ExecutionContext context = ExecutionContext.fresh();
         assertFalse(context.run().debugging(), "отладка включена, хотя её не просили");
         assertEquals(Debugger.off(), context.debugger(), "приёмник не выключённый");
+    }
+
+    @Test
+    @DisplayName("Прерванный поток на точке останова не встаёт: он уходит из запуска")
+    void interruptedThreadDoesNotStop() throws Exception {
+        assertTimeoutPreemptively(Duration.ofMillis(PATIENCE_MS * 2), () -> {
+            try (Fixture fixture = script("total = 1\ntotal = 2\n")) {
+                fixture.breakAtLine(1);
+                fixture.startInterrupted();
+                fixture.awaitFinish();
+                assertEquals(2, number(fixture.name("total")));
+                // Прерывание значит «выполнение остановлено»: поток дойдёт до ближайшего
+                // checkpoint и кончится. Останавливать такой в отладчике незачем, а под
+                // политикой ALL он попросил бы встать и остальных — включая поток
+                // интерфейса, который в это время доигрывает обработчики.
+                assertTrue(fixture.stops.isEmpty(), "прерванный поток встал на точке останова");
+            }
+        });
     }
 
     @Test

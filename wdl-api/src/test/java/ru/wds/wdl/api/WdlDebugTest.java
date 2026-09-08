@@ -7,6 +7,8 @@ import ru.wds.wdl.debug.DebugListener;
 import ru.wds.wdl.debug.DebugSession;
 import ru.wds.wdl.debug.StopReason;
 import ru.wds.wdl.debug.SuspendedEvent;
+import ru.wds.wdl.module.Library;
+import ru.wds.wdl.runtime.Environment;
 import ru.wds.wdl.runtime.BuiltinFunction;
 import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.types.BoolValue;
@@ -17,6 +19,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -52,6 +55,15 @@ class WdlDebugTest {
 
     /** Смещение инструкции {@code total = total + i} — она же точка останова. */
     private static final int INSIDE_LOOP = COUNTING.indexOf("total = total + i");
+
+    private static final String FAREWELL = """
+            def onQuit() {
+                print("прощай")
+            }
+            """;
+
+    /** Смещение единственной инструкции {@code onQuit} — точка останова в обработчике. */
+    private static final int INSIDE_QUIT = FAREWELL.indexOf("print(\"прощай\")");
 
     @Test
     @DisplayName("Режим launch: сессия есть до первой инструкции, точка останова срабатывает")
@@ -153,6 +165,67 @@ class WdlDebugTest {
         assertFalse(script.isAlive(), "поток остался стоять после закрытия запуска");
     }
 
+    @Test
+    @DisplayName("Библиотека зовёт скрипт в своём закрытии: точка останова там срабатывает")
+    void breakpointInsideShutdownCallback() {
+        Stops stops = new Stops();
+        StringBuilder printed = new StringBuilder();
+        Farewell farewell = new Farewell();
+        WdlEngine engine = WdlEngine.builder()
+                .output(printed::append)
+                .debug(stops)
+                .library("farewell", () -> farewell)
+                .build();
+        try (WdlInstance instance = engine.compile(FAREWELL, "quit.wdl").instance()) {
+            DebugSession session = instance.debugger();
+            // Остановку снимает сам слушатель: закрывает запуск тот же поток, что
+            // и проверяет, и ждать возобновления ему было бы не от кого.
+            stops.resumeWith(session);
+            session.breakpoints().set("quit.wdl", List.of(INSIDE_QUIT));
+            instance.execute();
+            farewell.handler(instance.function("onQuit"));
+            assertTrue(stops.events.isEmpty(), "до закрытия обработчик не звался");
+        }
+        SuspendedEvent stop = stops.events.isEmpty() ? null : stops.events.get(0);
+        assertNotNull(stop, "точка останова в обработчике закрытия не сработала");
+        assertEquals(StopReason.BREAKPOINT, stop.reason());
+        assertNotNull(stop.top(), "остановка без кадра");
+        assertEquals("onQuit", stop.top().function(), "встали не в той функции");
+        assertEquals("прощай", printed.toString(), "обработчик не доработал после возобновления");
+    }
+
+    /**
+     * Библиотека, которая зовёт функцию скрипта, когда запуск закрывается, — то же
+     * самое, что делает {@code sys.gui}, дожидаясь в своём закрытии, пока пользователь
+     * закроет окна.
+     */
+    private static final class Farewell implements Library {
+
+        private final AtomicReference<WdlCallable> handler = new AtomicReference<>();
+
+        void handler(WdlCallable value) {
+            handler.set(value);
+        }
+
+        @Override
+        public String name() {
+            return "farewell";
+        }
+
+        @Override
+        public Environment installTo(Environment scope) {
+            return scope;
+        }
+
+        @Override
+        public void close() {
+            WdlCallable known = handler.get();
+            if (known != null) {
+                known.call();
+            }
+        }
+    }
+
     /** Запускает скрипт отдельным потоком: тот, кто отлаживает, стоять не должен. */
     private static Thread run(WdlInstance instance) {
         Thread script = new Thread(() -> {
@@ -172,10 +245,21 @@ class WdlDebugTest {
         private final List<SuspendedEvent> events = new CopyOnWriteArrayList<>();
         private final CountDownLatch first = new CountDownLatch(1);
 
+        /** Кому сказать «дальше» прямо в обработчике; {@code null} — стоять и ждать. */
+        private volatile DebugSession resuming;
+
+        void resumeWith(DebugSession session) {
+            this.resuming = session;
+        }
+
         @Override
         public void suspended(SuspendedEvent event) {
             events.add(event);
             first.countDown();
+            DebugSession session = resuming;
+            if (session != null) {
+                session.resumeAll();
+            }
         }
 
         @Override

@@ -15,6 +15,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Процесс адаптера как процесс сеанса отладки.
@@ -26,12 +28,30 @@ import java.nio.charset.StandardCharsets;
  * источника: поток ошибок адаптера (его собственная диагностика) и печать самого
  * скрипта, которая приходит событиями {@code output} и печатается
  * через {@link #print}.
+ *
+ * <h2>Напечатанное до консоли не теряется</h2>
+ * {@code notifyTextAvailable} раздаёт строку слушателям <b>сразу</b> и ничего
+ * не копит: напечатанное раньше, чем консоль подключилась, исчезло бы навсегда.
+ * А раньше она подключается почти всегда — процесс адаптера заводится в
+ * {@code WdlDebugRunner} до сеанса, и первые его строки (не найден JDK, не читается
+ * скрипт) появляются прежде, чем платформа спросит {@code createConsole()}. Поэтому
+ * до {@link #consoleAttached()} строки копятся, а по нему уходят в консоль в том же
+ * порядке.
  */
 final class AdapterProcess extends ProcessHandler {
 
     private static final Logger LOG = Logger.getInstance(AdapterProcess.class);
 
+    /** Строка, напечатанная до подключения консоли: текст и его вид. */
+    private record Line(String text, Key<?> kind) {
+    }
+
     private final Process process;
+
+    /** Что напечатано до консоли; после подключения не используется. Под своим замком. */
+    private final List<Line> pending = new ArrayList<>();
+
+    private volatile boolean attached;
 
     AdapterProcess(GeneralCommandLine command) throws ExecutionException {
         this.process = command.createProcess();
@@ -53,7 +73,34 @@ final class AdapterProcess extends ProcessHandler {
 
     /** Строка в консоль сеанса: вывод скрипта или сообщение о его падении. */
     void print(String text, Key<?> kind) {
+        if (!attached) {
+            synchronized (pending) {
+                if (!attached) {
+                    pending.add(new Line(text, kind));
+                    return;
+                }
+            }
+        }
         notifyTextAvailable(text, kind);
+    }
+
+    /**
+     * Консоль подключена: копившееся уходит в неё, дальше печатается напрямую.
+     * <p>
+     * Зовётся из {@code WdlDebugProcess.createConsole()} сразу после
+     * {@code attachToProcess}, и только оттуда: раньше отдавать строки некому,
+     * а позже — значит показать их не в том порядке, в котором они пришли.
+     */
+    void consoleAttached() {
+        List<Line> waiting;
+        synchronized (pending) {
+            attached = true;
+            waiting = List.copyOf(pending);
+            pending.clear();
+        }
+        for (Line line : waiting) {
+            notifyTextAvailable(line.text(), line.kind());
+        }
     }
 
     private void pump(InputStream errors) {
@@ -62,7 +109,7 @@ final class AdapterProcess extends ProcessHandler {
                     new InputStreamReader(errors, StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    notifyTextAvailable(line + System.lineSeparator(), ProcessOutputTypes.STDERR);
+                    print(line + System.lineSeparator(), ProcessOutputTypes.STDERR);
                 }
             } catch (IOException closed) {
                 LOG.debug("поток ошибок адаптера закрыт", closed);

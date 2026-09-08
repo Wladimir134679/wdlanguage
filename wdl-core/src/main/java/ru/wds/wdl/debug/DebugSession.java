@@ -215,7 +215,7 @@ public final class DebugSession implements Debugger {
             // Поток шагает дальше — значит, раскрутка кончилась и ошибку поймали.
             state.unwinding = false;
         }
-        if (detached || state.evaluating) {
+        if (detached || state.evaluating || leaving()) {
             return;
         }
         StopReason reason = reasonFor(state, stmt, context);
@@ -238,7 +238,7 @@ public final class DebugSession implements Debugger {
             return;
         }
         ThreadState state = local.get();
-        if (state.evaluating || (!pauseAll && !state.pauseRequested)) {
+        if (state.evaluating || leaving() || (!pauseAll && !state.pauseRequested)) {
             return;
         }
         if (state.top() < 0) {
@@ -264,7 +264,7 @@ public final class DebugSession implements Debugger {
             return;
         }
         ThreadState state = local.get();
-        if (state.evaluating || state.unwinding) {
+        if (state.evaluating || state.unwinding || leaving()) {
             return;
         }
         state.unwinding = true;
@@ -273,6 +273,21 @@ public final class DebugSession implements Debugger {
             return;
         }
         suspend(state, StopReason.ERROR, error);
+    }
+
+    /**
+     * Уходит ли поток из запуска прямо сейчас.
+     * <p>
+     * Прерывание в этом движке значит «выполнение остановлено»: поток дойдёт
+     * до ближайшего {@code Run.checkpoint} и кончится {@code FatalError}. Ставить
+     * такой поток на точку останова незачем — из парковки он выйдет тем же
+     * прерыванием, — а под политикой {@link SuspendPolicy#ALL} этот бессмысленный
+     * останов ещё и попросил бы встать <b>остальных</b>: закрытие запуска, прервавшее
+     * потоки скрипта, повесило бы на паузе поток интерфейса, который в это самое время
+     * доигрывает обработчики (см. {@code WdlInstance.close}).
+     */
+    private static boolean leaving() {
+        return Thread.currentThread().isInterrupted();
     }
 
     /** Надо ли этому потоку встать здесь — и если да, то почему. */
