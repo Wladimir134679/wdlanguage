@@ -52,6 +52,36 @@ println(items.remove(1))            // ключ — метод отдаёт уд
 println(items.pop())                // гайка
 println(items)                      // ["шайба", "болт"]
 
+// --- массив: обработка элементов ----------------------------------------------
+//
+// Обработчику приходит один аргумент — элемент. Индекс, когда он нужен, даёт for.
+
+prices = [120, 80, 200, 50]
+
+println(prices.map(def(p) => p * 2))                // [240, 160, 400, 100]
+println(prices.filter(def(p) => p >= 100))          // [120, 200]
+println(prices.find(def(p) => p < 100))             // 80
+println(prices.find(def(p) => p > 500))             // null — вопрос «есть ли такой»
+println(prices.any(def(p) => p > 150))              // true
+println(prices.all(def(p) => p > 150))              // false
+println(prices.reduce(def(total, p) => total + p))  // 450
+println(prices.reduce(def(total, p) => total + p, 1000))    // 1450 — с начальным
+
+// Цепочка читается слева направо, и получателя ни один из этих членов не трогает
+println(prices.filter(def(p) => p >= 100).map(def(p) => p * 2).sum)  // 640
+println(prices)                     // [120, 80, 200, 50] — тот же массив
+
+// sum, min и max — свойства: аргументов нет, ответ о массиве, каким он виден сейчас.
+// Считают они тем же, чем считает текст: sum сворачивает оператором '+',
+// min и max сравнивают тем же, чем '<' и sorted.
+println(prices.sum)                 // 450
+println(prices.min, " ", prices.max)    // 50 200
+println(["ab", "cd"].min)           // ab
+println([].sum, " ", [].min)        // 0 null — «сколько всего» ответ имеет, «который наименьший» нет
+
+// each зовёт для каждого и отдаёт сам массив: цепочка на нём не обрывается
+prices.filter(def(p) => p < 100).each(def(p) => println("дешевле сотни: ", p))
+
 // --- строка: неизменяема, поэтому меняющих членов нет вовсе -------------------
 
 name = "  Иван Петров  "

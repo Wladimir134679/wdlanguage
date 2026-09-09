@@ -203,7 +203,9 @@ $ wdl examples/hello.wdl
 трейте и `extend`; один член `` `<=>` `` на четыре сравнения и сортировку, один
 `` `==` `` на равенство, один `` `in` `` на четыре записи принадлежности; унарные
 `` def `-`() `` — [docs/expressions.md](docs/expressions.md)),
-члены значений (`text.upper`, `a.sort()`, `213.toString()`, `box.keys`; интроспекция
+члены значений (`text.upper`, `a.sort()`, `213.toString()`, `box.keys`; обработка
+массива — `a.map(f)`, `a.filter(f)`, `a.reduce(f)`, `a.find(f)`, `a.any(f)`, `a.all(f)`,
+`a.each(f)` и свойства `a.sum`, `a.min`, `a.max`; интроспекция
 `total.params`, `Circle.parent`, `Printable.requirements`; путь в обход данных
 `Object.size(box)`; свои члены — `extend Array { ... }` из скрипта и `MemberRegistry`
 из приложения — [docs/members.md](docs/members.md)),

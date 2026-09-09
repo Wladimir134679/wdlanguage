@@ -126,6 +126,70 @@ class MemberTest {
         }
 
         @Test
+        @DisplayName("массив: обработка элементов функцией")
+        void arrayProcessing() {
+            assertEquals("[2, 4, 6]", show("[1, 2, 3].map(def(n) => n * 2)"));
+            assertEquals("[2, 4]", show("[1, 2, 3, 4].filter(def(n) => n % 2 == 0)"));
+            assertEquals("10", show("[1, 2, 3, 4].reduce(def(acc, n) => acc + n)"));
+            assertEquals("110", show("[1, 2, 3, 4].reduce(def(acc, n) => acc + n, 100)"));
+            assertEquals("3", show("[1, 2, 3, 4].find(def(n) => n > 2)"));
+            assertEquals("null", show("[1, 2].find(def(n) => n > 5)"));
+            assertEquals("true", show("[1, 2, 3].any(def(n) => n > 2)"));
+            assertEquals("false", show("[1, 2, 3].all(def(n) => n > 2)"));
+            // Условие необязательно: без него спрашивается истинность самого элемента.
+            assertEquals("true", show("[0, null, 1].any()"));
+            assertEquals("false", show("[1, null].all()"));
+            // each отдаёт сам массив — цепочка на нём не обрывается.
+            assertEquals("1 2 [1, 2]", run("a = [1, 2]\nb = a.each(def(n) => print(n, \" \"))\nprintln(b)"));
+        }
+
+        @Test
+        @DisplayName("обработка идёт по снимку и получателя не трогает")
+        void processingKeepsReceiver() {
+            assertEquals("[2, 4] [1, 2]", run("a = [1, 2]\nprintln(a.map(def(n) => n * 2), \" \", a)"));
+            // Обработчик, дописывающий в тот же массив, перебор не зацикливает:
+            // items() отдаёт снимок, и работа идёт по составу на входе.
+            assertEquals("[10, 20] [1, 2, 10, 20]",
+                    run("a = [1, 2]\nb = a.map(def(n) { a.push(n * 10) return n * 10; })\n"
+                            + "println(b, \" \", a)"));
+        }
+
+        @Test
+        @DisplayName("пустой массив: у каждого члена свой честный ответ")
+        void processingOnEmpty() {
+            assertEquals("0", show("[].sum"));
+            assertEquals("null", show("[].min"));
+            assertEquals("null", show("[].max"));
+            assertEquals("false", show("[].any(def(n) => true)"));
+            assertEquals("true", show("[].all(def(n) => false)"));
+            assertEquals("7", show("[].reduce(def(acc, n) => acc + n, 7)"));
+            assertTrue(errorOf("[].reduce(def(acc, n) => acc + n)").getMessage()
+                    .contains("сворачивать нечего"));
+        }
+
+        @Test
+        @DisplayName("sum, min и max отвечают тем же '+' и тем же сравнением, что и операторы")
+        void aggregates() {
+            assertEquals("10", show("[1, 2, 3, 4].sum"));
+            assertEquals("1", show("[3, 1, 2].min"));
+            assertEquals("3", show("[3, 1, 2].max"));
+            // Сравнение одно на язык: у строк min тот же, что у '<' и у sorted.first.
+            assertEquals("ab", show("[\"ab\", \"cd\"].min"));
+            assertEquals("2.5", show("[1, 1.5].sum"));
+            // '+' у класса перегружается — значит и sum складывает им.
+            assertEquals("8", run("class Money(amount) { def `+`(right) => new Money(amount + right.amount) }\n"
+                    + "println([new Money(3), new Money(5)].sum.amount)"));
+        }
+
+        @Test
+        @DisplayName("аргумент не функция — отказ называет роль и то, что пришло")
+        void processingWantsFunction() {
+            assertTrue(errorOf("[1, 2].map(5)").getMessage()
+                    .contains("array.map(): преобразование: ожидалась функция, а здесь число (5)"));
+            assertTrue(errorOf("[1, 2].filter(\"нет\")").getMessage().contains("условие: ожидалась функция"));
+        }
+
+        @Test
         @DisplayName("члены с позицией считают отрицательный аргумент от конца")
         void positionsCountFromTheEnd() {
             // Правило «число значит позицию» одно на весь язык: разойдись здесь

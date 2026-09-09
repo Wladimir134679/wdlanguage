@@ -168,7 +168,9 @@ Source → Lexer → List<Token> → Parser → Program (AST) → Interpreter �
   и `set`, скрытое поле `field`, требования трейтов к чтению и записи) —
   см. [классы](classes.md);
 * члены значений: `text.size`, `a.sort()`, `213.toString()` — свойства и методы
-  у строки, числа, массива и объекта; интроспекция функции, класса, трейта и модуля
+  у строки, числа, массива и объекта; обработка массива функцией (`a.map(f)`,
+  `a.filter(f)`, `a.reduce(f)`, `a.find(f)`, `a.any(f)`, `a.all(f)`, `a.each(f)`,
+  `a.sum`, `a.min`, `a.max`); интроспекция функции, класса, трейта и модуля
   (`total.params`, `Circle.parent`, `Printable.requirements`); путь в обход данных
   через дескриптор (`Object.keys(box)`); свои члены из скрипта (`extend Array { ... }`)
   и из приложения — см. [члены значений](members.md);
