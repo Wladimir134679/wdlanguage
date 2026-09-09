@@ -428,4 +428,38 @@ class ParserTest {
         assertTrue(diagnose("{*values}").renderAll()
                 .contains("у объекта позиций нет"));
     }
+
+    // --- строка с подстановкой -----------------------------------------------
+
+    @Test
+    @DisplayName("строка с подстановкой — один узел с частями по порядку")
+    void interpolation() {
+        assertEquals("(str \"итого: \" (* price count) \" руб.\")",
+                tree("'итого: ${price * count} руб.'"));
+        // Пустых кусков в дереве нет: между подстановками текста не было.
+        assertEquals("(str a b)", tree("'${a}${b}'"));
+    }
+
+    @Test
+    @DisplayName("внутри подстановки разбирается обычное выражение")
+    void interpolationTakesAnyExpression() {
+        assertEquals("(str (call f x))", tree("'${f(x)}'"));
+        assertEquals("(str (?: flag 1 2))", tree("'${flag ? 1 : 2}'"));
+        assertEquals("(str (str a))", tree("'${'${a}'}'"));
+    }
+
+    @Test
+    @DisplayName("строка без подстановки остаётся обычным литералом")
+    void singleQuotedLiteral() {
+        assertInstanceOf(LiteralExpr.class, parse("'текст'"));
+    }
+
+    @Test
+    @DisplayName("ошибка в подстановке не съедает остаток строки")
+    void brokenHole() {
+        Diagnostics diagnostics = diagnose("'${a b}'");
+
+        assertTrue(diagnostics.renderAll().contains("в подстановке ожидалась закрывающая"));
+        assertEquals(1, diagnostics.errorCount());
+    }
 }

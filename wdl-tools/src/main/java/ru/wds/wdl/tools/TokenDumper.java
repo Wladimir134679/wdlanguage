@@ -51,7 +51,7 @@ public final class TokenDumper {
      * то есть врал бы ровно про то, ради чего дамп и смотрят.
      */
     private static String displayValue(Source source, Token token) {
-        if (token.type() == TokenType.STRING) {
+        if (token.type() == TokenType.STRING || token.type().isStringPiece()) {
             return '"' + escape(token.text()) + '"';
         }
         // У тривии текста нет по построению — она хранит только интервал. Показываем

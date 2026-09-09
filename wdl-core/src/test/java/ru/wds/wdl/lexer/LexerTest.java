@@ -359,4 +359,254 @@ class LexerTest {
         assertEquals(1, tokens.size());
         assertEquals(TokenType.EOF, tokens.get(0).type());
     }
+
+    // --- многострочная строка ------------------------------------------------
+
+    @Test
+    @DisplayName("многострочная строка — один токен со снятым отступом")
+    void textBlock() {
+        String code = "text = \"\"\"\n"
+                + "    привет\n"
+                + "    мир\n"
+                + "    \"\"\"";
+        List<Token> tokens = lex(code);
+
+        assertEquals(List.of(TokenType.WORD, TokenType.ASSIGN, TokenType.STRING),
+                tokens.stream().map(Token::type).toList());
+        assertEquals("привет\nмир\n", tokens.get(2).text());
+        // Интервал покрывает запись целиком — от первой кавычки до последней.
+        assertEquals(code.indexOf('"'), tokens.get(2).span().start());
+        assertEquals(code.length(), tokens.get(2).span().end());
+    }
+
+    @Test
+    @DisplayName("закрывающие кавычки на строке текста: переноса в конце нет")
+    void closingOnTextLine() {
+        assertEquals("привет", lex("\"\"\"\n    привет\"\"\"").get(0).text());
+    }
+
+    @Test
+    @DisplayName("CRLF и CR приводятся к одному виду: значение не зависит от того, чем выгружен файл")
+    void normalizesLineBreaks() {
+        assertEquals("a\nb\n",
+                lex("\"\"\"\r\n  a\r\n  b\r\n  \"\"\"").get(0).text());
+        assertEquals("a\nb\n",
+                lex("\"\"\"\r  a\r  b\r  \"\"\"").get(0).text());
+    }
+
+    @Test
+    @DisplayName("escape разворачивается после снятия отступа")
+    void escapesAfterIndent() {
+        // Написанный автором перевод строки — обычный escape: ни на деление строк,
+        // ни на отступ он не влияет.
+        assertEquals("a\nb", lex("\"\"\"\n    a\\nb\"\"\"").get(0).text());
+        assertEquals("три \"кавычки\"",
+                lex("\"\"\"\n    три \\\"кавычки\\\"\"\"\"").get(0).text());
+        // Пробел, записанный escape-последовательностью, переживает срез хвоста.
+        assertEquals("край   ", lex("\"\"\"\n    край  \\s\"\"\"").get(0).text());
+    }
+
+    @Test
+    @DisplayName("обратная косая в конце строки склеивает строки")
+    void joinsLines() {
+        assertEquals("длинный текст",
+                lex("\"\"\"\n    длинный \\\n    текст\"\"\"").get(0).text());
+        // Экранированная косая склейкой не считается.
+        assertEquals("конец \\\n",
+                lex("\"\"\"\n    конец \\\\\n    \"\"\"").get(0).text());
+    }
+
+    @Test
+    @DisplayName("незакрытый блок доходит до конца файла и говорит об этом один раз")
+    void unterminatedTextBlock() {
+        String code = "a = \"\"\"\n    забыли\nb = 2";
+        Diagnostics diagnostics = diagnose(code);
+        List<Token> tokens = Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertTrue(diagnostics.renderAll().contains("многострочная строка не закрыта"));
+        assertEquals(1, diagnostics.errorCount());
+        assertEquals(List.of(TokenType.WORD, TokenType.ASSIGN, TokenType.STRING, TokenType.EOF),
+                tokens.stream().map(Token::type).toList());
+    }
+
+    @Test
+    @DisplayName("после открывающих кавычек нельзя писать текст")
+    void textAfterOpeningQuotes() {
+        String code = "\"\"\"привет\n\"\"\"";
+        Diagnostics diagnostics = diagnose(code);
+        Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertTrue(diagnostics.renderAll().contains("должен идти перевод строки"));
+    }
+
+    @Test
+    @DisplayName("смесь пробелов и табуляций в отступе — предупреждение, а не ошибка")
+    void mixedIndentWarning() {
+        String code = "\"\"\"\n    пробелы\n\tтабуляция\n    \"\"\"";
+        Diagnostics diagnostics = diagnose(code);
+        Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertFalse(diagnostics.hasErrors());
+        assertTrue(diagnostics.renderAll().contains("смешаны пробелы и табуляции"));
+    }
+
+    // --- строка с подстановкой -----------------------------------------------
+
+    @Test
+    @DisplayName("строка без подстановки — обычный STRING, а не куски")
+    void singleQuotedWithoutHoles() {
+        assertEquals(List.of(TokenType.STRING), types("'просто текст'"));
+        assertEquals("просто текст", texts("'просто текст'"));
+        // Поэтому такую строку можно писать там, где нужен именно литерал.
+        assertEquals(List.of(TokenType.IMPORT, TokenType.STRING), types("import 'lib/math'"));
+    }
+
+    @Test
+    @DisplayName("подстановка режет строку на куски, между ними идут обычные токены")
+    void interpolationPieces() {
+        String code = "'итого: ${price * count} руб.'";
+        assertEquals(List.of(TokenType.STRING_START, TokenType.WORD, TokenType.STAR,
+                TokenType.WORD, TokenType.STRING_END), types(code));
+        assertEquals("итого: |price|*|count| руб.", texts(code));
+    }
+
+    @Test
+    @DisplayName("куски строки покрывают запись встык — от кавычки до кавычки")
+    void piecesCoverText() {
+        String code = "'a${x}b'";
+        List<Token> tokens = lex(code);
+
+        assertEquals(0, tokens.get(0).span().start());
+        // Разделители входят в интервалы кусков: "a${" и "}b'".
+        assertEquals(code.indexOf("x"), tokens.get(0).span().end());
+        assertEquals(code.length(), tokens.get(2).span().end());
+    }
+
+    @Test
+    @DisplayName("объект внутри подстановки не закрывает строку своей скобкой")
+    void objectInsideHole() {
+        String code = "'${ {a: 1}.a }'";
+        assertEquals(List.of(TokenType.STRING_START, TokenType.LBRACE, TokenType.WORD,
+                TokenType.COLON, TokenType.INT, TokenType.RBRACE, TokenType.DOT,
+                TokenType.WORD, TokenType.STRING_END), types(code));
+    }
+
+    @Test
+    @DisplayName("строка с подстановкой бывает внутри подстановки")
+    void nestedInterpolation() {
+        String code = "'сверху ${ 'внутри ${name}' }'";
+        assertEquals(List.of(TokenType.STRING_START, TokenType.STRING_START, TokenType.WORD,
+                TokenType.STRING_END, TokenType.STRING_END), types(code));
+    }
+
+    @Test
+    @DisplayName("экранированный доллар подстановки не открывает")
+    void escapedDollar() {
+        assertEquals(List.of(TokenType.STRING), types("'\\${name}'"));
+        assertEquals("${name}", texts("'\\${name}'"));
+    }
+
+    @Test
+    @DisplayName("незакрытая подстановка обрывается на конце строки")
+    void unterminatedHole() {
+        String code = "a = 'итого ${price\nb = 2";
+        Diagnostics diagnostics = diagnose(code);
+        List<Token> tokens = Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertTrue(diagnostics.renderAll().contains("подстановка не закрыта"));
+        // Конец строки ставится сам, и разбор идёт дальше по файлу.
+        assertEquals(List.of(TokenType.WORD, TokenType.ASSIGN, TokenType.STRING_START,
+                TokenType.WORD, TokenType.STRING_END, TokenType.WORD, TokenType.ASSIGN,
+                TokenType.INT, TokenType.EOF),
+                tokens.stream().map(Token::type).toList());
+    }
+
+    @Test
+    @DisplayName("незакрытая строка в одинарных кавычках не съедает файл")
+    void unterminatedSingleQuoted() {
+        String code = "a = 'забыли\nb = 2";
+        Diagnostics diagnostics = diagnose(code);
+        List<Token> tokens = Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertTrue(diagnostics.renderAll().contains("строка не закрыта"));
+        assertEquals(List.of(TokenType.WORD, TokenType.ASSIGN, TokenType.STRING,
+                TokenType.WORD, TokenType.ASSIGN, TokenType.INT, TokenType.EOF),
+                tokens.stream().map(Token::type).toList());
+    }
+
+    @Test
+    @DisplayName("подстановка в двойных кавычках — предупреждение, а не ошибка")
+    void holeInPlainString() {
+        String code = "\"итого: ${total}\"";
+        Diagnostics diagnostics = diagnose(code);
+        Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertFalse(diagnostics.hasErrors());
+        assertTrue(diagnostics.renderAll().contains("подстановка не работает"));
+    }
+
+    // --- многострочная строка с подстановкой ---------------------------------
+
+    @Test
+    @DisplayName("три одинарные кавычки: куски текста со снятым отступом")
+    void multilineInterpolation() {
+        String code = "'''\n"
+                + "    Привет, ${name}!\n"
+                + "    '''";
+        List<Token> tokens = lex(code);
+
+        assertEquals(List.of(TokenType.STRING_START, TokenType.WORD, TokenType.STRING_END),
+                tokens.stream().map(Token::type).toList());
+        assertEquals("Привет, |name|!\n", texts(code));
+    }
+
+    @Test
+    @DisplayName("подстановка в начале строки не сдвигает текст блока")
+    void holeDoesNotSetMargin() {
+        String code = "'''\n"
+                + "    ${name} — первый\n"
+                + "      второй\n"
+                + "    '''";
+
+        // Отступ мерится по строкам, которые в блоке начались: у первой строки
+        // он свой, а край подстановки к делу не относится.
+        assertEquals("|name| — первый\n  второй\n", texts(code));
+    }
+
+    @Test
+    @DisplayName("пробел перед подстановкой не считается хвостовым")
+    void spaceBeforeHoleSurvives() {
+        String code = "'''\n"
+                + "    итого:   ${sum}\n"
+                + "    '''";
+
+        assertEquals("итого:   |sum|\n", texts(code));
+    }
+
+    @Test
+    @DisplayName("в подстановке многострочной строки перевод строки разрешён")
+    void holeMaySpanLines() {
+        String code = "'''\n"
+                + "    итого: ${\n"
+                + "        price * count\n"
+                + "    }\n"
+                + "    '''";
+        Diagnostics diagnostics = diagnose(code);
+        Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertFalse(diagnostics.hasErrors(),
+                () -> "неожиданные ошибки:\n" + diagnostics.renderAll());
+    }
+
+    @Test
+    @DisplayName("незакрытая многострочная строка доходит до конца файла")
+    void unterminatedMultiline() {
+        String code = "a = '''\n    забыли\nb = 2";
+        Diagnostics diagnostics = diagnose(code);
+        List<Token> tokens = Lexer.tokenize(Source.ofString(code), diagnostics);
+
+        assertTrue(diagnostics.renderAll().contains("многострочная строка не закрыта"));
+        assertEquals(List.of(TokenType.WORD, TokenType.ASSIGN, TokenType.STRING, TokenType.EOF),
+                tokens.stream().map(Token::type).toList());
+    }
 }

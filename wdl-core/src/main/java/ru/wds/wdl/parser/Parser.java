@@ -1866,6 +1866,9 @@ public final class Parser {
                 cursor.advance();
                 return new LiteralExpr(StringValue.of(token.text()), token.span());
             }
+            case STRING_START -> {
+                return interpolation();
+            }
             case TRUE -> {
                 cursor.advance();
                 return new LiteralExpr(BoolValue.TRUE, token.span());
@@ -2273,6 +2276,63 @@ public final class Parser {
         Expr key = objectKey();
         cursor.expect(TokenType.COLON, "двоеточие ':' после ключа объекта");
         return ObjectExpr.Entry.pair(key, expression(0));
+    }
+
+    /**
+     * Строка с подстановкой: куски текста вперемешку с выражениями.
+     * <p>
+     * Внутри {@code ${...}} разбирается обычное выражение обычным {@link #expression(int)} —
+     * своей грамматики у подстановки нет и заводить её не за чем: всё, что имеет смысл
+     * в выражении, имеет смысл и здесь.
+     * <p>
+     * Пустые куски в дерево не попадают: между двумя соседними подстановками текста
+     * не было, и пустая строка в списке частей только заставляла бы выполнение
+     * склеивать ничто.
+     */
+    private Expr interpolation() {
+        Token start = cursor.advance();
+        List<Expr> parts = new ArrayList<>();
+        addPiece(parts, start);
+        while (true) {
+            parts.add(expression(0));
+            Token next = cursor.peek();
+            if (next.is(TokenType.STRING_PART)) {
+                cursor.advance();
+                addPiece(parts, next);
+                continue;
+            }
+            if (next.is(TokenType.STRING_END)) {
+                cursor.advance();
+                addPiece(parts, next);
+                return new InterpolationExpr(parts, start.span().to(next.span()));
+            }
+            // Лишнее внутри подстановки: сказать один раз и дойти до конца строки.
+            // Иначе остаток текста разбирался бы как продолжение выражения, и одна
+            // опечатка давала бы столбик сообщений про всё, что за ней написано.
+            diagnostics.error(next.span(), "в подстановке ожидалась закрывающая '}', найдено "
+                    + describe(next));
+            Token last = skipToStringEnd();
+            return new InterpolationExpr(parts, start.span().to(last.span()));
+        }
+    }
+
+    /** Текстовый кусок строки — обычный строковый литерал; пустой в дерево не идёт. */
+    private void addPiece(List<Expr> parts, Token piece) {
+        if (!piece.text().isEmpty()) {
+            parts.add(new LiteralExpr(StringValue.of(piece.text()), piece.span()));
+        }
+    }
+
+    /** Пропуск до конца строки после ошибки в подстановке. */
+    private Token skipToStringEnd() {
+        Token last = cursor.peek();
+        while (!cursor.check(TokenType.EOF)) {
+            last = cursor.advance();
+            if (last.is(TokenType.STRING_END)) {
+                break;
+            }
+        }
+        return last;
     }
 
     /** Ключ пары объекта: имя без кавычек, ключевое слово или любое выражение. */

@@ -1669,6 +1669,24 @@ public final class Interpreter
         return expr.value();
     }
 
+    /**
+     * Строка с подстановкой: части считаются слева направо и склеиваются одним буфером.
+     * <p>
+     * В строку значение превращает {@code display} — тот же, которым его печатает
+     * {@code println} и которым его вставляет конкатенация. Второго способа показать
+     * значение текстом в языке нет, и заводить его здесь нельзя: когда печать научится
+     * спрашивать представление у самого значения, подстановка получит это даром —
+     * ровно потому, что способ один.
+     */
+    @Override
+    public Value visitInterpolation(InterpolationExpr expr, ExecutionContext context) {
+        StringBuilder text = new StringBuilder(32);
+        for (Expr part : expr.parts()) {
+            text.append(visit(part, context).display());
+        }
+        return StringValue.of(text.toString());
+    }
+
     @Override
     public Value visitVariable(VariableExpr expr, ExecutionContext context) {
         Value value = context.scope().lookup(expr.name(), context, expr.span());

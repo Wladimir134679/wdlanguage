@@ -9,6 +9,7 @@ import ru.wds.wdl.ast.expr.CaseTail;
 import ru.wds.wdl.ast.expr.ErrorExpr;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.ast.expr.InterpolationExpr;
 import ru.wds.wdl.ast.expr.LiteralExpr;
 import ru.wds.wdl.ast.expr.MatchCase;
 import ru.wds.wdl.ast.expr.MatchExpr;
@@ -142,6 +143,17 @@ final class DefaultValues {
             }
             case TryExpr shortForm -> findUse(shortForm.inner(), names);
             case FunctionExpr ignored -> null;
+            // Подстановка ссылается на соседний параметр так же, как любое другое
+            // выражение: 'привет, ${name}' в значении по умолчанию — обычное чтение.
+            case InterpolationExpr interpolation -> {
+                for (Expr part : interpolation.parts()) {
+                    VariableExpr use = findUse(part, names);
+                    if (use != null) {
+                        yield use;
+                    }
+                }
+                yield null;
+            }
             case LiteralExpr ignored -> null;
             case ErrorExpr ignored -> null;
         };

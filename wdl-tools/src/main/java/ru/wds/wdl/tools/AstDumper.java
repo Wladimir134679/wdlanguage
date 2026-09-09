@@ -389,6 +389,15 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     }
 
     @Override
+    public Void visitInterpolation(InterpolationExpr expr, Integer depth) {
+        line(depth, "строка с подстановкой", expr);
+        for (Expr part : expr.parts()) {
+            visit(part, depth + 1);
+        }
+        return null;
+    }
+
+    @Override
     public Void visitVariable(VariableExpr expr, Integer depth) {
         return line(depth, "имя " + expr.name(), expr);
     }

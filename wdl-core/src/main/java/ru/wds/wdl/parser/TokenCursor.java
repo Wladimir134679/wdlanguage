@@ -168,6 +168,7 @@ final class TokenCursor {
             case EOF -> "конец файла";
             case WORD -> "имя '" + token.text() + "'";
             case STRING -> "строку";
+            case STRING_START, STRING_PART, STRING_END -> "строку с подстановкой";
             case INT, FLOAT, HEX, BIN -> "число " + token.text();
             default -> token.type().describe();
         };

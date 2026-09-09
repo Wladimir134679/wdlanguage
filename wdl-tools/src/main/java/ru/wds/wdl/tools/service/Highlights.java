@@ -99,7 +99,9 @@ final class Highlights {
     }
 
     private static TokenStyle styleOf(TokenType type) {
-        if (type == TokenType.STRING) {
+        // Куски строки с подстановкой красятся как строка; код внутри подстановки —
+        // обычными токенами, поэтому имя в ней подсвечивается по своей роли.
+        if (type == TokenType.STRING || type.isStringPiece()) {
             return TokenStyle.STRING;
         }
         if (type.isNumber()) {

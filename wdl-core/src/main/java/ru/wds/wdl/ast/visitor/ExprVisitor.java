@@ -25,6 +25,9 @@ public interface ExprVisitor<R, C> {
 
     R visitLiteral(LiteralExpr expr, C context);
 
+    /** Строка с подстановкой: части считаются по очереди и склеиваются в одну строку. */
+    R visitInterpolation(InterpolationExpr expr, C context);
+
     R visitVariable(VariableExpr expr, C context);
 
     R visitUnary(UnaryExpr expr, C context);
@@ -67,6 +70,7 @@ public interface ExprVisitor<R, C> {
     default R visit(Expr expr, C context) {
         return switch (expr) {
             case LiteralExpr e -> visitLiteral(e, context);
+            case InterpolationExpr e -> visitInterpolation(e, context);
             case VariableExpr e -> visitVariable(e, context);
             case UnaryExpr e -> visitUnary(e, context);
             case BinaryExpr e -> visitBinary(e, context);

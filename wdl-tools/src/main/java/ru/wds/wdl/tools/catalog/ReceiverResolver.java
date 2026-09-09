@@ -58,6 +58,10 @@ public final class ReceiverResolver {
         return switch (expression) {
             case LiteralExpr literal -> new ReceiverType.Builtin(literal.value().type(),
                     ReceiverType.Confidence.EXACT, "литерал");
+            // Подстановка даёт строку, чем бы ни оказались её части.
+            case ru.wds.wdl.ast.expr.InterpolationExpr ignored -> new ReceiverType.Builtin(
+                    ru.wds.wdl.value.ValueType.STRING, ReceiverType.Confidence.EXACT,
+                    "строка с подстановкой");
             case ArrayExpr ignored -> new ReceiverType.Builtin(ru.wds.wdl.value.ValueType.ARRAY,
                     ReceiverType.Confidence.EXACT, "литерал массива");
             case ObjectExpr ignored -> new ReceiverType.Builtin(ru.wds.wdl.value.ValueType.OBJECT,

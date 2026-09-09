@@ -11,6 +11,7 @@ import ru.wds.wdl.ast.expr.Decorator;
 import ru.wds.wdl.ast.expr.ErrorExpr;
 import ru.wds.wdl.ast.expr.Expr;
 import ru.wds.wdl.ast.expr.FunctionExpr;
+import ru.wds.wdl.ast.expr.InterpolationExpr;
 import ru.wds.wdl.ast.expr.LiteralExpr;
 import ru.wds.wdl.ast.expr.MatchCase;
 import ru.wds.wdl.ast.expr.MatchExpr;
@@ -289,6 +290,7 @@ public final class Nodes {
     private static void collect(Expr expr, Children children) {
         switch (expr) {
             case LiteralExpr ignored -> { }
+            case InterpolationExpr interpolation -> children.add(interpolation.parts());
             case VariableExpr ignored -> { }
             case ErrorExpr ignored -> { }
             case UnaryExpr unary -> children.add(unary.operand());

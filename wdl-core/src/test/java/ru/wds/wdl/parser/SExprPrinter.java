@@ -31,6 +31,13 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
     }
 
     @Override
+    public String visitInterpolation(InterpolationExpr expr, Void context) {
+        return expr.parts().stream()
+                .map(part -> visit(part, context))
+                .collect(Collectors.joining(" ", "(str ", ")"));
+    }
+
+    @Override
     public String visitVariable(VariableExpr expr, Void context) {
         return expr.name();
     }
