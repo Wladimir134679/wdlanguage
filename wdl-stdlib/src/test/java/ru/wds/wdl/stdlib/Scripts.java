@@ -49,6 +49,11 @@ final class Scripts {
     }
 
     static WdlRuntimeError errorOf(String code) {
-        return assertThrows(WdlRuntimeError.class, () -> printed(code));
+        return errorOf(code, Limits.none());
+    }
+
+    /** То же, но под пределами: отказ в потоке — обычная ошибка скрипта, а не остановка. */
+    static WdlRuntimeError errorOf(String code, Limits limits) {
+        return assertThrows(WdlRuntimeError.class, () -> printed(code, limits));
     }
 }

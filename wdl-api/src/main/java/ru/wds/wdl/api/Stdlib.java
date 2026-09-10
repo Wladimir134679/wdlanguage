@@ -9,6 +9,7 @@ import ru.wds.wdl.stdlib.Std;
 import ru.wds.wdl.stdlib.Times;
 import ru.wds.wdl.stdlib.gui.Gui;
 import ru.wds.wdl.stdlib.net.Sockets;
+import ru.wds.wdl.stdlib.streams.Streams;
 import ru.wds.wdl.stdlib.thread.Threads;
 
 import java.util.LinkedHashMap;
@@ -61,7 +62,8 @@ public enum Stdlib {
     /**
      * Весь набор {@code sys}: {@code std}, {@code sys.io}, {@code sys.json},
      * {@code sys.meta}, {@code sys.net.http}, {@code sys.net.socket},
-     * {@code sys.time}, {@code sys.gui}, {@code sys.thread} — то же, что перечисляет
+     * {@code sys.time}, {@code sys.gui}, {@code sys.thread}, {@code sys.streams} —
+     * то же, что перечисляет
      * {@code Sys.registry()} в {@code wdl-stdlib}. Списка два, потому что
      * {@code wdl-stdlib} подключён сюда как {@code implementation} и назвать
      * {@code Sys} в сигнатуре нельзя; совпадение проверяет {@code StdlibTest}.
@@ -105,6 +107,10 @@ public enum Stdlib {
                 modules.put("sys/time", Times::library);
                 modules.put("sys/gui", Gui::library);
                 modules.put("sys/thread", Threads::library);
+                // Конвейеры сами по себе мира не трогают, но streams.lines(path) читает
+                // файлы напрямую — поэтому в SAFE их нет: там нет и класса File,
+                // и открывать эту дверь сбоку значило бы отменить обещание набора.
+                modules.put("sys/streams", Streams::library);
             }
         }
         return modules;

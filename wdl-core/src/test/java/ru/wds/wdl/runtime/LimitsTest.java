@@ -99,6 +99,15 @@ class LimitsTest {
                     }
                     return NullValue.NULL;
                 }));
+        // Библиотечный цикл без единой функции скрипта: ровно то, чем оказывается
+        // 'streams.repeat(1).count()'. Шаг здесь отмечает сама библиотека — иначе
+        // цикл не проходил бы ни одной точки движка и не останавливался бы никогда.
+        context.scope().define("spin", BuiltinFunction.of("spin", Arity.exactly(0),
+                (call, arguments, span) -> {
+                    for (long i = 0; ; i++) {
+                        call.step(span);
+                    }
+                }));
     }
 
     private static Execution execute(String code, ExecutionContext context) {
@@ -158,6 +167,22 @@ class LimitsTest {
         Script script = run("for (i = 0; i < 1000; i = i + 1) { }", steps(100000));
         assertTrue(script.context().run().steps() >= 1000,
                 () -> "шагов насчитано " + script.context().run().steps());
+    }
+
+    // --- шаг библиотеки ------------------------------------------------------
+
+    @Test
+    @DisplayName("Библиотечный цикл считает шаги сам: без этого он не останавливается ничем")
+    void libraryLoopStopsBySteps() {
+        broken("spin()", steps(500), FatalError.class, "исчерпал отведённые 500 шагов");
+    }
+
+    @Test
+    @DisplayName("Тот же цикл останавливается и по времени — точка проверки одна на обе причины")
+    void libraryLoopStopsByTime() {
+        assertTimeoutPreemptively(Duration.ofMillis(PATIENCE_MS), () ->
+                broken("spin()", Limits.builder().timeout(Duration.ofMillis(100)).build(),
+                        FatalError.class, "вышло отведённое время"));
     }
 
     // --- остановку нельзя съесть ---------------------------------------------

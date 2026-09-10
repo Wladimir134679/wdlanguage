@@ -95,6 +95,18 @@ wdl-cli/build/install/wdl/bin/wdl examples/language/hello.wdl
 клиенты обслуживаются в своих потоках, а общий список защищён `synchronized`.
 Сервер не прогоняется на сборке — занимает порт.
 
+## [streams/](streams) — ленивые конвейеры
+
+| Файл | О чём |
+|---|---|
+| [streams.wdl](streams/streams.wdl) | `sys.streams`: источники, короткое замыкание сквозь стадии, `lines` под `use`, `zip`/`chunked`/`windowed`/`sorted`, канал вместо генератора, `mapConcurrent` |
+
+Правило, вокруг которого построен файл: **массив отвечает на «преобразуй эти данные»,
+поток — на «протяни данные через конвейер, не собирая их»**. Счётчик вызовов в начале
+файла показывает главное различие: `a.map(heavy).find(p)` считает `heavy` для всех
+элементов, а конвейер — до первого совпадения. См.
+[docs/streams.md](../docs/streams.md).
+
 ## [tooling/](tooling) — профиль и отладка
 
 | Файл | О чём |
@@ -116,7 +128,7 @@ wdl-cli/build/install/wdl/bin/wdl examples/language/hello.wdl
 | Файл | О чём |
 |---|---|
 | [stdlib.wdl](embedding/stdlib.wdl) | `pow`, `sqrt`, классы `File` и `Random`, фабрика `File.temp()`, поле класса; два способа написать библиотеку — построитель и мост |
-| [embedding.wdl](embedding/embedding.wdl) | трейт-контракт от модуля (`json.Serializable`), иерархия нативных классов (`io.Stream`), ошибки библиотек по классам, изоляция запусков |
+| [embedding.wdl](embedding/embedding.wdl) | трейт-контракт от модуля (`json.Serializable`), иерархия нативных классов (`io.Handle`), ошибки библиотек по классам, изоляция запусков |
 | [sys.wdl](embedding/sys.wdl) | встроенные модули: `sys.json` и `sys.io` — библиотеки на Java, приходящие через `import` |
 | [java-time.wdl](embedding/java-time.wdl) | мост в Java: `sys.time` — семь чужих типов `java.time` без единого описанного метода |
 

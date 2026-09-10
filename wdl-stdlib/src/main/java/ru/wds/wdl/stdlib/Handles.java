@@ -26,10 +26,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Открытые потоки {@code sys.io}: то, ради чего в языке есть {@code use}.
+ * Дескрипторы открытых файлов {@code sys.io}: то, ради чего в языке есть {@code use}.
  * <p>
  * {@code File} ресурсом не является — его {@code read} и {@code write} открывают
- * и закрывают поток внутри, — поэтому закрывать там нечего. А вот {@code io.open}
+ * и закрывают файл внутри, — поэтому закрывать там нечего. А вот {@code io.open}
  * и {@code io.create} отдают <b>живое</b>: дескриптор держится, пока не позовут
  * {@code close()}.
  * <pre>{@code
@@ -37,37 +37,43 @@ import java.util.List;
  *     dst.write(src.read())
  * }                                    // сначала dst.close(), затем src.close()
  * }</pre>
+ * <b>Класс зовётся {@code Handle}, а не {@code Stream}</b>, и это не косметика:
+ * имя {@code Stream} занял ленивый конвейер {@code sys.streams}, а здесь никакого
+ * конвейера нет — здесь ровно то, что написано ниже в javadoc самого класса:
+ * «дескриптор держится, пока не позовут close()». Из двух претендентов на имя
+ * переименован тот, у кого оно было случайным.
+ * <p>
  * <b>Классы собираются на запуск, а не статическим полем</b>, и причина в трейте:
  * {@code Closeable} объявлен прелюдией и принадлежит запуску, поэтому класс, который
  * его обещает, обязан браться из той же области видимости. Это то же самое, из-за
  * чего {@code IndexError} одного запуска — не {@code IndexError} другого.
  */
-final class Streams {
+final class Handles {
 
-    private Streams() {
+    private Handles() {
     }
 
     /** Имя трейта, который прелюдия кладёт в корневую область. */
     private static final String CLOSEABLE = "Closeable";
 
     /**
-     * Общий родитель потоков: путь и закрытие.
+     * Общий родитель дескрипторов: путь и закрытие.
      * <p>
      * Ровно то, что у чтения и записи одинаково, — и ровно то, о чём спрашивают,
-     * не зная, что именно открыли: {@code r is io.Stream}. Обещание {@code Closeable}
-     * тоже здесь: закрывается поток одинаково, чем бы он ни был.
+     * не зная, что именно открыли: {@code r is io.Handle}. Обещание {@code Closeable}
+     * тоже здесь: закрывается дескриптор одинаково, чем бы он ни был.
      */
-    static NativeClass stream(Environment scope) {
-        return closeable(NativeClass.named("Stream")
+    static NativeClass handle(Environment scope) {
+        return closeable(NativeClass.named("Handle")
                 .field("path")
-                .method("close", Arity.exactly(0), Streams::close), scope)
+                .method("close", Arity.exactly(0), Handles::close), scope)
                 .build();
     }
 
-    /** Класс читающего потока для этого запуска. */
-    static NativeClass reader(NativeClass stream) {
+    /** Класс читающего дескриптора для этого запуска. */
+    static NativeClass reader(NativeClass handle) {
         return NativeClass.named("Reader")
-                .extending(stream)
+                .extending(handle)
 
                 .method("read", Arity.exactly(0), (self, context, arguments, span) ->
                         StringValue.of(Files.io(span, () -> readAll(reader(self, span)))))
@@ -83,7 +89,7 @@ final class Streams {
                     return ArrayValue.of(lines);
                 })
 
-                // Отдельная строка, а не весь файл: ради этого поток и открывают.
+                // Отдельная строка, а не весь файл: ради этого файл и открывают.
                 // Конец — это null, а не пустая строка: пустые строки в файле бывают.
                 .method("readLine", Arity.exactly(0), (self, context, arguments, span) -> {
                     String line = Files.io(span, () -> reader(self, span).readLine());
@@ -93,12 +99,12 @@ final class Streams {
                 .build();
     }
 
-    /** Класс пишущего потока для этого запуска. */
-    static NativeClass writer(NativeClass stream) {
+    /** Класс пишущего дескриптора для этого запуска. */
+    static NativeClass writer(NativeClass handle) {
         return NativeClass.named("Writer")
-                .extending(stream)
+                .extending(handle)
 
-                // Возвращает сам поток, а не null: 'dst.write(a).write(b)' читается,
+                // Возвращает сам дескриптор, а не null: 'dst.write(a).write(b)' читается,
                 // а «ничего» никому не нужно — то же правило, что у File.write.
                 .method("write", Arity.exactly(1), (self, context, arguments, span) -> {
                     String data = arguments.at(0).display();
@@ -162,9 +168,9 @@ final class Streams {
     }
 
     /**
-     * Закрытие идемпотентно: {@code close()} на уже закрытом потоке — не ошибка.
+     * Закрытие идемпотентно: {@code close()} на уже закрытом дескрипторе — не ошибка.
      * <p>
-     * Иначе {@code use} поверх потока, который тело закрыло само, падал бы на выходе,
+     * Иначе {@code use} поверх дескриптора, который тело закрыло само, падал бы на выходе,
      * а «закрыл дважды» — не то, о чём стоит спорить с автором скрипта.
      */
     private static Value close(NativeInstance self, CallContext context, Args arguments,
@@ -190,7 +196,7 @@ final class Streams {
     private static <T> T live(NativeInstance self, Class<T> type, Span span) {
         T state = self.state(type);
         if (state == null) {
-            throw new WdlRuntimeError(span, "поток уже закрыт: "
+            throw new WdlRuntimeError(span, "дескриптор уже закрыт: "
                     + "после close() читать и писать нечем");
         }
         return state;

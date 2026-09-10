@@ -22,6 +22,7 @@
 | [Аннотации](annotations.md) | `@{...}`, данные при объявлении, чтение членом `annotations`, чем отличаются от декоратора |
 | [Модули](modules.md) | `import` и `import ... as`, пути, область действия импорта, наследование через файлы |
 | [Потоки](threads.md) | модель памяти, `synchronized`, `sys.thread`: потоки, пул, замок, счётчик, канал, защёлка |
+| [Конвейеры](streams.md) | `sys.streams`: ленивая обработка данных, короткое замыкание сквозь стадии, `lines` и `use`, `mapConcurrent` |
 | [Лимиты выполнения](limits.md) | шаги, таймаут, квота потоков и вложенность: чем запуск отвечает на «а если скрипт чужой» |
 | [Метрики](metrics.md) | время стадий: `--metrics`, отчёт из приложения, что меряется и что нет |
 | [Профилировщик](profiling.md) | горячие функции: `--profile`, «всего» и «сам», граф вызовов, выгрузка в JSON для плагина IDE |
@@ -68,6 +69,7 @@ wdl examples/modules/plain.wdl              # модули: import и import ...
 wdl examples/modules/late.wdl               # плагин загружается по требованию
 wdl examples/concurrency/threads.wdl                    # потоки: spawn, join, interrupt, synchronized
 wdl examples/concurrency/threads_pool.wdl               # пул, обещания, канал, защёлка
+wdl examples/streams/streams.wdl                    # ленивые конвейеры: sys.streams
 wdl examples/embedding/stdlib.wdl                     # стандартная библиотека: pow, File, Random
 wdl examples/tooling/debugging.wdl                  # скрипт, по которому удобно шагать отладчиком
 wdl --metrics examples/modules/plain.wdl    # время стадий после выполнения

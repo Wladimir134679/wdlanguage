@@ -47,9 +47,9 @@ w.writeLine("первая").writeLine("вторая")
 w.close()
 
 use (r = io.open(path)) {
-    // Reader и Writer наследуют io.Stream — общее у них поле path, close()
+    // Reader и Writer наследуют io.Handle — общее у них поле path, close()
     // и само обещание Closeable
-    println(r is io.Reader, " ", r is io.Stream, " ", r is io.Writer)
+    println(r is io.Reader, " ", r is io.Handle, " ", r is io.Writer)
     println(r is Closeable, " ", r.readLine())
 }
 
@@ -73,8 +73,8 @@ try {
 // --- класс от приложения — обычное значение ----------------------------------
 
 // В поля класса можно писать, как и у класса на wdl
-io.Stream.description = "открытый файл"
-println(io.Stream.description)
+io.Handle.description = "открытый файл"
+println(io.Handle.description)
 
 // Но живёт эта запись ровно один запуск: имена библиотеки собираются заново
 // на каждый, поэтому следующий скрипт увидит здесь null, а не «открытый файл».

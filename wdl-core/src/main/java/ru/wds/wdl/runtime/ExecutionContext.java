@@ -310,6 +310,19 @@ public final class ExecutionContext implements CallContext {
         return run.threads().stopAndJoin(timeoutMillis);
     }
 
+    /**
+     * Шаг, сделанный библиотекой: та же точка проверки, что и у шага скрипта.
+     * <p>
+     * Одна на всех — {@link Run#checkpoint(Span)}, — и это принципиально: два счётчика
+     * «сколько работы сделано» разошлись бы на первом же конвейере, у которого часть
+     * витков — вызовы функций скрипта, а часть — цикл внутри Java. Зачем библиотеке
+     * свой шаг, разобрано у {@link CallContext#step(Span)}.
+     */
+    @Override
+    public void step(Span span) {
+        run.checkpoint(span);
+    }
+
     @Override
     public ScriptThreads threads() {
         return run.threads();

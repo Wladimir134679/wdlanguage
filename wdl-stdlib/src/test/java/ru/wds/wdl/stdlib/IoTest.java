@@ -36,9 +36,9 @@ class IoTest {
     }
 
     @Test
-    @DisplayName("io.create и io.open отдают поток, который use закрывает сам")
-    void streamsWorkWithUse(@TempDir Path dir) {
-        String file = script(dir.resolve("stream.txt"));
+    @DisplayName("io.create и io.open отдают дескриптор, который use закрывает сам")
+    void handlesWorkWithUse(@TempDir Path dir) {
+        String file = script(dir.resolve("handle.txt"));
         assertEquals("2 первая целиком 16 true", printed("""
                 import sys.io as io
 
@@ -56,8 +56,8 @@ class IoTest {
     }
 
     @Test
-    @DisplayName("после close поток говорит об этом прямо, а не падает загадочно")
-    void closedStreamSaysSo(@TempDir Path dir) {
+    @DisplayName("после close дескриптор говорит об этом прямо, а не падает загадочно")
+    void closedHandleSaysSo(@TempDir Path dir) {
         String file = script(dir.resolve("closed.txt"));
         assertTrue(errorOf("""
                 import sys.io as io
@@ -65,7 +65,7 @@ class IoTest {
                 src = io.open("%s")
                 src.close()
                 println(src.read())
-                """.formatted(file, file)).getMessage().contains("поток уже закрыт"));
+                """.formatted(file, file)).getMessage().contains("дескриптор уже закрыт"));
     }
 
     @Test
@@ -105,14 +105,14 @@ class IoTest {
     }
 
     @Test
-    @DisplayName("Reader и Writer — потоки: общий родитель, общий Closeable")
-    void streamsShareAParent(@TempDir Path dir) {
-        String file = script(dir.resolve("stream.txt"));
+    @DisplayName("Reader и Writer — дескрипторы: общий родитель, общий Closeable")
+    void handlesShareAParent(@TempDir Path dir) {
+        String file = script(dir.resolve("handle.txt"));
         assertEquals("true true true true false", printed("""
                 import sys.io as io
                 w = io.create("%s")
                 r = io.open("%s")
-                println(w is io.Stream, " ", r is io.Stream, " ",
+                println(w is io.Handle, " ", r is io.Handle, " ",
                         r is io.Reader, " ", r is Closeable, " ", r is io.Writer)
                 w.close()
                 r.close()
@@ -122,7 +122,7 @@ class IoTest {
     @Test
     @DisplayName("путь и close достались от родителя, свои методы — свои")
     void inheritedMembers(@TempDir Path dir) {
-        String file = script(dir.resolve("stream.txt"));
+        String file = script(dir.resolve("handle.txt"));
         // Путь печатается так, как его записала система, поэтому сверяется хвост:
         // разделитель каталогов к наследованию отношения не имеет.
         assertTrue(printed("""
@@ -130,7 +130,7 @@ class IoTest {
                 io.write("%s", "привет")
                 r = io.open("%s")
                 println(r.path, " ", r.close(), " ", io.read("%s"))
-                """.formatted(file, file, file)).endsWith("stream.txt true привет"));
+                """.formatted(file, file, file)).endsWith("handle.txt true привет"));
     }
 
     @Test

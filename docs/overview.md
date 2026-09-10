@@ -193,6 +193,10 @@ Source → Lexer → List<Token> → Parser → Program (AST) → Interpreter �
 * потоки: модификатор `synchronized def`, модуль `sys.thread` — `spawn`/`join`/
   `interrupt`/`sleep`, пул с обещаниями (`pool.map`, `pool.submit`), замок, счётчик,
   канал и защёлка — см. [потоки](threads.md);
+* ленивые конвейеры: модуль `sys.streams` — источники (`lines`, `iterate`, `repeat`,
+  канал, `a.stream()`), стадии (`map`, `filter`, `zip`, `chunked`, `windowed`,
+  `sorted`, `distinct`), терминальные операции и конкурентная стадия
+  `mapConcurrent` — см. [конвейеры](streams.md);
 * встроенные функции `println`, `print`, `typeof`, `len`, `like`;
 * стандартная библиотека `std`: `pow`, `sqrt`, `abs`, классы `File` и `Random` —
   и вместе с ней [способ добавить в язык своё](embedding.md);

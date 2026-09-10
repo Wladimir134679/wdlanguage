@@ -194,6 +194,35 @@ public final class Threads {
                 }));
     }
 
+    /**
+     * Чтение из канала за этим значением или {@code null}, если это не канал.
+     * <p>
+     * Нужно {@code sys.streams}: {@code streams.of(ch)} читает канал, пока его
+     * не закроют. Отдаётся <b>действие</b>, а не внутренность канала: соседнему
+     * модулю незачем знать, из чего канал сделан, — ему нужно ровно одно слово
+     * «возьми следующее». По той же причине это {@code public} метод здесь, а не
+     * открытый наружу {@code Sync}: видно ровно то, чем пользуются.
+     * <p>
+     * Ответ {@code NullValue.NULL} означает «канал закрыт и пуст» — то же самое,
+     * что видит скрипт в {@code while ((item = ch.take()) != null)}. Отличить
+     * закрытие от честно посланного {@code null} канал не умеет и не умел никогда:
+     * это свойство самого канала, а не потока над ним.
+     */
+    public static Taking channelIn(Value value) {
+        if (value instanceof NativeInstance instance
+                && instance.state() instanceof Sync.ChannelState channel) {
+            return () -> channel.take(0, false);
+        }
+        return null;
+    }
+
+    /** Одно действие канала: взять следующее, дождавшись, если пусто. */
+    @FunctionalInterface
+    public interface Taking {
+
+        Value take() throws InterruptedException;
+    }
+
     /** Замок, счётчик, канал и защёлка — всё, что даёт значение, а не ключевое слово. */
     private static void installPrimitives(Environment scope) {
         NativeClass lockClass = Module.typeIn(scope, "Lock");

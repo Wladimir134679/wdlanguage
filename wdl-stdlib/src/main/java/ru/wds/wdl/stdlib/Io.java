@@ -67,7 +67,7 @@ public final class Io {
      * а восемнадцать одинаковых строк, написанных руками, только и умеют, что
      * разойтись между собой.
      * <p>
-     * Классы потоков стоят после {@code File} и берут его из области: порядок
+     * Классы дескрипторов стоят после {@code File} и берут его из области: порядок
      * объявления здесь — это порядок установки.
      */
     public static Library library() {
@@ -80,19 +80,22 @@ public final class Io {
                 .constant("SEPARATOR", StringValue.of(java.io.File.separator))
                 .doc("разделитель имён в пути этой машины")
 
-                // Классы потоков собираются на запуск, а не статическим полем: они
+                // Классы дескрипторов собираются на запуск, а не статическим полем: они
                 // обещают трейт Closeable, а он объявлен прелюдией и принадлежит запуску.
                 // Общее у чтения и записи вынесено в родителя — и путь, и close(), и само
-                // обещание Closeable, — поэтому "r is io.Stream" отвечает, не спрашивая,
+                // обещание Closeable, — поэтому "r is io.Handle" отвечает, не спрашивая,
                 // что именно открыли.
-                .type("Stream", Streams::stream)
-                .doc("общий предок открытых потоков: путь и close()")
-                .type("Reader", scope -> Streams.reader(Module.typeIn(scope, "Stream")))
+                //
+                // Handle, а не Stream: имя Stream носит ленивый конвейер sys.streams,
+                // а здесь дескриптор открытого файла — так он и описан в своём javadoc.
+                .type("Handle", Handles::handle)
+                .doc("общий предок открытых файлов: путь и close()")
+                .type("Reader", scope -> Handles.reader(Module.typeIn(scope, "Handle")))
                 .doc("открытый на чтение файл: построчно, пока не закроют")
-                .type("Writer", scope -> Streams.writer(Module.typeIn(scope, "Stream")))
+                .type("Writer", scope -> Handles.writer(Module.typeIn(scope, "Handle")))
                 .doc("открытый на запись файл: пишет, пока не закроют")
 
-                // Открытый поток — то, ради чего в языке есть use: дескриптор держится,
+                // Открытый дескриптор — то, ради чего в языке есть use: он держится,
                 // пока не позовут close(), в отличие от read/write, которые всё делают внутри.
                 //
                 // Описания здесь идут не звеном .doc(), а прямо на функции: имена
@@ -102,15 +105,15 @@ public final class Io {
                     NativeClass writer = Module.typeIn(scope, "Writer");
                     scope.define("open", BuiltinFunction.of("open", PATH,
                                     (context, arguments, span) ->
-                                            Streams.open(Files.pathOf(arguments, 0), reader, context, span))
+                                            Handles.open(Files.pathOf(arguments, 0), reader, context, span))
                             .documented("открывает файл на чтение; закрывается через use"));
                     scope.define("create", BuiltinFunction.of("create", PATH,
                                     (context, arguments, span) ->
-                                            Streams.create(Files.pathOf(arguments, 0), writer, context, span))
+                                            Handles.create(Files.pathOf(arguments, 0), writer, context, span))
                             .documented("создаёт файл на запись, затирая прежний"));
                     scope.define("appendTo", BuiltinFunction.of("appendTo", PATH,
                                     (context, arguments, span) ->
-                                            Streams.append(Files.pathOf(arguments, 0), writer, context, span))
+                                            Handles.append(Files.pathOf(arguments, 0), writer, context, span))
                             .documented("открывает файл на дозапись в конец"));
                 })
 

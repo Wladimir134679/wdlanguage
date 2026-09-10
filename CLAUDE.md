@@ -78,7 +78,7 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 |---|---|---|
 | `wdl-core` | `lexer`, `parser`, `ast`, `value`, `runtime`, `diagnostic`, `source`, `metrics`, `profile`, `module` | ничего |
 | `wdl-bridge` | всё для встраивания: `bridge` (`Module`, `NativeClass`, `NativeTrait`, `NativeInstance`, `MemberSource`) и `bridge.reflect` (мост рефлексией: `JavaBridge`, `FromJava`, `Marshal`, `JavaPolicy`) | core |
-| `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, `sys.time`, реестр `Sys` | core, bridge |
+| `wdl-stdlib` | `std` (math, `File`, `Random`) и встроенные модули `sys.io`, `sys.json`, `sys.net.http`, `sys.net.socket`, `sys.gui`, `sys.thread`, `sys.time`, `sys.streams` (ленивые конвейеры), реестр `Sys` | core, bridge |
 | `wdl-api` | фасад для встраивания: `WdlEngine` (сборка движка, `expose`/`define`), `WdlScript`, `WdlInstance`, `WdlCallable`, `Values` | core, bridge, stdlib |
 | `wdl-tools` | `AstDumper`, `TokenDumper`, `analysis` (имена), `catalog` (внешние имена), `service` (языковой сервис) | core |
 | `wdl-lsp` | языковой сервер LSP: перевод ответов `service` в JSON-RPC (lsp4j) | tools, stdlib |
@@ -147,7 +147,11 @@ Configuration cache включён в `gradle.properties`; задача `repl` �
 * **Лимиты выполнения — свойство запуска** (`runtime/Limits`, счётчики в `Run`):
   шаги, время, квота потоков, вложенность вызовов и внешних входов. Точка проверки
   **одна** — `Run.checkpoint(span)`, и зовут её оттуда, где скрипт делает шаг: три
-  цикла в `Interpreter`, `UserFunction.body`, `WdlClass.create`. Шагом считается
+  цикла в `Interpreter`, `UserFunction.body`, `WdlClass.create`, а из библиотеки —
+  `CallContext.step(span)`, тот же `checkpoint` через `ExecutionContext`. Библиотечный
+  шаг нужен там, где работу делает библиотека, а не скрипт: цикл целиком внутри Java
+  (`streams.repeat(1).count()`) не проходит ни одной точки движка. Зовёт его источник
+  конвейера, на каждый выданный элемент; стадии не зовут — элемент им дал источник. Шагом считается
   итерация и вызов, а не узел дерева: зациклиться в обход этих точек нельзя, а счётчик
   на каждом узле — плата в самой горячей точке. Исчерпание шагов и времени — `FatalError`
   (не ловится, `defer` отрабатывает), отказ в потоке — обычная ошибка скрипта. Выключенные

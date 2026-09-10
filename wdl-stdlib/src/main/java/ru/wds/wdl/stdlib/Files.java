@@ -40,8 +40,16 @@ import java.util.List;
  * Класс собирается на запуск, а не лежит статическим полем: поля самого класса
  * изменяемы, и {@code File.mark = 1} из одного скрипта не должно доставаться
  * следующему. Один на запуск он при этом остаётся — см. {@link ru.wds.wdl.bridge.Module}.
+ * <p>
+ * Здесь же общая для всей стандартной библиотеки работа с файлами: разбор пути
+ * ({@link #pathOf}) и перевод {@code IOException} в ошибку скрипта ({@link #io}).
+ * <b>Класс открыт</b> именно ради этих двух: файлы читает не один модуль, а {@code sys.io}
+ * и {@code sys.streams}, и живут они в разных пакетах. Второй разбор пути и второй
+ * набор текстов «не удалось обратиться к файлу» разошлись бы с первыми — а автору
+ * скрипта одна и та же неудача обязана выглядеть одинаково, каким бы модулем он
+ * ни открыл файл.
  */
-final class Files {
+public final class Files {
 
     private Files() {
     }
@@ -128,7 +136,7 @@ final class Files {
      * модуля {@code sys.io}: {@code io.read("data.txt")} — тот же путь, та же
      * проверка и то же сообщение.
      */
-    static Path pathOf(Args arguments, int index) {
+    public static Path pathOf(Args arguments, int index) {
         return of(arguments.string(index, "путь к файлу"), arguments.span());
     }
 
@@ -148,7 +156,7 @@ final class Files {
      * ему пользы не принесёт: нужна ошибка с местом в исходнике, которую движок
      * покажет так же, как деление на ноль.
      */
-    static <T> T io(Span span, IoAction<T> action) {
+    public static <T> T io(Span span, IoAction<T> action) {
         try {
             return action.run();
         } catch (IOException | UncheckedIOException e) {
@@ -190,7 +198,7 @@ final class Files {
                 : cause.getClass().getSimpleName() + ": " + message;
     }
 
-    static void io(Span span, IoRun action) {
+    public static void io(Span span, IoRun action) {
         io(span, () -> {
             action.run();
             return null;
@@ -198,12 +206,12 @@ final class Files {
     }
 
     @FunctionalInterface
-    interface IoAction<T> {
+    public interface IoAction<T> {
         T run() throws IOException;
     }
 
     @FunctionalInterface
-    interface IoRun {
+    public interface IoRun {
         void run() throws IOException;
     }
 }
