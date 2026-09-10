@@ -293,7 +293,7 @@ debug.stopOnError(true);
 
 ## Что смотреть дальше
 
-* [examples/debugging.wdl](../examples/debugging.wdl) — скрипт, по которому удобно
+* [examples/tooling/debugging.wdl](../examples/tooling/debugging.wdl) — скрипт, по которому удобно
   шагать: кадры, вложенные вызовы, класс, ошибка и второй поток;
 * [docs/limits.md](limits.md) — те же безопасные точки, но про пределы;
 * [docs/profiling.md](profiling.md) — та же дисциплина «выключенное стоит ноль»;

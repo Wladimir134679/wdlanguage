@@ -70,7 +70,7 @@ List<Token> forEditor = Lexer.tokenize(source, diagnostics, LexerMode.LOSSLESS);
 Посмотреть глазами:
 
 ```bash
-wdl --tokens --trivia examples/hello.wdl
+wdl --tokens --trivia examples/language/hello.wdl
 ```
 
 ## Обход дерева

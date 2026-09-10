@@ -47,33 +47,33 @@
 ```bash
 ./gradlew :wdl-cli:installDist              # → wdl-cli/build/install/wdl/bin/wdl
 
-wdl examples/hello.wdl                      # программа: переменные и вывод
-wdl examples/expressions.wdl                # шпаргалка по выражениям
-wdl examples/control-flow.wdl               # ветвления и циклы
-wdl examples/match.wdl                      # match: ветвление по одному предмету
-wdl examples/const.wdl                      # константы: const NAME = value
-wdl examples/functions.wdl                  # функции, замыкания, области видимости
-wdl examples/members.wdl                    # члены значений: свойства и методы у массива, строки, числа
-wdl examples/introspection.wdl              # что значение рассказывает о себе: параметры, состав класса
-wdl examples/extend.wdl                     # extend: свои члены у типа и у класса
-wdl examples/classes.wdl                    # классы: поля, методы, конструктор, фабрики
-wdl examples/inheritance.wdl                # наследование, super, полиморфизм
-wdl examples/traits.wdl                     # трейты: контракты и готовые реализации
-wdl examples/class-varargs.wdl              # остаток в заголовке класса: *args и **named
-wdl examples/decorators.wdl                 # декораторы: @[...], метаданные, обёртки
-wdl examples/errors.wdl                     # ошибки: throw, try/catch/finally, трейс
-wdl examples/resources.wdl                  # ресурсы: defer, use, трейт Closeable
+wdl examples/language/hello.wdl                      # программа: переменные и вывод
+wdl examples/language/expressions.wdl                # шпаргалка по выражениям
+wdl examples/language/control-flow.wdl               # ветвления и циклы
+wdl examples/language/match.wdl                      # match: ветвление по одному предмету
+wdl examples/language/const.wdl                      # константы: const NAME = value
+wdl examples/language/functions.wdl                  # функции, замыкания, области видимости
+wdl examples/classes/members.wdl                    # члены значений: свойства и методы у массива, строки, числа
+wdl examples/classes/introspection.wdl              # что значение рассказывает о себе: параметры, состав класса
+wdl examples/classes/extend.wdl                     # extend: свои члены у типа и у класса
+wdl examples/classes/classes.wdl                    # классы: поля, методы, конструктор, фабрики
+wdl examples/classes/inheritance.wdl                # наследование, super, полиморфизм
+wdl examples/classes/traits.wdl                     # трейты: контракты и готовые реализации
+wdl examples/classes/class-varargs.wdl              # остаток в заголовке класса: *args и **named
+wdl examples/metaprogramming/decorators.wdl                 # декораторы: @[...], метаданные, обёртки
+wdl examples/errors/errors.wdl                     # ошибки: throw, try/catch/finally, трейс
+wdl examples/errors/resources.wdl                  # ресурсы: defer, use, трейт Closeable
 wdl examples/testing/errors.wdl             # тесты на самом языке: проверки по ошибкам
 wdl examples/modules/plain.wdl              # модули: import и import ... as
 wdl examples/modules/late.wdl               # плагин загружается по требованию
-wdl examples/threads.wdl                    # потоки: spawn, join, interrupt, synchronized
-wdl examples/threads_pool.wdl               # пул, обещания, канал, защёлка
-wdl examples/stdlib.wdl                     # стандартная библиотека: pow, File, Random
-wdl examples/debugging.wdl                  # скрипт, по которому удобно шагать отладчиком
+wdl examples/concurrency/threads.wdl                    # потоки: spawn, join, interrupt, synchronized
+wdl examples/concurrency/threads_pool.wdl               # пул, обещания, канал, защёлка
+wdl examples/embedding/stdlib.wdl                     # стандартная библиотека: pow, File, Random
+wdl examples/tooling/debugging.wdl                  # скрипт, по которому удобно шагать отладчиком
 wdl --metrics examples/modules/plain.wdl    # время стадий после выполнения
-wdl --metrics-each examples/threads.wdl     # строка на каждую законченную стадию
-wdl --ast examples/hello.wdl                # дерево программы
-wdl --tokens examples/lexer-check.wdl       # поток токенов
+wdl --metrics-each examples/concurrency/threads.wdl     # строка на каждую законченную стадию
+wdl --ast examples/language/hello.wdl                # дерево программы
+wdl --tokens examples/lexer/lexer-check.wdl       # поток токенов
 ./gradlew :wdl-cli:repl --console=plain     # построчно, интерактивно
 ```
 

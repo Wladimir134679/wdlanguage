@@ -1,6 +1,6 @@
 // Проверка лексера: здесь встречается каждая конструкция, которую он умеет разбирать.
-// Запуск:  ./gradlew :wdl-cli:run --args="examples/lexer-check.wdl"
-//          wdl --tokens examples/lexer-check.wdl
+// Запуск:  ./gradlew :wdl-cli:run --args="examples/lexer/lexer-check.wdl"
+//          wdl --tokens examples/lexer/lexer-check.wdl
 
 /* Блочный комментарий.
    Он занимает несколько строк и на разбор не влияет:

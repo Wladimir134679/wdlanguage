@@ -3,9 +3,9 @@
 Класс в wdl — **запись с поведением**: заголовок перечисляет поля, тело перечисляет
 методы. Ничего третьего в классе нет.
 
-Рабочие примеры по возрастанию: [`examples/classes.wdl`](../examples/classes.wdl) —
-один класс, [`examples/inheritance.wdl`](../examples/inheritance.wdl) — цепочка
-и `super`, [`examples/traits.wdl`](../examples/traits.wdl) — трейты,
+Рабочие примеры по возрастанию: [`examples/classes/classes.wdl`](../examples/classes/classes.wdl) —
+один класс, [`examples/classes/inheritance.wdl`](../examples/classes/inheritance.wdl) — цепочка
+и `super`, [`examples/classes/traits.wdl`](../examples/classes/traits.wdl) — трейты,
 [`examples/modules/inherit.wdl`](../examples/modules/inherit.wdl) — то же самое
 через файлы.
 

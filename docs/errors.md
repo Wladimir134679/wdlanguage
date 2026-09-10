@@ -1,7 +1,7 @@
 # Ошибки и их обработка
 
 > **Сделано.** Всё описанное здесь работает, примеры запускаются:
-> `examples/errors.wdl` и `examples/resources.wdl`. Чего ещё нет — перечислено
+> `examples/errors/errors.wdl` и `examples/errors/resources.wdl`. Чего ещё нет — перечислено
 > в конце [плана работ](#что-осталось); это классы ошибок стандартной библиотеки
 > и оператор `??`.
 
@@ -818,7 +818,7 @@ wdl-core/src/main/resources/ru/wds/wdl/runtime/prelude.wdl
 6. ✅ **Ресурсы.** `Closeable` в прелюдии, `use`, `NativeClass.Builder.with(trait)`,
    `io.open`/`io.create`/`io.appendTo` с классами `io.Reader` и `io.Writer`.
 7. ✅ **`JavaException`.** Оборачивание на границе вызова, `javaTrace()`, флаг `--debug`.
-8. ✅ **Документы и примеры.** `examples/errors.wdl`, `examples/resources.wdl`,
+8. ✅ **Документы и примеры.** `examples/errors/errors.wdl`, `examples/errors/resources.wdl`,
    [состояние языка](overview.md#что-уже-работает) и `README.md`.
 
 ### Что осталось

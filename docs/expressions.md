@@ -4,8 +4,8 @@
 скрипт — в [инструкциях](statements.md).
 
 ```bash
-wdl examples/expressions.wdl          # выполнить шпаргалку по выражениям
-wdl --ast examples/expressions.wdl    # показать дерево
+wdl examples/language/expressions.wdl          # выполнить шпаргалку по выражениям
+wdl --ast examples/language/expressions.wdl    # показать дерево
 wdl --repl                            # построчно, интерактивно
 ```
 
@@ -209,7 +209,7 @@ byNumber = {**{(1): "a"}}                       // ключ-число пере�
 
 Класс задаёт свой смысл `+`, `<`, `in` и остальным операторам. Оператор — **обычный
 член**, только имя записано в обратных кавычках; отдельной сущности язык не заводит.
-Полностью рабочий файл — [`examples/operators.wdl`](../examples/operators.wdl).
+Полностью рабочий файл — [`examples/classes/operators.wdl`](../examples/classes/operators.wdl).
 
 ```wdl
 class Point(x, y) {

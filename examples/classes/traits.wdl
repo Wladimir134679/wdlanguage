@@ -1,5 +1,5 @@
 // Трейты: что класс обязан дать и что он получает готовым.
-// Основы классов — в examples/classes.wdl, наследование — в examples/inheritance.wdl.
+// Основы классов — в examples/classes/classes.wdl, наследование — в examples/classes/inheritance.wdl.
 // Описание правил — в docs/classes.md.
 //
 // Трейт устроен как класс: заголовок — поля, тело — методы. Разница одна, и она

@@ -10,7 +10,7 @@ x, y = *точка               // распаковка
 println("Привет, ", имя)    // вызов
 ```
 
-Готовый пример целиком — [`examples/hello.wdl`](../examples/hello.wdl).
+Готовый пример целиком — [`examples/language/hello.wdl`](../examples/language/hello.wdl).
 
 ## Присваивание — инструкция, а не выражение
 
@@ -75,7 +75,7 @@ host, port = **config               // по именам
 Знак при этом зеркалится ровно как в функциях: справа `*` **раскрывает**, слева
 `*rest` **собирает остаток**.
 
-Целый пример — [`examples/unpack.wdl`](../examples/unpack.wdl).
+Целый пример — [`examples/language/unpack.wdl`](../examples/language/unpack.wdl).
 
 ### Почему маркер на источнике, а не на списке имён
 
@@ -255,7 +255,7 @@ TAX_RATE = 0.3      // ошибка: 'TAX_RATE' нельзя присвоить:
 внутри чужого значения. Составное присваивание запрещено тем же правилом и с тем же
 сообщением: `TAX_RATE += 0.1` — то же присваивание.
 
-Рабочий пример целиком — [`examples/const.wdl`](../examples/const.wdl).
+Рабочий пример целиком — [`examples/language/const.wdl`](../examples/language/const.wdl).
 
 ### Заморожено имя, а не значение
 

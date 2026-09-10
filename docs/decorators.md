@@ -4,7 +4,7 @@
 цель, может её посмотреть, зарегистрировать, а может вернуть вместо неё другую —
 обёртку.
 
-Рабочий пример целиком: [`examples/decorators.wdl`](../examples/decorators.wdl).
+Рабочий пример целиком: [`examples/metaprogramming/decorators.wdl`](../examples/metaprogramming/decorators.wdl).
 
 ```wdl
 def traced(meta) {

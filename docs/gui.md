@@ -19,8 +19,8 @@ win.show()
 назначение: `new gui.Window(title: "…", width: 300)` вместо `new gui.Window("…", 300, 150)`.
 Позиционная запись при этом остаётся законной — правила общие для всего языка,
 см. [именованные аргументы](functions.md#именованные-аргументы). Готовые примеры —
-[`examples/gui_counter.wdl`](../examples/gui_counter.wdl) и
-[`examples/gui_todo.wdl`](../examples/gui_todo.wdl).
+[`examples/gui/gui_counter.wdl`](../examples/gui/gui_counter.wdl) и
+[`examples/gui/gui_todo.wdl`](../examples/gui/gui_todo.wdl).
 
 ---
 

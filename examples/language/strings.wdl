@@ -1,6 +1,6 @@
 // Строки: экраны, многострочный литерал и снятие отступа.
 //
-// Запуск:  ./gradlew :wdl-cli:run --args="examples/strings.wdl"
+// Запуск:  ./gradlew :wdl-cli:run --args="examples/language/strings.wdl"
 
 // --- обычная строка ---------------------------------------------------------
 

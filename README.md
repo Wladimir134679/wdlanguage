@@ -109,25 +109,25 @@
 ./gradlew build                  # сборка + тесты + проверка чистоты ядра
 ./gradlew modules                # карта модулей
 ./gradlew :wdl-cli:run --args="--help"
-./gradlew :wdl-cli:run --args="examples/hello.wdl"                # выполнить скрипт
-./gradlew :wdl-cli:run --args="examples/expressions.wdl"          # шпаргалка по выражениям
-./gradlew :wdl-cli:run --args="examples/control-flow.wdl"         # ветвления и циклы
-./gradlew :wdl-cli:run --args="examples/slices.wdl"               # срез a[1..3] и индекс с конца
-./gradlew :wdl-cli:run --args="examples/functions.wdl"            # функции и замыкания
-.\gradlew :wdl-cli:run --args="examples/defaults.wdl"             # значения по умолчанию
-./gradlew :wdl-cli:run --args="examples/named-args.wdl"           # именованные аргументы
-./gradlew :wdl-cli:run --args="examples/variadic-args.wdl"        # *args, **named, раскрытие
-./gradlew :wdl-cli:run --args="examples/const.wdl"                # константы
-./gradlew :wdl-cli:run --args="examples/class-varargs.wdl"        # остаток в заголовке класса
-./gradlew :wdl-cli:run --args="examples/properties.wdl"           # свойства: get/set, скрытое поле
-./gradlew :wdl-cli:run --args="examples/decorators.wdl"           # декораторы: @[...], like
-./gradlew :wdl-cli:run --args="examples/annotations.wdl"          # аннотации: @{...}, annotations
-./gradlew :wdl-cli:run --args="examples/threads.wdl"              # потоки и synchronized
-./gradlew :wdl-cli:run --args="examples/threads_pool.wdl"         # пул, канал, защёлка
+./gradlew :wdl-cli:run --args="examples/language/hello.wdl"                # выполнить скрипт
+./gradlew :wdl-cli:run --args="examples/language/expressions.wdl"          # шпаргалка по выражениям
+./gradlew :wdl-cli:run --args="examples/language/control-flow.wdl"         # ветвления и циклы
+./gradlew :wdl-cli:run --args="examples/language/slices.wdl"               # срез a[1..3] и индекс с конца
+./gradlew :wdl-cli:run --args="examples/language/functions.wdl"            # функции и замыкания
+.\gradlew :wdl-cli:run --args="examples/language/defaults.wdl"             # значения по умолчанию
+./gradlew :wdl-cli:run --args="examples/language/named-args.wdl"           # именованные аргументы
+./gradlew :wdl-cli:run --args="examples/language/variadic-args.wdl"        # *args, **named, раскрытие
+./gradlew :wdl-cli:run --args="examples/language/const.wdl"                # константы
+./gradlew :wdl-cli:run --args="examples/classes/class-varargs.wdl"        # остаток в заголовке класса
+./gradlew :wdl-cli:run --args="examples/classes/properties.wdl"           # свойства: get/set, скрытое поле
+./gradlew :wdl-cli:run --args="examples/metaprogramming/decorators.wdl"           # декораторы: @[...], like
+./gradlew :wdl-cli:run --args="examples/metaprogramming/annotations.wdl"          # аннотации: @{...}, annotations
+./gradlew :wdl-cli:run --args="examples/concurrency/threads.wdl"              # потоки и synchronized
+./gradlew :wdl-cli:run --args="examples/concurrency/threads_pool.wdl"         # пул, канал, защёлка
 ./gradlew :wdl-cli:run --args="--metrics examples/modules/plain.wdl" # время стадий
-./gradlew :wdl-cli:run --args="--profile examples/profiling.wdl"  # горячие функции
-./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"          # показать дерево
-./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl" # показать токены
+./gradlew :wdl-cli:run --args="--profile examples/tooling/profiling.wdl"  # горячие функции
+./gradlew :wdl-cli:run --args="--ast examples/language/hello.wdl"          # показать дерево
+./gradlew :wdl-cli:run --args="--tokens examples/lexer/lexer-check.wdl" # показать токены
 ./gradlew :wdl-cli:run --args="--catalog"                         # что доступно скриптам
 ./gradlew :wdl-cli:repl --console=plain     # REPL (нужен живой stdin; имена — :names)
 ./gradlew :wdl-cli:installDist   # готовый запускаемый дистрибутив
@@ -164,7 +164,7 @@
 Работает конвейер `исходник → токены → AST → выполнение`:
 
 ```
-$ wdl examples/hello.wdl
+$ wdl examples/language/hello.wdl
 Привет, wdl!
 Итого: 360 руб.
 болт по 12 руб., на складе 100 шт.

@@ -3,7 +3,7 @@
 Функция в wdl — не особая сущность, а [обычное значение](types.md#функция) в обычной
 переменной. Всё остальное следствия: её можно передать аргументом, вернуть из другой
 функции, положить в массив и в поле объекта. Готовый пример целиком —
-[`examples/functions.wdl`](../examples/functions.wdl).
+[`examples/language/functions.wdl`](../examples/language/functions.wdl).
 
 ```wdl
 def сумма(a, b) {
@@ -154,7 +154,7 @@ println(greet(greeting: "здравствуй", name: "мир"))     // здра
 ```
 
 Ради второй строки всё и затевалось: **пропуск в середине списка** раньше записать
-было нечем. Готовый пример целиком — [`examples/named-args.wdl`](../examples/named-args.wdl).
+было нечем. Готовый пример целиком — [`examples/language/named-args.wdl`](../examples/language/named-args.wdl).
 
 Двоеточие, а не `=`, и причина та же, по которой [`if (x = 5)`](control-flow.md)
 не разбирается в принципе: присваивание в языке — инструкция, и `=` внутри выражения
@@ -229,7 +229,7 @@ println(join(b: mark("b"), a: mark("a")))    // b a ab
 
 ## Вариативные параметры и раскрытие
 
-Готовый пример целиком — [examples/variadic-args.wdl](../examples/variadic-args.wdl).
+Готовый пример целиком — [examples/language/variadic-args.wdl](../examples/language/variadic-args.wdl).
 
 Когда функция заранее не знает число аргументов, она может собрать позиционный хвост
 в массив, а неизвестные имена — в объект:

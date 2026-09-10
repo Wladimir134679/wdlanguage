@@ -5,7 +5,7 @@
 разобрать геттерами или выгрузить в JSON для другой программы.
 
 ```bash
-wdl --profile examples/profiling.wdl
+wdl --profile examples/tooling/profiling.wdl
 ```
 
 ```
@@ -144,7 +144,7 @@ try (WdlInstance instance = script.instance()) {
 ## Профиль машине
 
 ```bash
-wdl --profile-out profile.json examples/profiling.wdl
+wdl --profile-out profile.json examples/tooling/profiling.wdl
 ```
 
 Файлом, а не в поток: читатель у такого отчёта один — другая программа (плагин IDE,
@@ -156,14 +156,14 @@ wdl --profile-out profile.json examples/profiling.wdl
 ```json
 {
   "version": 1,
-  "script": "examples/profiling.wdl",
+  "script": "examples/tooling/profiling.wdl",
   "calls": 21901,
   "self_ns": 223564700,
   "wall_ns": 363856100,
   "threads": 1,
   "sites": [
     {
-      "kind": "function", "name": "fib", "file": "examples/profiling.wdl",
+      "kind": "function", "name": "fib", "file": "examples/tooling/profiling.wdl",
       "line": 6, "offset": 197,
       "calls": 21891, "total_ns": 127938400, "self_ns": 127938400, "max_ns": 127938400
     }

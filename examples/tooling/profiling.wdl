@@ -1,6 +1,6 @@
 // Профиль: где скрипт проводит время.
-// Запуск: wdl --profile examples/profiling.wdl
-//         wdl --profile-out profile.json examples/profiling.wdl
+// Запуск: wdl --profile examples/tooling/profiling.wdl
+//         wdl --profile-out profile.json examples/tooling/profiling.wdl
 
 // Рекурсия: вызовов много, каждый дешёвый.
 def fib(n) {

@@ -403,8 +403,8 @@ try {
 | [`sys.net.http`](../wdl-stdlib/src/main/java/ru/wds/wdl/stdlib/Http.java) | ленивый клиент, `close()`, ответ обычным классом с полями |
 | [`sys.time`](../wdl-stdlib/src/main/java/ru/wds/wdl/stdlib/Times.java) | модуль без единого написанного метода: семь типов `java.time`, открытых [мостом](java-interop.md) |
 
-Рабочие скрипты — [`examples/stdlib.wdl`](../examples/stdlib.wdl),
-[`examples/sys.wdl`](../examples/sys.wdl) и [`examples/java-time.wdl`](../examples/java-time.wdl).
+Рабочие скрипты — [`examples/embedding/stdlib.wdl`](../examples/embedding/stdlib.wdl),
+[`examples/embedding/sys.wdl`](../examples/embedding/sys.wdl) и [`examples/embedding/java-time.wdl`](../examples/embedding/java-time.wdl).
 
 **Как выбрать способ.** Построитель — когда классу нужно то, чего у Java-класса
 нет: контекст запуска в конструкторе (`Window` берёт трекер окон), поля в заголовке

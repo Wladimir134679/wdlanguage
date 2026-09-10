@@ -1,5 +1,5 @@
 // Аннотации: данные, приписанные объявлению и доступные потом.
-// Запуск: wdl examples/annotations.wdl
+// Запуск: wdl examples/metaprogramming/annotations.wdl
 //
 // Правила — в docs/annotations.md. Коротко: пишутся объектным литералом перед
 // объявлением, хранятся в самом значении, читаются членом annotations и ничего

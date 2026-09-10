@@ -127,7 +127,7 @@ println(args)
 профиль считает каждый вызов ([docs/profiling.md](profiling.md)).
 
 В репозитории есть общая конфигурация `wdl: hello` в `.run/`. Она запускает
-`examples/hello.wdl`; параметры можно менять в Edit Configurations.
+`examples/language/hello.wdl`; параметры можно менять в Edit Configurations.
 
 Текущий плагин требует IDEA Ultimate 2025.3+ из-за используемого LSP API.
 Run-конфигурации реализованы через стандартные расширения платформы:

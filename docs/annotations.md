@@ -12,7 +12,7 @@ def listUsers(page = 1) => db.users(page)
 println(listUsers.annotations["route"])     // /users
 ```
 
-Полностью рабочий файл — [`examples/annotations.wdl`](../examples/annotations.wdl).
+Полностью рабочий файл — [`examples/metaprogramming/annotations.wdl`](../examples/metaprogramming/annotations.wdl).
 
 ## Чем это не является
 

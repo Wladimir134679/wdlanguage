@@ -1,5 +1,5 @@
 // Наследование: один родитель, super, виртуальные вызовы, полиморфизм.
-// Основы классов — в examples/classes.wdl, трейты — в examples/traits.wdl.
+// Основы классов — в examples/classes/classes.wdl, трейты — в examples/classes/traits.wdl.
 // Описание правил — в docs/classes.md.
 
 // --- родитель и потомок ------------------------------------------------------

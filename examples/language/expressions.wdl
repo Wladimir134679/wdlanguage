@@ -1,8 +1,8 @@
 // Шпаргалка по выражениям: что и как считается.
 //
-// Запуск:  ./gradlew :wdl-cli:run --args="examples/expressions.wdl"
-//          wdl --ast examples/expressions.wdl     — посмотреть дерево
-//          wdl --tokens examples/expressions.wdl  — посмотреть токены
+// Запуск:  ./gradlew :wdl-cli:run --args="examples/language/expressions.wdl"
+//          wdl --ast examples/language/expressions.wdl     — посмотреть дерево
+//          wdl --tokens examples/language/expressions.wdl  — посмотреть токены
 
 // --- числа: целое остаётся целым, пока не встретилось вещественное -----------
 println("2 + 2 * 2      = ", 2 + 2 * 2)        // 6: умножение связывает сильнее

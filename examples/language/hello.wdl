@@ -1,14 +1,14 @@
 // Первая настоящая программа на wdl: переменные и вывод.
 //
-// Запуск:  ./gradlew :wdl-cli:run --args="examples/hello.wdl"
-//          wdl examples/hello.wdl
-//          wdl --ast examples/hello.wdl   — посмотреть дерево программы
+// Запуск:  ./gradlew :wdl-cli:run --args="examples/language/hello.wdl"
+//          wdl examples/language/hello.wdl
+//          wdl --ast examples/language/hello.wdl   — посмотреть дерево программы
 
 println("Привет, wdl!")
 
 // --- переменные -------------------------------------------------------------
 // Объявлять переменную не нужно: имя заводится первым присваиванием. Объявление
-// в языке одно — const, имя, которое нельзя перезаписать: examples/const.wdl
+// в языке одно — const, имя, которое нельзя перезаписать: examples/language/const.wdl
 
 name = "мир"
 println("Привет, ", name, "!")     // аргументы печатаются подряд, без разделителей

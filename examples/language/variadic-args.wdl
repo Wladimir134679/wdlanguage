@@ -1,5 +1,5 @@
 // Вариативные параметры и раскрытие: *args, **named, f(*array), f(**object).
-// Запуск: wdl examples/variadic-args.wdl
+// Запуск: wdl examples/language/variadic-args.wdl
 
 def inspect(a, b = 10, *args, **named) {
     println("a = ", a, ", b = ", b, ", args = ", args, ", named = ", named)

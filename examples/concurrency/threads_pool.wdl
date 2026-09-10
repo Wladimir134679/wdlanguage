@@ -1,7 +1,7 @@
 // Пул, обещания, канал и защёлка: когда задач больше, чем потоков.
-// Запуск: wdl examples/threads_pool.wdl
+// Запуск: wdl examples/concurrency/threads_pool.wdl
 //
-// Потоки поштучно — examples/threads.wdl. Правила — docs/threads.md.
+// Потоки поштучно — examples/concurrency/threads.wdl. Правила — docs/threads.md.
 
 import sys.thread as th
 

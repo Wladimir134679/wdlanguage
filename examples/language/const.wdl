@@ -1,5 +1,5 @@
 // Константы: const NAME = value — имя, которое нельзя перезаписать.
-// Запуск: wdl examples/const.wdl
+// Запуск: wdl examples/language/const.wdl
 // Подробности: docs/statements.md
 
 const TAX_RATE = 0.2

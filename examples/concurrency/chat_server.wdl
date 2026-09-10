@@ -1,5 +1,5 @@
 // Локальный TCP-чат на порту 9088: сервер, который держит нескольких клиентов сразу.
-// Запуск: wdl examples/chat_server.wdl   (клиент — examples/chat_client.wdl)
+// Запуск: wdl examples/concurrency/chat_server.wdl   (клиент — examples/concurrency/chat_client.wdl)
 //
 // Этот пример — про потоки. Каждый onLine работает в своём потоке, поэтому два
 // сообщения от двух клиентов приходят одновременно, а не по очереди. Общий список

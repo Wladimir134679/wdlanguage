@@ -2,8 +2,8 @@
 
 Скрипт перестаёт быть списком действий сверху вниз: появляются `if`, `while`, `for`,
 перебор `for ... in` и `match`. Готовый пример целиком —
-[`examples/control-flow.wdl`](../examples/control-flow.wdl), а по `match` — свой:
-[`examples/match.wdl`](../examples/match.wdl).
+[`examples/language/control-flow.wdl`](../examples/language/control-flow.wdl), а по `match` — свой:
+[`examples/language/match.wdl`](../examples/language/match.wdl).
 
 ```wdl
 if (температура > 25) {
@@ -245,7 +245,7 @@ for (товар in корзина) {
 ## match
 
 Ветвление по **одному предмету**. Готовый пример целиком —
-[`examples/match.wdl`](../examples/match.wdl).
+[`examples/language/match.wdl`](../examples/language/match.wdl).
 
 ```wdl
 level = match (cpu) {

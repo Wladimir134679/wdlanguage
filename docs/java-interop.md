@@ -365,7 +365,7 @@ Java-пакетов — решение конкретного приложени
 | [`sys.time`](../wdl-stdlib/src/main/java/ru/wds/wdl/stdlib/Times.java) | список из семи `expose` — и весь `java.time` в скрипте. Ни одного описанного метода |
 | [`Random`](../wdl-stdlib/src/main/java/ru/wds/wdl/stdlib/ScriptRandom.java) | обычный Java-класс плюс схема на четыре имени; раньше — семьдесят строк лямбд в построителе |
 
-Рабочий скрипт — [`examples/java-time.wdl`](../examples/java-time.wdl).
+Рабочий скрипт — [`examples/embedding/java-time.wdl`](../examples/embedding/java-time.wdl).
 
 ### Библиотека остаётся на языке движка
 

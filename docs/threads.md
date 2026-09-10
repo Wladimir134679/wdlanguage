@@ -3,8 +3,8 @@
 Скрипт на wdl может считать в нескольких потоках одновременно — по-настоящему, поверх
 общего состояния. Всё, что для этого нужно, это модуль `sys.thread` и одно ключевое
 слово `synchronized`. Готовые примеры целиком:
-[`examples/threads.wdl`](../examples/threads.wdl) и
-[`examples/threads_pool.wdl`](../examples/threads_pool.wdl).
+[`examples/concurrency/threads.wdl`](../examples/concurrency/threads.wdl) и
+[`examples/concurrency/threads_pool.wdl`](../examples/concurrency/threads_pool.wdl).
 
 ```wdl
 import sys.thread as th

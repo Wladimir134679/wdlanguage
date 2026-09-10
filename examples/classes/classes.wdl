@@ -1,6 +1,6 @@
 // Классы: заголовок — поля, тело — методы. Описание — в docs/classes.md.
 //
-// Наследование лежит в examples/inheritance.wdl, трейты — в examples/traits.wdl,
+// Наследование лежит в examples/classes/inheritance.wdl, трейты — в examples/classes/traits.wdl,
 // классы из других файлов — в examples/modules/inherit.wdl.
 
 // --- класс без тела: структура данных с именем -------------------------------

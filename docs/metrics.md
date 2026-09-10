@@ -70,7 +70,7 @@ PI = 3.14159
 как только она закончилась, и вдобавок даёт обычную таблицу в конце:
 
 ```bash
-wdl --metrics-each examples/threads.wdl
+wdl --metrics-each examples/concurrency/threads.wdl
 ```
 
 ```

@@ -22,11 +22,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew :wdl-core:test --tests 'ru.wds.wdl.parser.ParserTest.leftAssociative' # один метод
 ./gradlew modules                # карта модулей с описаниями
 
-./gradlew :wdl-cli:run --args="examples/hello.wdl"   # выполнить скрипт (workingDir = корень репо)
-./gradlew :wdl-cli:run --args="--ast examples/hello.wdl"
-./gradlew :wdl-cli:run --args="--tokens examples/lexer-check.wdl"
+./gradlew :wdl-cli:run --args="examples/language/hello.wdl"   # выполнить скрипт (workingDir = корень репо)
+./gradlew :wdl-cli:run --args="--ast examples/language/hello.wdl"
+./gradlew :wdl-cli:run --args="--tokens examples/lexer/lexer-check.wdl"
 ./gradlew :wdl-cli:run --args="--metrics examples/modules/plain.wdl"  # время стадий
-./gradlew :wdl-cli:run --args="--profile examples/profiling.wdl"      # горячие функции
+./gradlew :wdl-cli:run --args="--profile examples/tooling/profiling.wdl"      # горячие функции
 ./gradlew :wdl-cli:repl --console=plain              # REPL (отдельная задача: нужен живой stdin)
 ./gradlew :wdl-cli:installDist                       # → wdl-cli/build/install/wdl/bin/wdl
 ./gradlew :wdl-dap:installDist                       # адаптер отладки: → wdl-dap/build/install/wdl-dap/bin/wdl-dap

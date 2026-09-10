@@ -1,5 +1,5 @@
 // Остаток в заголовке класса: *args и **named.
-// Запуск: wdl examples/class-varargs.wdl
+// Запуск: wdl examples/classes/class-varargs.wdl
 //
 // Правила — в docs/classes.md. Коротко: те же, что у функции, плюс одно отличие —
 // остаток полем не становится.

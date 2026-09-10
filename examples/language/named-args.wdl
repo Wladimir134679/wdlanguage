@@ -1,5 +1,5 @@
 // Именованные аргументы: f(name: value).
-// Запуск: wdl examples/named-args.wdl
+// Запуск: wdl examples/language/named-args.wdl
 
 def greet(name, greeting = "привет", punct = "!") => greeting + ", " + name + punct
 

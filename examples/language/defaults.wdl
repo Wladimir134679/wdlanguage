@@ -1,5 +1,5 @@
 // Значения параметров по умолчанию: def f(a, b = 10).
-// Запуск: wdl examples/defaults.wdl
+// Запуск: wdl examples/language/defaults.wdl
 
 // Непереданный аргумент берётся из значения по умолчанию
 def greet(name, greeting = "привет") => greeting + ", " + name

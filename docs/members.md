@@ -4,9 +4,9 @@
 > Это [то же обращение по ключу](access.md), на которое значение отвечает само,
 > когда своих данных с таким ключом у него нет.
 
-Рабочие примеры: [`examples/members.wdl`](../examples/members.wdl),
-[`examples/introspection.wdl`](../examples/introspection.wdl),
-[`examples/extend.wdl`](../examples/extend.wdl).
+Рабочие примеры: [`examples/classes/members.wdl`](../examples/classes/members.wdl),
+[`examples/classes/introspection.wdl`](../examples/classes/introspection.wdl),
+[`examples/classes/extend.wdl`](../examples/classes/extend.wdl).
 
 ## Одно правило
 

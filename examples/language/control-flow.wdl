@@ -1,4 +1,4 @@
-// Ветвления и циклы. Запуск: wdl examples/control-flow.wdl
+// Ветвления и циклы. Запуск: wdl examples/language/control-flow.wdl
 
 temperature = 12
 
