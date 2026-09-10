@@ -522,4 +522,74 @@ class FunctionTest {
                 вниз(3)
                 """));
     }
+
+    // --- лямбды --------------------------------------------------------------
+
+    @Test
+    @DisplayName("лямбда — это 'def'-форма без слова 'def': результат тот же")
+    void lambdaBehavesLikeDef() {
+        assertEquals("42 7 5 11 9 42", printed("""
+                double = x => x * 2
+                now = () => 7
+                sum = (a, b) => a + b
+                step = (x, by = 1) => x + by
+                forward = (*args, **named) => sum(*args, **named)
+                ignore = (_) => 42
+                println(double(21))
+                println(now())
+                println(sum(2, 3))
+                println(step(10))
+                println(forward(4, 5))
+                println(ignore("что угодно"))
+                """));
+    }
+
+    @Test
+    @DisplayName("лямбда замыкается на область объявления — как и всякая функция")
+    void lambdaClosesOverDeclarationScope() {
+        assertEquals("13", printed("""
+                def adder(by) => x => x + by
+                add3 = adder(3)
+                println(add3(10))
+                """));
+    }
+
+    @Test
+    @DisplayName("каррирование: стрелка правоассоциативна")
+    void curriedLambda() {
+        assertEquals("5", printed("""
+                adder = a => b => a + b
+                println(adder(2)(3))
+                """));
+    }
+
+    @Test
+    @DisplayName("лямбда в цепочке — ради этого запись и заводилась")
+    void lambdaInChain() {
+        assertEquals("[240, 600]", printed("""
+                prices = [50, 120, 300]
+                println(prices.filter(p => p >= 100).map(p => p * 2))
+                """));
+    }
+
+    @Test
+    @DisplayName("контракт лямбды виден так же, как у 'def'")
+    void lambdaIntrospection() {
+        assertEquals("double 1 x true", printed("""
+                double = x => x * 2
+                println(double.name)
+                println(double.arity.min)
+                println(double.params[0].name)
+                println(double.anonymous)
+                """));
+    }
+
+    @Test
+    @DisplayName("у безымянной лямбды в сообщении стоит '=>' — слова 'def' в ней нет")
+    void lambdaNameInMessage() {
+        assertTrue(errorOf("""
+                apply = f => f(1, 2)
+                apply(x => x)
+                """).getMessage().contains("функция '=>'"));
+    }
 }

@@ -709,7 +709,15 @@ final class TypeParser {
 
         // Начальное значение скрытого поля: 'property x = 0 { ... }'. Обычное выражение,
         // как значение по умолчанию у параметра, и вычисляется оно там же — при создании.
-        Expr initial = cursor.match(TokenType.ASSIGN) ? parser.expression(0) : null;
+        //
+        // Порог выше лямбды — единственное место, где он вообще нужен: сразу за
+        // значением стоит либо '{', либо '=>' короткой формы, и с нулевым порогом
+        // стрелка уходила бы в тело лямбды ('property x = 0 => 1' читалось бы как
+        // 'параметром была нуль'). Бесскобочная лямбда здесь и не нужна: начальным
+        // значением она пишется в скобках — 'property x = (p) => p * 2 { ... }'.
+        Expr initial = cursor.match(TokenType.ASSIGN)
+                ? parser.expression(Operators.LAMBDA + 1)
+                : null;
         state.allowSelf(true, hasParent);
 
         if (cursor.match(TokenType.FATARROW)) {

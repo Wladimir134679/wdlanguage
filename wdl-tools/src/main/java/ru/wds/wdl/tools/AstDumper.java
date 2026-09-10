@@ -553,13 +553,23 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
      */
     @Override
     public Void visitFunction(FunctionExpr expr, Integer depth) {
-        String arrow = expr.style() == BodyStyle.ARROW ? ", тело-выражение '=>'" : "";
+        String arrow = switch (expr.style()) {
+            case ARROW -> ", тело-выражение '=>'";
+            case LAMBDA -> ", лямбда '=>'";
+            case STATEMENT -> "";
+        };
+        // У лямбды в тексте нет ни слова 'def', ни имени, поэтому и в дампе их нет:
+        // подставленное от переменной имя печатается, написанное — тем более, а
+        // выдуманное 'def' сказало бы про запись то, чего в ней не было.
+        String written = expr.style() == BodyStyle.LAMBDA && expr.name() == null
+                ? ""
+                : expr.writtenName();
         // Модификатор идёт в ту же строку, что имя и параметры: он относится к самой
         // функции, а не к её телу, — и в дампе это должно быть видно сразу.
         String modifiers = expr.modifiers().stream()
                 .map(Modifier::text)
                 .collect(Collectors.joining(" ", "", " "));
-        line(depth, "функция " + modifiers.stripLeading() + expr.writtenName()
+        line(depth, "функция " + modifiers.stripLeading() + written
                 + "(" + header(expr.params(), expr.rest(), expr.namedRest()) + ")" + arrow, expr);
         annotations(expr.annotations(), depth + 1);
         paramAnnotations(expr.params(), depth + 1);

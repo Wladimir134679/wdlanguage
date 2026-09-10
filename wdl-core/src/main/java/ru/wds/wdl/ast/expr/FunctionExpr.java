@@ -14,7 +14,12 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Функция как выражение: {@code def(a, b) => a + b}.
+ * Функция как выражение: {@code def(a, b) => a + b} и, короче, {@code (a, b) => a + b}.
+ * <p>
+ * Лямбда отдельным видом узла не заводится: она и есть {@code def}-форма без слова
+ * {@code def}, а слово нужно там, где функции дают имя, аннотации или
+ * {@code synchronized}. {@code p => p * 2}, {@code (p) => p * 2} и {@code def(p) => p * 2}
+ * дают одно и то же дерево; чем они отличались в тексте, помнит {@link BodyStyle}.
  * <p>
  * Узел один и на анонимную функцию, и на объявление — {@code def имя(...)} это
  * {@link ru.wds.wdl.ast.stmt.DefDeclStmt} с этим самым узлом внутри. Логика создания
@@ -247,9 +252,19 @@ public record FunctionExpr(String name, Span nameSpan, boolean anonymous, Set<Mo
         }
     }
 
-    /** Имя для сообщений: у анонимной — просто {@code def}. */
+    /**
+     * Имя для сообщений: у анонимной — то слово, которым её записали.
+     * <p>
+     * У анонимной {@code def(a) => a} это {@code def}, у лямбды {@code a => a} —
+     * {@code =>}: слова {@code def} в её тексте нет, и «функция 'def' принимает ровно
+     * 1 аргумент» указывало бы на запись, которой человек не писал. Подстановка здесь
+     * ровно затем и нужна, чтобы читатель нашёл в файле то, о чём говорит сообщение.
+     */
     public String title() {
-        return name != null ? name : "def";
+        if (name != null) {
+            return name;
+        }
+        return style == BodyStyle.LAMBDA ? "=>" : "def";
     }
 
     /**

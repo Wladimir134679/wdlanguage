@@ -1,5 +1,6 @@
 package ru.wds.wdl.parser;
 
+import ru.wds.wdl.ast.Nodes;
 import ru.wds.wdl.ast.Program;
 import ru.wds.wdl.ast.expr.*;
 import ru.wds.wdl.ast.op.*;
@@ -1829,6 +1830,17 @@ public final class Parser {
                 left = ternary(left);
                 continue;
             }
+            // Лямбда без скобок: слева от '=>' стоит уже разобранное имя параметра.
+            // Инфиксом, а не отдельной формой в prefix(), по той же причине, по какой
+            // здесь же стоит тернарник: правая часть у неё не такая, как у бинарного
+            // оператора, но левая — обычное выражение, и разбирается оно обычным путём.
+            if (type == TokenType.FATARROW) {
+                if (Operators.LAMBDA < minPower) {
+                    return left;
+                }
+                left = lambda(left);
+                continue;
+            }
 
             // '!is', '!in', '!has' — один оператор из двух токенов. Слить их в лексеме
             // нельзя (между ними бывает пробел), а здесь это стоит одной проверки:
@@ -1918,8 +1930,14 @@ public final class Parser {
             // прохода до этой строки незачем.
             case HOLE -> {
                 cursor.advance();
-                diagnostics.error(token.span(),
-                        "'_' — это пропуск, а не переменная: читать его нельзя");
+                // Совет, а не разбор: лямбду отсюда не строим. Правило «без скобок
+                // пишется одно имя» дырку не покрывает по определению — имени у неё
+                // нет, — и заводить ей отдельный путь значило бы тащить HOLE в позицию
+                // выражения, где его нет. В скобках она работает даром, через
+                // types.parameters(), вместе со всей тамошней диагностикой.
+                diagnostics.error(token.span(), cursor.check(TokenType.FATARROW)
+                        ? "у пропуска '_' нет имени, поэтому без скобок он не пишется: '(_) => 42'"
+                        : "'_' — это пропуск, а не переменная: читать его нельзя");
                 return new ErrorExpr(token.span());
             }
             // this и super — обычные имена, а не спецформы: их можно положить
@@ -1939,7 +1957,7 @@ public final class Parser {
                 return newExpr();
             }
             case LPAREN -> {
-                return group();
+                return lambdaAhead() ? parenLambda() : group();
             }
             case LBRACKET -> {
                 return arrayLiteral();
@@ -1995,6 +2013,162 @@ public final class Parser {
         Expr inner = expression(0);
         cursor.expect(TokenType.RPAREN, "закрывающую скобку ')'");
         return inner;
+    }
+
+    // --- лямбда --------------------------------------------------------------
+
+    /**
+     * Стоит ли на текущей {@code (} заголовок лямбды, а не скобочная группа.
+     * <p>
+     * Заглядывание вперёд, а не откат: {@link #group()} разбирает <b>одно</b> выражение
+     * и требует {@code )}, поэтому {@code (a, b) =>} и {@code () =>} через него
+     * не пройдут в принципе — узнать, что перед нами, приходится до разбора. Откат
+     * («разобрать как выражение, при неудаче вернуться») не годится по другой причине:
+     * парсер копит диагностику на ходу, и за откатом остались бы чужие сообщения.
+     * <p>
+     * Скан идёт от {@code (} до парной {@code )} со счётчиком вложенности и смотрит,
+     * стоит ли за ней {@code =>}. Токены лежат готовым списком, так что это чтение,
+     * а не разбор; приёмы того же рода в парсере уже есть ({@link #isMirrorAhead},
+     * {@link #shortTryAhead}).
+     * <p>
+     * Дешёвый отсев впереди скана: за {@code (} заголовка стоит имя, пропуск,
+     * звёздочка, аннотация или сразу {@code )}. Всё остальное — заведомо выражение,
+     * и {@code ((((a))))} не превращается в скан на каждом уровне вложенности.
+     */
+    private boolean lambdaAhead() {
+        if (!startsParams(cursor.peek(1).type())) {
+            return false;
+        }
+        int depth = 0;
+        for (int offset = 0; ; offset++) {
+            TokenType type = cursor.peek(offset).type();
+            if (type == TokenType.EOF) {
+                return false;
+            }
+            if (type == TokenType.LPAREN || type == TokenType.LBRACKET || type == TokenType.LBRACE) {
+                depth++;
+            } else if (type == TokenType.RPAREN || type == TokenType.RBRACKET
+                    || type == TokenType.RBRACE) {
+                depth--;
+                if (depth <= 0) {
+                    return type == TokenType.RPAREN
+                            && cursor.peek(offset + 1).type() == TokenType.FATARROW;
+                }
+            }
+        }
+    }
+
+    /** Токен, с которого начинается список параметров, а не выражение. */
+    private static boolean startsParams(TokenType type) {
+        return switch (type) {
+            case RPAREN, WORD, HOLE, STAR, STARSTAR, AT -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Лямбда со скобками: {@code () => 1}, {@code (a, b) => a + b}, {@code (x, by = 1) => x + by},
+     * {@code (*args, **named) => target(*args, **named)}, {@code (_) => 42}.
+     * <p>
+     * Заголовок читает тот же {@link TypeParser#parameters}, что и у {@code def}, —
+     * поэтому значения по умолчанию, остатки, пропуски, аннотации параметров и вся
+     * их диагностика достаются лямбде даром, а разойтись двум спискам правил не с чем.
+     */
+    private Expr parenLambda() {
+        Token start = cursor.peek();
+        TypeParser.Params header = types.parameters("параметров лямбды", true, true);
+        return lambdaRest(start.span(), header, null);
+    }
+
+    /**
+     * Лямбда без скобок: {@code p => p * 2}. Левая часть уже разобрана выражением,
+     * и годится там ровно одно — имя.
+     * <p>
+     * Про то, почему {@code _ => 42} сюда не попадает, — в ветке {@code HOLE}
+     * у {@link #prefix()}.
+     */
+    private Expr lambda(Expr left) {
+        if (!(left instanceof VariableExpr variable)) {
+            if (!(left instanceof ErrorExpr)) {
+                diagnostics.error(left.span(), "слева от '=>' ожидалось имя параметра:"
+                        + " без скобок лямбда принимает ровно одно имя, всё остальное"
+                        + " пишется в скобках — '(a, b) => a + b'");
+            }
+            cursor.advance(); // =>
+            // Тело разбирается всё равно: иначе к одной ошибке добавилась бы вторая,
+            // про неожиданный токен на том же месте.
+            Expr value = expression(Operators.LAMBDA);
+            return new ErrorExpr(left.span().to(value.span()));
+        }
+        TypeParser.Params header = new TypeParser.Params(
+                List.of(new FunctionExpr.Param(variable.name(), variable.span())), null, null);
+        return lambdaRest(left.span(), header, variable);
+    }
+
+    /**
+     * Стрелка и тело — всё, что у обеих форм записи общее.
+     * <p>
+     * Тело идёт через {@link ParseState#inFunctionBody}, как и у {@code def}: иначе
+     * {@code break}, {@code continue} и {@code yield} из окружающего цикла или
+     * ветки-значения оказались бы видны внутри лямбды, хотя выполнение через границу
+     * функции их не пропустит.
+     * <p>
+     * Порог тела — {@link Operators#LAMBDA}, а не на единицу больше: отсюда правая
+     * ассоциативность, то есть каррирование {@code a => b => a + b}.
+     *
+     * @param bare имя-параметр бесскобочной формы или {@code null}, если скобки были:
+     *             проверка «параметр используется» привязана именно к ней
+     */
+    private Expr lambdaRest(Span start, TypeParser.Params header, VariableExpr bare) {
+        cursor.expect(TokenType.FATARROW, "стрелку '=>' перед телом лямбды");
+        return state.inFunctionBody(() -> {
+            Expr value = expression(Operators.LAMBDA);
+            if (bare != null && !(value instanceof ErrorExpr)) {
+                checkBareParamUsed(bare, value);
+            }
+            // Стрелка — это return, только записанный короче: в дереве лежит то же,
+            // что у 'def(p) => p', а разницу записи помнит BodyStyle.
+            Stmt body = new ReturnStmt(value, value.span());
+            return new FunctionExpr(null, Span.NONE, Set.of(), header.params(), header.rest(),
+                    header.namedRest(), body, BodyStyle.LAMBDA, start.to(value.span()));
+        });
+    }
+
+    /**
+     * Бесскобочный параметр обязан встречаться в теле — иначе это опечатка в {@code >=}.
+     * <p>
+     * {@code ready = count => limit} разбирается законно и даёт функцию, а функция
+     * истинна всегда, поэтому {@code if (ready)} срабатывал бы молча и всегда. Через
+     * истинность это не лечится: «ложны только null и false» — плоское правило, и
+     * заводить в нём исключение ради одной опечатки дороже, чем она стоит. Лечится
+     * через параметр: у настоящей лямбды он в теле используется, у мнимой — нет,
+     * потому что тела там и не писали.
+     * <p>
+     * Правило привязано к бесскобочной форме, и это следствие, а не выбор: перестановка
+     * {@code >=} может дать только её. {@code (a, b) => a} со свободным {@code b}
+     * остаётся законным ровно как {@code def(a, b) => a} — скобки уже сказали
+     * «это функция». Выход из ошибки для настоящей константной функции тоже скобки:
+     * {@code (_) => 0}.
+     * <p>
+     * Проверка синтаксическая — обход только что построенного тела через
+     * {@link Nodes#children}; отдельной стадии для неё не заводится, как её не завели
+     * для проверки «значение по умолчанию видит параметры слева».
+     */
+    private void checkBareParamUsed(VariableExpr param, Expr body) {
+        boolean[] used = {false};
+        Nodes.walk(body, node -> {
+            if (node instanceof VariableExpr variable && variable.name().equals(param.name())) {
+                used[0] = true;
+            }
+        });
+        if (used[0]) {
+            return;
+        }
+        // Порядок подсказок не случаен: опечатка вероятнее намеренной константной
+        // функции, и первой стоит она.
+        diagnostics.error(param.span(), "параметр '" + param.name() + "' не используется"
+                + " в теле функции. Если это сравнение, знак пишется '>='; если функция —"
+                + " параметр без имени пишется '(_) => ...'");
     }
 
     /**
