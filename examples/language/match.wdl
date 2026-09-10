@@ -7,10 +7,10 @@
 cpu = 95
 
 level = match (cpu) {
-    case > 90 => "критично"
-    case > 70 => "высоко"
-    case > 30 => "норма"
-    else      => "тихо"
+    case > 90 -> "критично"
+    case > 70 -> "высоко"
+    case > 30 -> "норма"
+    else      -> "тихо"
 }
 println("загрузка ", cpu, "% — ", level)
 
@@ -18,15 +18,15 @@ println("загрузка ", cpu, "% — ", level)
 // Исчерпаемость в динамическом языке не доказать, а тихий null из непопавшего
 // match — ровно тот класс ошибок, который язык ломает там, где написано.
 //
-// text = match (cpu) { case > 90 => "критично" }
+// text = match (cpu) { case > 90 -> "критично" }
 //        ошибка: 'match' в позиции выражения обязан иметь 'else'
 
 // --- голый образец — это неявное равенство -----------------------------------
 for (code in 1..4) {
     println(code, " → ", match (code) {
-        case 1       => "один"
-        case 2, 3    => "два или три"   // перечисление вместо провала из Си
-        else         => "много"
+        case 1       -> "один"
+        case 2, 3    -> "два или три"   // перечисление вместо провала из Си
+        else         -> "много"
     })
 }
 
@@ -34,25 +34,25 @@ for (code in 1..4) {
 // Своей «системы образцов» у match нет и не нужно: сравнения, is, in, has
 // и диапазон — те же операторы, что работают в if.
 def describe(value) => match (value) {
-    case is Number  => "число"
-    case is String  => "строка"
-    case is Array   => "массив"
-    else            => "что-то ещё"
+    case is Number  -> "число"
+    case is String  -> "строка"
+    case is Array   -> "массив"
+    else            -> "что-то ещё"
 }
 println(describe(5), ", ", describe("текст"), ", ", describe([1, 2]))
 
 admins = ["root", "admin"]
 def access(role) => match (role) {
-    case in admins   => "полный"
-    case !in ["guest"] => "обычный"
-    else             => "только чтение"
+    case in admins   -> "полный"
+    case !in ["guest"] -> "обычный"
+    else             -> "только чтение"
 }
 println("root → ", access("root"), "; user → ", access("user"), "; guest → ", access("guest"))
 
 def group(age) => match (age) {
-    case in 0..17  => "ребёнок"
-    case in 18..65 => "работает"
-    else           => "на пенсии"
+    case in 0..17  -> "ребёнок"
+    case in 18..65 -> "работает"
+    else           -> "на пенсии"
 }
 println("10 → ", group(10), "; 42 → ", group(42), "; 80 → ", group(80))
 
@@ -61,9 +61,9 @@ println("10 → ", group(10), "; 42 → ", group(42), "; 80 → ", group(80))
 // и из одного условия: предмет при этом по-прежнему один и назван в одном месте.
 throttled = true
 println("при троттлинге: ", match (cpu) {
-    case > 90 if !throttled => "критично"
-    case if throttled       => "придержано"
-    else                    => "норма"
+    case > 90 if !throttled -> "критично"
+    case if throttled       -> "придержано"
+    else                    -> "норма"
 })
 
 // --- предмет вычисляется один раз --------------------------------------------
@@ -76,9 +76,9 @@ def total() {
 }
 
 println("заказ: ", match (total()) {
-    case > 100 => "крупный"
-    case > 10  => "обычный"
-    else       => "мелкий"
+    case > 100 -> "крупный"
+    case > 10  -> "обычный"
+    else       -> "мелкий"
 })
 
 // --- match инструкцией: ветки делают -----------------------------------------
@@ -107,14 +107,14 @@ match ("unknown") {
 order = {items: [120, 80, 50], vip: true}
 
 invoice = match (order.items.size) {
-    case 0 => "пустой заказ"
+    case 0 -> "пустой заказ"
     case > 0 {
         total = 0
         for (price in order.items) total += price
         if (order.vip) total = total * 0.9
         yield "к оплате: " + total
     }
-    else => "не бывает"
+    else -> "не бывает"
 }
 println(invoice)
 
@@ -127,14 +127,14 @@ def firstBig(values) => match (values) {
         }
         yield 0
     }
-    else => 0
+    else -> 0
 }
 println("первое больше ста: ", firstBig([5, 40, 130, 200]))
 
 // Ветка, не дошедшая до yield, — ошибка выполнения, а не тихий null:
 // значение обязано быть у любого предмета.
 //
-// text = match (1) { case 1 { if (false) { yield "нет" } } else => "и" }
+// text = match (1) { case 1 { if (false) { yield "нет" } } else -> "и" }
 //     ошибка: ветка 'case' закончилась, не отдав значение
 //
 // А вот ветке, которая уходит через return, throw или break, yield не нужен:
@@ -143,7 +143,7 @@ def nameOf(code) {
     text = match (code) {
         case 0 { return "ноль"; }
         case 1 { yield "один" }
-        else   => "много"
+        else   -> "много"
     }
     return "получилось: " + text;
 }
@@ -170,8 +170,8 @@ for (i in 1..5) {
 // --- фигурная скобка: после '=>' объект, после образца блок -------------------
 // Решает то же правило, что и в начале инструкции: место определяет смысл.
 point = match (1) {
-    case 1 => {x: 0, y: 0}      // объект — стоит в позиции значения
-    else   => {x: 1, y: 1}
+    case 1 -> {x: 0, y: 0}      // объект — стоит в позиции значения
+    else   -> {x: 1, y: 1}
 }
 println("точка: ", point.x, ",", point.y)
 
@@ -194,18 +194,18 @@ match (1) {
 a = 5
 b = 3
 println("сравнение с логическим: ", match (true) {
-    case (a > b) => "a больше"
-    else         => "нет"
+    case (a > b) -> "a больше"
+    else         -> "нет"
 })
 
 // --- match — обычное выражение -----------------------------------------------
 // Значит, он вкладывается куда угодно: в аргумент, в другой match, в возврат.
 def weather(temperature, wind) => match (temperature) {
-    case > 25 => match (wind) {
-        case > 10 => "жарко и ветрено"
-        else      => "жарко"
+    case > 25 -> match (wind) {
+        case > 10 -> "жарко и ветрено"
+        else      -> "жарко"
     }
-    case > 10 => "нормально"
-    else      => "холодно"
+    case > 10 -> "нормально"
+    else      -> "холодно"
 }
 println(weather(30, 15), "; ", weather(30, 1), "; ", weather(5, 0))

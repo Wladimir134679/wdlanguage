@@ -102,7 +102,7 @@ class StepCoverageTest {
                 case is Array {
                     yield value.size
                 }
-                else => 0
+                else -> 0
             }
 
             def guarded() {

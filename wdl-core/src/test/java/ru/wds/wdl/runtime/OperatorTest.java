@@ -225,8 +225,8 @@ class OperatorTest {
         assertEquals("точка", withPoint("""
                 p = new Point(1, 2)
                 print(match (p) {
-                    case is Point => "точка"
-                    else => "что-то другое"
+                    case is Point -> "точка"
+                    else -> "что-то другое"
                 })
                 """));
     }

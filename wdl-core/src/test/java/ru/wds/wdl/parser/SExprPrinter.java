@@ -60,8 +60,8 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
     }
 
     /**
-     * {@code match (x) { case 1, 2 => "мало" else => "много" }} →
-     * {@code (match x (case (== 1) (== 2) => "мало") (else => "много"))}.
+     * {@code match (x) { case 1, 2 -> "мало" else -> "много" }} →
+     * {@code (match x (case (== 1) (== 2) -> "мало") (else -> "много"))}.
      * <p>
      * Голый образец печатается со своим {@code ==} — так видно, что «система образцов»
      * это обычные бинарные операции, а не отдельная грамматика.
@@ -88,7 +88,7 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
         if (branch.hasGuard()) {
             sb.append(" (if ").append(visit(branch.guard(), context)).append(')');
         }
-        sb.append(branch.isValue() ? " => " + visit(branch.value(), context) : " {}");
+        sb.append(branch.isValue() ? " -> " + visit(branch.value(), context) : " {}");
         return sb.append(')').toString();
     }
 

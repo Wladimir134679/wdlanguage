@@ -1365,7 +1365,7 @@ public final class Parser {
      * из {@link #statement()} — инструкция, {@code match} из {@link #prefix()} —
      * выражение. Тем же приёмом решается {@code &#123;} в начале инструкции (всегда
      * блок) против {@code &#123;} в позиции выражения (всегда объект), и побочно —
-     * {@code case 1 => &#123;a: 1&#125;} (объект) против {@code case 1 &#123;a: 1&#125;}
+     * {@code case 1 -> &#123;a: 1&#125;} (объект) против {@code case 1 &#123;a: 1&#125;}
      * (блок).
      */
     private Stmt matchStatement() {
@@ -1406,7 +1406,7 @@ public final class Parser {
                 }
             } else {
                 diagnostics.error(cursor.peek().span(), "внутри 'match' бывают только ветки"
-                        + " 'case ... =>' и 'else =>', найдено " + describe(cursor.peek()));
+                        + " 'case ... ->' и 'else ->', найдено " + describe(cursor.peek()));
                 cursor.synchronize();
             }
             cursor.ensureProgress(before);
@@ -1443,7 +1443,7 @@ public final class Parser {
             return null;
         }
         List<CaseTail> tails = new ArrayList<>();
-        // 'case if throttled =>' — ветка из одного условия: предмет по-прежнему один
+        // 'case if throttled ->' — ветка из одного условия: предмет по-прежнему один
         // и назван в одном месте.
         if (!cursor.check(TokenType.IF)) {
             do {
@@ -1473,19 +1473,24 @@ public final class Parser {
         return caseBody(keyword, tails, guard, asValue);
     }
 
-    /** Токен, с которого начинается тело ветки, а не образец. */
+    /**
+     * Токен, с которого начинается тело ветки, а не образец. Старая стрелка {@code =>}
+     * названа здесь наравне с новой: с неё тело начиналось раньше, и {@code case => 1}
+     * должно получить разбор про пропущенный образец, а не про непонятное выражение.
+     */
     private static boolean startsBody(TokenType type) {
-        return type == TokenType.FATARROW || type == TokenType.LBRACE
-                || type == TokenType.RBRACE || type == TokenType.EOF;
+        return type == TokenType.ARROW || type == TokenType.FATARROW
+                || type == TokenType.LBRACE || type == TokenType.RBRACE
+                || type == TokenType.EOF;
     }
 
-    /** Ветка «во всех остальных случаях»: {@code else => ...}. */
+    /** Ветка «во всех остальных случаях»: {@code else -> ...}. */
     private MatchCase otherwiseCase(boolean asValue) {
         Token keyword = cursor.advance(); // else
         if (cursor.check(TokenType.IF)) {
             // 'else if' здесь читалось бы как цепочка ветвлений, которой у match нет.
             diagnostics.error(cursor.peek().span(), "у 'else' в 'match' не бывает условия:"
-                    + " ветка с условием — это 'case if условие =>'");
+                    + " ветка с условием — это 'case if условие ->'");
             cursor.synchronize();
             return null;
         }
@@ -1530,9 +1535,16 @@ public final class Parser {
     }
 
     /**
-     * Тело ветки: {@code => выражение} или блок.
+     * Тело ветки: {@code -> выражение} или блок.
      * <p>
-     * Стрелка значит здесь то же, что в {@code def f(a) => a + 1}: «дальше значение».
+     * Стрелка здесь значит ровно одно: «эта ветка даёт это значение». Раньше на её
+     * месте стоял знак {@code =>} тела функции, и одно и то же начертание значило две
+     * разные вещи — «дальше тело функции» и «дальше значение ветки». Знаки разведены:
+     * {@code =>} остался функциям (и достанется лямбде), ветке отдан {@code ->}.
+     * Побочная выгода — {@code ->} не оператор вовсе, поэтому условие ветки
+     * ({@code case if ... }) разбирается с нулевым порогом и всё равно на нём
+     * останавливается. Написанное по-старому ловится отдельной веткой ниже.
+     * <p>
      * Блок годится в обеих позициях, и разница в том, чем он обязан кончиться.
      * <p>
      * В позиции инструкции стрелочное тело обязано что-то делать — мерка та же, что
@@ -1549,7 +1561,15 @@ public final class Parser {
      * @return разобранная ветка или {@code null}, если разобрать не вышло
      */
     private MatchCase caseBody(Token keyword, List<CaseTail> tails, Expr guard, boolean asValue) {
-        if (cursor.match(TokenType.FATARROW)) {
+        if (cursor.check(TokenType.ARROW) || cursor.check(TokenType.FATARROW)) {
+            if (cursor.check(TokenType.FATARROW)) {
+                // Переходная подсказка: так написаны все скрипты, созданные до переезда,
+                // и все тексты о языке. Разбор при этом идёт дальше — дерево нужно
+                // форматтеру и подсветке, а выполнение остановит hasErrors().
+                diagnostics.error(cursor.peek().span(), "в ветке 'match' тело отделяется"
+                        + " стрелкой '->': '=>' теперь значит «дальше тело функции»");
+            }
+            cursor.advance();
             Expr value = expression(0);
             if (value instanceof ErrorExpr) {
                 cursor.synchronize();
@@ -1571,7 +1591,7 @@ public final class Parser {
                 diagnostics.error(body.span(), "ветка не отдаёт значения: здесь 'match' стоит"
                         + " в позиции выражения, и блок обязан отдать значение словом"
                         + " 'yield выражение'. Ветке в одну строку хватит стрелки:"
-                        + " 'case ... => выражение'");
+                        + " 'case ... -> выражение'");
                 return null;
             }
             return new MatchCase(tails, guard, null, body, keyword.span().to(body.span()));
@@ -1594,7 +1614,7 @@ public final class Parser {
                     + " сравнение предмета с логическим");
         } else {
             diagnostics.error(token.span(), "у ветки нет тела: после образца пишется"
-                    + " '=> выражение' или блок '{ ... }', найдено " + describe(token));
+                    + " '-> выражение' или блок '{ ... }', найдено " + describe(token));
         }
         cursor.synchronize();
         return null;

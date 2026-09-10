@@ -153,6 +153,7 @@ public enum TokenType {
     DOTDOT(".."),
     COLON(":"),
     QUESTION("?"),
+    /** Тело ветки {@code match}: {@code case > 90 -> "жарко"}. */
     ARROW("->"),
     /** Тело-выражение функции: {@code def f(a, b) => a + b}. Заменяет {@code return}. */
     FATARROW("=>"),

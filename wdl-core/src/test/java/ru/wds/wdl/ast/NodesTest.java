@@ -92,9 +92,9 @@ class NodesTest {
                 safe = try? parse(data)
                 sure = try! parse(data)
                 kind = match (total) {
-                    case 0 => "пусто"
-                    case > LIMIT if handler != null => "много"
-                    else => "обычно"
+                    case 0 -> "пусто"
+                    case > LIMIT if handler != null -> "много"
+                    else -> "обычно"
                 }
                 match (kind) {
                     case "пусто" { println("ничего") }

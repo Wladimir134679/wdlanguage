@@ -64,11 +64,11 @@ class MatchParserTest {
     @Test
     @DisplayName("голый образец — это хвост с неявным '=='")
     void barePatternIsEqual() {
-        assertEquals("(match code (case (== 1) => \"one\") (else => \"other\"))",
+        assertEquals("(match code (case (== 1) -> \"one\") (else -> \"other\"))",
                 value("""
                         text = match (code) {
-                            case 1 => "one"
-                            else => "other"
+                            case 1 -> "one"
+                            else -> "other"
                         }
                         """));
     }
@@ -76,39 +76,39 @@ class MatchParserTest {
     @Test
     @DisplayName("образец с оператором берётся из той же таблицы, что и выражения")
     void operatorPatterns() {
-        assertEquals("(match cpu (case (> 90) => \"critical\") (else => \"fine\"))",
+        assertEquals("(match cpu (case (> 90) -> \"critical\") (else -> \"fine\"))",
                 value("""
                         level = match (cpu) {
-                            case > 90 => "critical"
-                            else => "fine"
+                            case > 90 -> "critical"
+                            else -> "fine"
                         }
                         """));
-        assertEquals("(match figure (case (is Circle) => \"circle\") (else => \"other\"))",
+        assertEquals("(match figure (case (is Circle) -> \"circle\") (else -> \"other\"))",
                 value("""
                         kind = match (figure) {
-                            case is Circle => "circle"
-                            else => "other"
+                            case is Circle -> "circle"
+                            else -> "other"
                         }
                         """));
-        assertEquals("(match role (case (in admins) => true) (else => false))",
+        assertEquals("(match role (case (in admins) -> true) (else -> false))",
                 value("""
                         allowed = match (role) {
-                            case in admins => true
-                            else => false
+                            case in admins -> true
+                            else -> false
                         }
                         """));
-        assertEquals("(match text (case (!in banned) => true) (else => false))",
+        assertEquals("(match text (case (!in banned) -> true) (else -> false))",
                 value("""
                         ok = match (text) {
-                            case !in banned => true
-                            else => false
+                            case !in banned -> true
+                            else -> false
                         }
                         """));
-        assertEquals("(match age (case (in (.. 18 65)) => \"working\") (else => \"other\"))",
+        assertEquals("(match age (case (in (.. 18 65)) -> \"working\") (else -> \"other\"))",
                 value("""
                         group = match (age) {
-                            case in 18..65 => "working"
-                            else => "other"
+                            case in 18..65 -> "working"
+                            else -> "other"
                         }
                         """));
     }
@@ -116,18 +116,18 @@ class MatchParserTest {
     @Test
     @DisplayName("перечисление образцов заменяет провал через пустую метку")
     void severalPatternsInOneCase() {
-        assertEquals("(match n (case (== 1) (== 2) (== 3) => \"few\") (else => \"many\"))",
+        assertEquals("(match n (case (== 1) (== 2) (== 3) -> \"few\") (else -> \"many\"))",
                 value("""
                         size = match (n) {
-                            case 1, 2, 3 => "few"
-                            else => "many"
+                            case 1, 2, 3 -> "few"
+                            else -> "many"
                         }
                         """));
-        assertEquals("(match n (case (< 0) (> 100) => \"outside\") (else => \"inside\"))",
+        assertEquals("(match n (case (< 0) (> 100) -> \"outside\") (else -> \"inside\"))",
                 value("""
                         where = match (n) {
-                            case < 0, > 100 => "outside"
-                            else => "inside"
+                            case < 0, > 100 -> "outside"
+                            else -> "inside"
                         }
                         """));
     }
@@ -135,18 +135,18 @@ class MatchParserTest {
     @Test
     @DisplayName("условие пишется после образцов и бывает без них")
     void guards() {
-        assertEquals("(match cpu (case (> 90) (if (! throttled)) => \"critical\") (else => \"fine\"))",
+        assertEquals("(match cpu (case (> 90) (if (! throttled)) -> \"critical\") (else -> \"fine\"))",
                 value("""
                         level = match (cpu) {
-                            case > 90 if !throttled => "critical"
-                            else => "fine"
+                            case > 90 if !throttled -> "critical"
+                            else -> "fine"
                         }
                         """));
-        assertEquals("(match cpu (case (if throttled) => \"slowed\") (else => \"fine\"))",
+        assertEquals("(match cpu (case (if throttled) -> \"slowed\") (else -> \"fine\"))",
                 value("""
                         level = match (cpu) {
-                            case if throttled => "slowed"
-                            else => "fine"
+                            case if throttled -> "slowed"
+                            else -> "fine"
                         }
                         """));
     }
@@ -160,10 +160,10 @@ class MatchParserTest {
                             case 1 { println("one") }
                         }
                         """));
-        assertEquals("(match code (case (== 1) => (call println \"one\")))",
+        assertEquals("(match code (case (== 1) -> (call println \"one\")))",
                 statement("""
                         match (code) {
-                            case 1 => println("one")
+                            case 1 -> println("one")
                         }
                         """));
     }
@@ -171,11 +171,11 @@ class MatchParserTest {
     @Test
     @DisplayName("после '=>' фигурная скобка — объект, после образца — блок")
     void braceAfterArrowIsObject() {
-        assertEquals("(match code (case (== 1) => (object (\"a\" 1))) (else => (object)))",
+        assertEquals("(match code (case (== 1) -> (object (\"a\" 1))) (else -> (object)))",
                 value("""
                         r = match (code) {
-                            case 1 => {a: 1}
-                            else => {}
+                            case 1 -> {a: 1}
+                            else -> {}
                         }
                         """));
         assertEquals("(match code (case (== 1) {}))",
@@ -189,37 +189,51 @@ class MatchParserTest {
     @Test
     @DisplayName("match — обычное выражение: он вкладывается и передаётся аргументом")
     void matchIsAnExpression() {
-        assertEquals("(match a (case (== 1) => (match b (case (== 2) => \"x\") (else => \"y\"))) (else => \"z\"))",
+        assertEquals("(match a (case (== 1) -> (match b (case (== 2) -> \"x\") (else -> \"y\"))) (else -> \"z\"))",
                 value("""
                         r = match (a) {
-                            case 1 => match (b) { case 2 => "x" else => "y" }
-                            else => "z"
+                            case 1 -> match (b) { case 2 -> "x" else -> "y" }
+                            else -> "z"
                         }
                         """));
         ExprStmt stmt = assertInstanceOf(ExprStmt.class, single("""
-                println(match (a) { case 1 => "one" else => "other" })
+                println(match (a) { case 1 -> "one" else -> "other" })
                 """));
-        assertEquals("(call println (match a (case (== 1) => \"one\") (else => \"other\")))",
+        assertEquals("(call println (match a (case (== 1) -> \"one\") (else -> \"other\")))",
                 SExprPrinter.print(stmt.expr()));
     }
 
     // --- диагностика ---------------------------------------------------------
 
     @Test
+    @DisplayName("старая стрелка '=>' в ветке — ошибка с подсказкой про '->'")
+    void oldArrowInBranchIsRejected() {
+        String rendered = diagnose("""
+                text = match (code) {
+                    case 1 => "one"
+                    else -> "other"
+                }
+                """);
+        assertTrue(rendered.contains("тело отделяется стрелкой '->'"), rendered);
+        // Разбор идёт дальше: одна ошибка на одну стрелку, а не каскад.
+        assertEquals(1, rendered.lines().filter(line -> line.contains("ошибка:")).count(), rendered);
+    }
+
+    @Test
     @DisplayName("полное выражение в образце — ошибка, называющая причину")
     void wholeExpressionInPatternIsRejected() {
         assertTrue(diagnose("""
                 text = match (score) {
-                    case score > 90 => "high"
-                    else => "low"
+                    case score > 90 -> "high"
+                    else -> "low"
                 }
                 """).contains("слева от '>' не нужен операнд"));
         // Скобки снимают запрет: это осознанное сравнение предмета с логическим.
-        assertEquals("(match flag (case (== (> a b)) => \"yes\") (else => \"no\"))",
+        assertEquals("(match flag (case (== (> a b)) -> \"yes\") (else -> \"no\"))",
                 value("""
                         text = match (flag) {
-                            case (a > b) => "yes"
-                            else => "no"
+                            case (a > b) -> "yes"
+                            else -> "no"
                         }
                         """));
     }
@@ -228,25 +242,25 @@ class MatchParserTest {
     @DisplayName("в позиции выражения ветка-блок отдаёт значение через yield, а else обязателен")
     void valuePositionRequiresYieldAndElse() {
         // Блок в позиции выражения законен — но обязан отдать значение.
-        assertEquals("(match code (case (== 1) {}) (else => \"other\"))",
+        assertEquals("(match code (case (== 1) {}) (else -> \"other\"))",
                 value("""
                         text = match (code) {
                             case 1 {
                                 prepared = prepare(code)
                                 yield prepared
                             }
-                            else => "other"
+                            else -> "other"
                         }
                         """));
         assertTrue(diagnose("""
                 text = match (code) {
                     case 1 { println("one") }
-                    else => "other"
+                    else -> "other"
                 }
                 """).contains("ветка не отдаёт значения"));
         assertTrue(diagnose("""
                 text = match (code) {
-                    case 1 => "one"
+                    case 1 -> "one"
                 }
                 """).contains("'match' в позиции выражения обязан иметь 'else'"));
     }
@@ -256,7 +270,7 @@ class MatchParserTest {
     void otherwiseMustYieldToo() {
         assertTrue(diagnose("""
                 text = match (code) {
-                    case 1 => "one"
+                    case 1 -> "one"
                     else { println("нет") }
                 }
                 """).contains("ветка не отдаёт значения"));
@@ -281,7 +295,7 @@ class MatchParserTest {
                         def inner() { yield "one" }
                         yield inner()
                     }
-                    else => "other"
+                    else -> "other"
                 }
                 """).contains(outside));
         // Вложенный match-инструкция внутри ветки-значения: 'yield' читается как
@@ -295,7 +309,7 @@ class MatchParserTest {
                         }
                         yield "z"
                     }
-                    else => "other"
+                    else -> "other"
                 }
                 """).contains(outside));
     }
@@ -308,7 +322,7 @@ class MatchParserTest {
                     case 1 {
                         try { risky() } finally { yield "нет" }
                     }
-                    else => "other"
+                    else -> "other"
                 }
                 """).contains("'yield' в блоке 'finally' запрещён"));
         // А вот match, целиком написанный внутри finally, законен: его yield дальше
@@ -320,7 +334,7 @@ class MatchParserTest {
                     } finally {
                         label = match (code) {
                             case 1 { yield "one" }
-                            else => "other"
+                            else -> "other"
                         }
                         log(label)
                     }
@@ -331,13 +345,13 @@ class MatchParserTest {
     @Test
     @DisplayName("'yield' не требует точки с запятой: значение у него есть всегда")
     void yieldNeedsNoSemicolon() {
-        assertEquals("(match code (case (== 1) {}) (else => 0))",
+        assertEquals("(match code (case (== 1) {}) (else -> 0))",
                 value("""
                         n = match (code) {
                             case 1 {
                                 yield 5
                             }
-                            else => 0
+                            else -> 0
                         }
                         """));
     }
@@ -347,7 +361,7 @@ class MatchParserTest {
     void emptyCase() {
         assertTrue(diagnose("""
                 match (code) {
-                    case => println("one")
+                    case -> println("one")
                 }
                 """).contains("после 'case' нужен образец или условие 'if'"));
     }
@@ -357,9 +371,9 @@ class MatchParserTest {
     void recoveryStopsAtNextCase() {
         String rendered = diagnose("""
                 match (code) {
-                    case score > 90 => println("high")
-                    case 1 => println("one")
-                    case 2 => println("two")
+                    case score > 90 -> println("high")
+                    case 1 -> println("one")
+                    case 2 -> println("two")
                 }
                 """);
         assertTrue(rendered.contains("слева от '>' не нужен операнд"), rendered);
@@ -374,9 +388,9 @@ class MatchParserTest {
     void onlyOneElse() {
         assertTrue(diagnose("""
                 match (code) {
-                    case 1 => println("one")
-                    else => println("a")
-                    else => println("b")
+                    case 1 -> println("one")
+                    else -> println("a")
+                    else -> println("b")
                 }
                 """).contains("только одна ветка 'else'"));
     }
@@ -386,7 +400,7 @@ class MatchParserTest {
     void statementBranchMustDoSomething() {
         assertTrue(diagnose("""
                 match (code) {
-                    case 1 => a + 1
+                    case 1 -> a + 1
                 }
                 """).contains("это выражение ничего не делает"));
     }
@@ -396,7 +410,7 @@ class MatchParserTest {
     void subjectIsMandatory() {
         assertTrue(diagnose("""
                 match {
-                    case 1 => println("one")
+                    case 1 -> println("one")
                 }
                 """).contains("открывающую скобку '(' после 'match'"));
     }

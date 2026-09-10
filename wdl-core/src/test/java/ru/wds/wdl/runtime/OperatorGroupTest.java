@@ -300,8 +300,8 @@ class OperatorGroupTest {
     void matchUsesOrder() {
         assertEquals("дальше", run(LENGTH + """
                 print(match (new Len(5)) {
-                    case > new Len(3) => "дальше"
-                    else => "ближе"
+                    case > new Len(3) -> "дальше"
+                    else -> "ближе"
                 })
                 """));
     }

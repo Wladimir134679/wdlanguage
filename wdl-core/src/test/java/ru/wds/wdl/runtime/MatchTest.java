@@ -36,25 +36,25 @@ class MatchTest {
         assertEquals("critical", printed("""
                 cpu = 95
                 level = match (cpu) {
-                    case > 90 => "critical"
-                    case > 70 => "high"
-                    else => "fine"
+                    case > 90 -> "critical"
+                    case > 70 -> "high"
+                    else -> "fine"
                 }
                 println(level)
                 """));
         assertEquals("high", printed("""
                 cpu = 80
                 println(match (cpu) {
-                    case > 90 => "critical"
-                    case > 70 => "high"
-                    else => "fine"
+                    case > 90 -> "critical"
+                    case > 70 -> "high"
+                    else -> "fine"
                 })
                 """));
         assertEquals("fine", printed("""
                 cpu = 10
                 println(match (cpu) {
-                    case > 90 => "critical"
-                    else => "fine"
+                    case > 90 -> "critical"
+                    else -> "fine"
                 })
                 """));
     }
@@ -71,7 +71,7 @@ class MatchTest {
                 """));
         assertEquals("one", printed("""
                 code = 1
-                match (code) { case 1 => println("one") }
+                match (code) { case 1 -> println("one") }
                 """));
     }
 
@@ -96,9 +96,9 @@ class MatchTest {
                     return 80;
                 }
                 println(match (total()) {
-                    case > 90 => "critical"
-                    case > 70 => "high"
-                    else => "fine"
+                    case > 90 -> "critical"
+                    case > 70 -> "high"
+                    else -> "fine"
                 })
                 """));
     }
@@ -112,9 +112,9 @@ class MatchTest {
                     return value;
                 }
                 println(match (1) {
-                    case mark("первый", 1) => "one"
-                    case mark("второй", 2) => "two"
-                    else => "other"
+                    case mark("первый", 1) -> "one"
+                    case mark("второй", 2) -> "two"
+                    else -> "other"
                 })
                 """));
     }
@@ -125,8 +125,8 @@ class MatchTest {
         assertEquals("few few few many", printed("""
                 for (n in 1..4) {
                     println(match (n) {
-                        case 1, 2, 3 => "few"
-                        else => "many"
+                        case 1, 2, 3 -> "few"
+                        else -> "many"
                     })
                 }
                 """));
@@ -137,26 +137,26 @@ class MatchTest {
     void patternsReuseOperators() {
         assertEquals("число", printed("""
                 println(match (5) {
-                    case is Number => "число"
-                    else => "другое"
+                    case is Number -> "число"
+                    else -> "другое"
                 })
                 """));
         assertEquals("admin", printed("""
                 println(match ("admin") {
-                    case in ["admin", "root"] => "admin"
-                    else => "user"
+                    case in ["admin", "root"] -> "admin"
+                    else -> "user"
                 })
                 """));
         assertEquals("working", printed("""
                 println(match (42) {
-                    case in 18..65 => "working"
-                    else => "other"
+                    case in 18..65 -> "working"
+                    else -> "other"
                 })
                 """));
         assertEquals("нет", printed("""
                 println(match ("hello") {
-                    case !in ["admin"] => "нет"
-                    else => "да"
+                    case !in ["admin"] -> "нет"
+                    else -> "да"
                 })
                 """));
     }
@@ -167,17 +167,17 @@ class MatchTest {
         assertEquals("slowed", printed("""
                 throttled = true
                 println(match (95) {
-                    case > 90 if !throttled => "critical"
-                    case if throttled => "slowed"
-                    else => "fine"
+                    case > 90 if !throttled -> "critical"
+                    case if throttled -> "slowed"
+                    else -> "fine"
                 })
                 """));
         assertEquals("critical", printed("""
                 throttled = false
                 println(match (95) {
-                    case > 90 if !throttled => "critical"
-                    case if throttled => "slowed"
-                    else => "fine"
+                    case > 90 if !throttled -> "critical"
+                    case if throttled -> "slowed"
+                    else -> "fine"
                 })
                 """));
     }
@@ -224,8 +224,8 @@ class MatchTest {
                 a = 1
                 b = 2
                 println(match (a) {
-                    case 1 => match (b) { case 2 => "x" else => "y" }
-                    else => "z"
+                    case 1 -> match (b) { case 2 -> "x" else -> "y" }
+                    else -> "z"
                 })
                 """));
     }
@@ -257,7 +257,7 @@ class MatchTest {
                         total = price * count
                         yield "итого " + total
                     }
-                    else => "пусто"
+                    else -> "пусто"
                 }
                 println(text)
                 """));
@@ -273,7 +273,7 @@ class MatchTest {
                         yield "one"
                         println("после")
                     }
-                    else => "other"
+                    else -> "other"
                 }
                 println(text)
                 """));
@@ -288,7 +288,7 @@ class MatchTest {
                         if (true) { yield "большой" }
                         yield "не дойдём"
                     }
-                    else => "мелкий"
+                    else -> "мелкий"
                 })
                 """));
         assertEquals("3", printed("""
@@ -299,7 +299,7 @@ class MatchTest {
                         }
                         yield 0
                     }
-                    else => -1
+                    else -> -1
                 })
                 """));
     }
@@ -312,7 +312,7 @@ class MatchTest {
                     case 1 {
                         if (false) { yield "one" }
                     }
-                    else => "other"
+                    else -> "other"
                 }
                 println(text)
                 """));
@@ -329,7 +329,7 @@ class MatchTest {
                         defer println("прибрали")
                         yield "one"
                     }
-                    else => "other"
+                    else -> "other"
                 }
                 println(text)
                 """));
@@ -343,11 +343,11 @@ class MatchTest {
                     case 1 {
                         inner = match (2) {
                             case 2 { yield "x" }
-                            else => "y"
+                            else -> "y"
                         }
                         yield "внутренний-" + inner
                     }
-                    else => "z"
+                    else -> "z"
                 })
                 """));
     }
@@ -359,7 +359,7 @@ class MatchTest {
                 def describe(code) {
                     text = match (code) {
                         case 1 { yield "ветка" }
-                        else => "другое"
+                        else -> "другое"
                     }
                     println(text)
                     return "готово";
@@ -371,7 +371,7 @@ class MatchTest {
                 def describe(code) {
                     text = match (code) {
                         case 1 { return "рано"; }
-                        else => "другое"
+                        else -> "другое"
                     }
                     println("сюда не дойдём")
                     return text;
@@ -385,12 +385,12 @@ class MatchTest {
     void arrowAndBlockMix() {
         assertEquals("мало 6 много", printed("""
                 def size(n) => match (n) {
-                    case < 3 => "мало"
+                    case < 3 -> "мало"
                     case < 10 {
                         doubled = n * 2
                         yield doubled
                     }
-                    else => "много"
+                    else -> "много"
                 }
                 println(size(1), " ", size(3), " ", size(50))
                 """));
@@ -404,7 +404,7 @@ class MatchTest {
                 def parse(code) {
                     text = match (code) {
                         case 0 { throw new ValueError("пусто") }
-                        else => "ок"
+                        else -> "ок"
                     }
                     return text;
                 }
@@ -415,7 +415,7 @@ class MatchTest {
                 for (i in 1..3) {
                     text = match (i) {
                         case 2 { break }
-                        else => "ок"
+                        else -> "ок"
                     }
                 }
                 println("вышли")
