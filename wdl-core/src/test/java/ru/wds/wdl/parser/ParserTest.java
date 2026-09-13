@@ -160,6 +160,64 @@ class ParserTest {
         assertEquals("(+ (get a \"x\") (get b \"y\"))", tree("a.x + b.y"));
     }
 
+    // --- безопасное обращение ------------------------------------------------
+
+    @Test
+    @DisplayName("'?.' — то же обращение с флагом, во всех трёх формах записи")
+    void optionalAccessForms() {
+        assertEquals("(chain (get? a \"b\"))", tree("a?.b"));
+        assertEquals("(chain (get? a i))", tree("a?.[i]"));
+        assertEquals("(chain (call? f))", tree("f?.()"));
+        // Ключевое слово после '?.' — такое же имя поля, как и после точки.
+        assertEquals("(chain (get? a \"match\"))", tree("a?.match"));
+    }
+
+    @Test
+    @DisplayName("граница замыкания — одна на цепочку, а не по звену")
+    void optionalChainIsClosedOnce() {
+        assertEquals("(chain (get (get? a \"b\") \"c\"))", tree("a?.b.c"));
+        assertEquals("(chain (get? (get? (get a \"b\") \"c\") \"d\"))", tree("a.b?.c?.d"));
+        assertEquals("(chain (call (get? logger \"info\")))", tree("logger?.info()"));
+    }
+
+    @Test
+    @DisplayName("цепочки без '?.' остаются прежним деревом, а соседние — каждая своей")
+    void optionalChainWrapsOnlyWhereWritten() {
+        assertEquals("(get (get a \"b\") \"c\")", tree("a.b.c"));
+        assertEquals("(+ (chain (get? a \"b\")) (chain (get? c \"d\")))", tree("a?.b + c?.d"));
+        // Скобки закрывают цепочку раньше: дальше обращение идёт по её значению.
+        assertEquals("(get (chain (get? a \"b\")) \"c\")", tree("(a?.b).c"));
+    }
+
+    @Test
+    @DisplayName("'??' сильнее сравнений и слабее арифметики")
+    void coalescePower() {
+        assertEquals("(== (?? name \"anon\") \"anon\")", tree("name ?? \"anon\" == \"anon\""));
+        assertEquals("(> (?? count 0) 5)", tree("count ?? 0 > 5"));
+        assertEquals("(?? price (+ 0 tax))", tree("price ?? 0 + tax"));
+        assertEquals("(?: (?? a b) c d)", tree("a ?? b ? c : d"));
+        assertEquals("(?? (?? a b) c)", tree("a ?? b ?? c"));
+        // Обёртка одна на всю цепочку, сколько бы звеньев в ней ни было безопасных.
+        assertEquals("(?? (chain (get? (get? config \"db\") \"host\")) \"localhost\")",
+                tree("config?.db?.host ?? \"localhost\""));
+    }
+
+    @Test
+    @DisplayName("короткая форма try? берёт цепочку целиком, а '??' остаётся снаружи")
+    void optionalMeetsShortTry() {
+        assertEquals("(?? (try? (call f)) 0)", tree("try? f() ?? 0"));
+        assertEquals("(try? (chain (get? a \"b\")))", tree("try? a?.b"));
+    }
+
+    @Test
+    @DisplayName("после '?.' обязано стоять имя, скобка или '['")
+    void optionalNeedsTarget() {
+        Diagnostics diagnostics = diagnose("a?.");
+
+        assertTrue(diagnostics.renderAll().contains("после '?.' ожидалось имя поля, '[' или '('"));
+        assertEquals(1, diagnostics.errorCount());
+    }
+
     // --- именованные аргументы -----------------------------------------------
 
     @Test

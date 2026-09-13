@@ -70,6 +70,10 @@ public final class ReceiverResolver {
             case CallExpr call -> resolveCall(call);
             case VariableExpr variable -> resolveVariable(variable);
             case AccessExpr access -> resolveAccess(access);
+            // Граница цепочки '?.' про тип ничего не меняет: значение там то же самое,
+            // только вместо него может прийти null. Для подсказки после точки это
+            // безразлично, поэтому смотрим внутрь.
+            case ru.wds.wdl.ast.expr.OptionalChainExpr chain -> resolve(chain.inner());
             case ErrorExpr ignored -> new ReceiverType.Error("неполное выражение");
             default -> ReceiverType.unknown("форма выражения неизвестна без выполнения");
         };

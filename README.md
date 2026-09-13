@@ -116,6 +116,7 @@
 ./gradlew :wdl-cli:run --args="examples/language/expressions.wdl"          # шпаргалка по выражениям
 ./gradlew :wdl-cli:run --args="examples/language/control-flow.wdl"         # ветвления и циклы
 ./gradlew :wdl-cli:run --args="examples/language/slices.wdl"               # срез a[1..3] и индекс с конца
+./gradlew :wdl-cli:run --args="examples/language/null-safety.wdl"          # ?. и ?? на дереве с дырами
 ./gradlew :wdl-cli:run --args="examples/language/functions.wdl"            # функции и замыкания
 .\gradlew :wdl-cli:run --args="examples/language/defaults.wdl"             # значения по умолчанию
 ./gradlew :wdl-cli:run --args="examples/language/named-args.wdl"           # именованные аргументы
@@ -190,7 +191,10 @@ $ wdl examples/language/hello.wdl
 принадлежность (`in`, `has`, `!in`, `!has`, `!is`) и диапазоны (`1..5` — значение,
 годное для `in`, для перебора, для передачи в функцию и для среза: `a[1..3]`
 и `s[0..2]` с включительными границами, рядом с отрицательным индексом `a[-1]`
-и записью «от второго до последнего» `a[1..-1]` — [docs/access.md](docs/access.md)), свои функции (`def`, `return`,
+и записью «от второго до последнего» `a[1..-1]` — [docs/access.md](docs/access.md)),
+безопасное обращение (`config?.db?.host`, `rows?.[0]`, `handler?.()` — замыкание идёт
+до конца цепочки), подстановка при пустом значении (`?? "localhost"`) и запись
+по нужде (`options.timeout ??= 30`), свои функции (`def`, `return`,
 тело-выражение `=>`, анонимные функции, значения параметров по умолчанию,
 именованные аргументы `f(count: 2)`, вариативные параметры `*args`/`**named`
 и раскрытие `f(*array)`, параметр-дырка `def onClick(_, event)`, замыкания),

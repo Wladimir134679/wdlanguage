@@ -92,17 +92,28 @@ final class SExprPrinter implements ExprVisitor<String, Void> {
         return sb.append(')').toString();
     }
 
-    /** Стиль записи намеренно не печатается: {@code a.b} и {@code a["b"]} должны совпасть. */
+    /**
+     * Стиль записи намеренно не печатается: {@code a.b} и {@code a["b"]} должны совпасть.
+     * А вот безопасное обращение печатается — оно меняет не запись, а смысл.
+     */
     @Override
     public String visitAccess(AccessExpr expr, Void context) {
-        return "(get " + visit(expr.target(), context) + " " + visit(expr.key(), context) + ")";
+        return "(" + (expr.optional() ? "get? " : "get ") + visit(expr.target(), context)
+                + " " + visit(expr.key(), context) + ")";
     }
 
     @Override
     public String visitCall(CallExpr expr, Void context) {
-        StringBuilder sb = new StringBuilder("(call ").append(visit(expr.callee(), context));
+        StringBuilder sb = new StringBuilder(expr.optional() ? "(call? " : "(call ")
+                .append(visit(expr.callee(), context));
         arguments(sb, expr.arguments(), context);
         return sb.append(')').toString();
+    }
+
+    /** Граница цепочки: до какого места доходит пропуск звена. */
+    @Override
+    public String visitOptionalChain(OptionalChainExpr expr, Void context) {
+        return "(chain " + visit(expr.inner(), context) + ")";
     }
 
     /** {@code new Point(1, 2)} → {@code (new Point 1 2)}: видно, что это не вызов. */

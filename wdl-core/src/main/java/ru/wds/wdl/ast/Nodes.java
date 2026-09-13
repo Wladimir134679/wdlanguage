@@ -17,6 +17,7 @@ import ru.wds.wdl.ast.expr.MatchCase;
 import ru.wds.wdl.ast.expr.MatchExpr;
 import ru.wds.wdl.ast.expr.NewExpr;
 import ru.wds.wdl.ast.expr.ObjectExpr;
+import ru.wds.wdl.ast.expr.OptionalChainExpr;
 import ru.wds.wdl.ast.expr.TernaryExpr;
 import ru.wds.wdl.ast.expr.TryExpr;
 import ru.wds.wdl.ast.expr.UnaryExpr;
@@ -301,6 +302,7 @@ public final class Nodes {
                     .add(match.cases()).add(match.otherwise());
             case AccessExpr access -> children.add(access.target()).add(access.key());
             case CallExpr call -> children.add(call.callee()).add(call.arguments());
+            case OptionalChainExpr chain -> children.add(chain.inner());
             case NewExpr creation -> children.add(creation.callee()).add(creation.arguments());
             case ArrayExpr array -> children.add(array.elements());
             case ObjectExpr object -> children.add(object.entries());

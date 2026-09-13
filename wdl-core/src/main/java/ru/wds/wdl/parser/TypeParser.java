@@ -112,7 +112,7 @@ final class TypeParser {
             cursor.advance();
             Token part = cursor.advance();
             label.append('.').append(part.text());
-            target = new AccessExpr(target, new LiteralExpr(StringValue.of(part.text()), part.span()),
+            target = AccessExpr.of(target, new LiteralExpr(StringValue.of(part.text()), part.span()),
                     AccessStyle.DOT, first.span().to(part.span()));
         }
         if (!topLevel) {

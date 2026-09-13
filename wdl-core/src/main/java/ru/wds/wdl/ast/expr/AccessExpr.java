@@ -34,19 +34,32 @@ import java.util.Objects;
  * {@code Access(Access(a, "b"), "c")}. Так у каждого шага свой корректный
  * {@link Span}, а вычисление промежуточного значения не требует особого случая —
  * это обычное вычисление левого поддерева.
+ * <p>
+ * <b>Безопасное обращение — флаг {@link #optional()}, а не третья форма записи.</b>
+ * Он накрывает обе записи разом: {@code config?.db} и {@code rows?.[0]} — один вид
+ * узла с поднятым флагом, как и всё остальное здесь. Замыкание при этом относится
+ * не к звену, а ко всей цепочке, и её граница лежит в дереве отдельным узлом —
+ * {@link OptionalChainExpr}; там же записано, почему так.
  *
- * @param target значение, к которому обращаются
- * @param key    ключ: для записи через точку — строковый литерал, для скобок — любое выражение
- * @param style  какой записью это было в исходнике; на семантику не влияет
- * @param span   место в исходнике: от начала {@code target} до закрывающей скобки или конца имени
+ * @param target   значение, к которому обращаются
+ * @param key      ключ: для записи через точку — строковый литерал, для скобок — любое выражение
+ * @param style    какой записью это было в исходнике; на семантику не влияет
+ * @param optional написано ли {@code ?.}: пустой получатель замыкает цепочку
+ * @param span     место в исходнике: от начала {@code target} до закрывающей скобки или конца имени
  */
-public record AccessExpr(Expr target, Expr key, AccessStyle style, Span span) implements Expr {
+public record AccessExpr(Expr target, Expr key, AccessStyle style, boolean optional, Span span)
+        implements Expr {
 
     public AccessExpr {
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(style, "style");
         Objects.requireNonNull(span, "span");
+    }
+
+    /** Обычное обращение — то, чего в языке большинство. */
+    public static AccessExpr of(Expr target, Expr key, AccessStyle style, Span span) {
+        return new AccessExpr(target, key, style, false, span);
     }
 
     /**
@@ -77,8 +90,9 @@ public record AccessExpr(Expr target, Expr key, AccessStyle style, Span span) im
 
     @Override
     public String toString() {
+        String dot = optional ? "?." : ".";
         return style == AccessStyle.DOT
-                ? target + "." + fieldName()
-                : target + "[" + key + "]";
+                ? target + dot + fieldName()
+                : target + (optional ? "?." : "") + "[" + key + "]";
     }
 }

@@ -17,15 +17,21 @@ import java.util.StringJoiner;
  * Метода в языке нет как отдельного понятия: {@code точка.строкой()} — это обращение
  * по ключу, давшее функцию, и вызов результата. Два узла вместо особого случая.
  * <p>
+ * Отсюда же и {@link #optional()}: раз метода нет, безопасный вызов
+ * {@code handler?.()} — это вопрос к вызову, а не к обращению, и флаг нужен обоим
+ * узлам. Замыкание идёт до границы цепочки — см. {@link OptionalChainExpr}.
+ * <p>
  * Аргументы хранятся {@link Argument в порядке записи}, а не по позициям параметров:
  * позиции считает выполнение, а дерево обязано помнить текст. От этого зависит порядок
  * вычисления — он идёт так, как читается строка, даже если имена переставлены.
  *
  * @param callee    выражение, дающее функцию
  * @param arguments аргументы в порядке записи
+ * @param optional  написано ли {@code ?.()}: пустой вызываемый замыкает цепочку
  * @param span      место в исходнике: от начала {@code callee} до закрывающей скобки
  */
-public record CallExpr(Expr callee, List<Argument> arguments, Span span) implements Expr {
+public record CallExpr(Expr callee, List<Argument> arguments, boolean optional, Span span)
+        implements Expr {
 
     public CallExpr {
         Objects.requireNonNull(callee, "callee");
@@ -33,9 +39,14 @@ public record CallExpr(Expr callee, List<Argument> arguments, Span span) impleme
         Objects.requireNonNull(span, "span");
     }
 
+    /** Обычный вызов — то, чего в языке большинство. */
+    public static CallExpr of(Expr callee, List<Argument> arguments, Span span) {
+        return new CallExpr(callee, arguments, false, span);
+    }
+
     @Override
     public String toString() {
-        StringJoiner joiner = new StringJoiner(", ", callee + "(", ")");
+        StringJoiner joiner = new StringJoiner(", ", callee + (optional ? "?.(" : "("), ")");
         arguments.forEach(argument -> joiner.add(argument.toString()));
         return joiner.toString();
     }

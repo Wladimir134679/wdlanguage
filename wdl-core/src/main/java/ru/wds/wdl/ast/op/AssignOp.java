@@ -21,7 +21,17 @@ public enum AssignOp {
     BIT_XOR("^=", BinaryOp.BIT_XOR),
     SHIFT_LEFT("<<=", BinaryOp.SHIFT_LEFT),
     SHIFT_RIGHT(">>=", BinaryOp.SHIFT_RIGHT),
-    SHIFT_RIGHT_UNSIGNED(">>>=", BinaryOp.SHIFT_RIGHT_UNSIGNED);
+    SHIFT_RIGHT_UNSIGNED(">>>=", BinaryOp.SHIFT_RIGHT_UNSIGNED),
+    /**
+     * Запись по нужде: {@code options.timeout ??= 30}.
+     * <p>
+     * Составное — место записи вычисляется один раз, как у всех прочих. Но общей
+     * ветке выполнения не подчиняется: если слева не пусто, <b>записи не происходит
+     * вовсе</b> и правая часть не вычисляется. Это не оптимизация — слева бывает
+     * свойство с аксессором на Java, и трогать его, когда значение уже есть,
+     * {@code ??=} не должен.
+     */
+    COALESCE("??=", BinaryOp.COALESCE);
 
     private final String symbol;
     private final BinaryOp base;

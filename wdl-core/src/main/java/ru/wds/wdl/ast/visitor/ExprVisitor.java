@@ -46,6 +46,12 @@ public interface ExprVisitor<R, C> {
 
     R visitCall(CallExpr expr, C context);
 
+    /**
+     * Граница цепочки безопасного обращения: здесь пропущенное звено становится
+     * значением {@code null}.
+     */
+    R visitOptionalChain(OptionalChainExpr expr, C context);
+
     /** Создание экземпляра. Отдельно от вызова: {@code new} заводит новое состояние. */
     R visitNew(NewExpr expr, C context);
 
@@ -78,6 +84,7 @@ public interface ExprVisitor<R, C> {
             case MatchExpr e -> visitMatch(e, context);
             case AccessExpr e -> visitAccess(e, context);
             case CallExpr e -> visitCall(e, context);
+            case OptionalChainExpr e -> visitOptionalChain(e, context);
             case NewExpr e -> visitNew(e, context);
             case ArrayExpr e -> visitArray(e, context);
             case ObjectExpr e -> visitObject(e, context);

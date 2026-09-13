@@ -109,6 +109,29 @@ class LookupTest {
     }
 
     @Test
+    @DisplayName("Безопасное обращение не мешает подсказкам после точки")
+    void optionalAccessKeepsSuggestions() {
+        // Значение там же и то же — '?.' меняет лишь то, что вместо него может прийти
+        // null. Подсказке это безразлично, и разрыва в ней быть не должно.
+        String safe = """
+                text = "эй"
+                text?.
+                """;
+        // Скобочная форма после '?.' — тот же срез, и тип у него тот же. Здесь
+        // подсказка идёт уже по границе цепочки, а не по звену.
+        String chained = """
+                a = [1, 2, 3]
+                a?.[0..1].
+                """;
+        List<Suggestion> members = lookup(safe).completeAt(safe.indexOf("text?.") + 6);
+        List<Suggestion> afterChain = lookup(chained).completeAt(chained.lastIndexOf('.') + 1);
+
+        assertTrue(members.stream().anyMatch(member -> member.name().equals("size")), members::toString);
+        assertTrue(afterChain.stream().anyMatch(member -> member.name().equals("push")),
+                afterChain::toString);
+    }
+
+    @Test
     @DisplayName("Локальный класс различает члены экземпляра и фабрики")
     void localClassSeparatesInstanceAndStaticMembers() {
         String prefix = """

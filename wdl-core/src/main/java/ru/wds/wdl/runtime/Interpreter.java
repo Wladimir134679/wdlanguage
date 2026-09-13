@@ -384,6 +384,16 @@ public final class Interpreter
     @Override
     public Void visitAssign(AssignStmt stmt, ExecutionContext context) {
         Place place = resolvePlace(stmt.target(), context);
+        // '??=' стоит до общей ветки и до вычисления правой части: если слева
+        // не пусто, записи не происходит вовсе. Это не бережливость — слева бывает
+        // свойство с аксессором на Java, и трогать его, когда значение уже есть,
+        // нельзя. Место записи при этом вычислено выше и ровно один раз, как у всех.
+        if (stmt.op() == AssignOp.COALESCE) {
+            if (place.read().isNull()) {
+                place.write(valueOf(stmt.value(), context));
+            }
+            return null;
+        }
         Value value = valueOf(stmt.value(), context);
         if (stmt.op().isCompound()) {
             BinaryOp operation = stmt.op().base();
@@ -1729,6 +1739,12 @@ public final class Interpreter
         if (expr.op() == BinaryOp.OR) {
             return left.isTruthy() ? left : valueOf(expr.right(), context);
         }
+        // '??' спрашивает про пустоту, а не про ложность, и вся разница с '||'
+        // в ложном значении: 'verbose ?? true' оставит выключённое выключенным,
+        // 'verbose || true' — включит.
+        if (expr.op() == BinaryOp.COALESCE) {
+            return left.isNull() ? valueOf(expr.right(), context) : left;
+        }
         Value right = valueOf(expr.right(), context);
         return binary(expr.op(), left, right, expr.span(), context);
     }
@@ -1841,8 +1857,29 @@ public final class Interpreter
     @Override
     public Value visitAccess(AccessExpr expr, ExecutionContext context) {
         Value target = valueOf(expr.target(), context);
+        // Проверка стоит между получателем и ключом, и это не мелочь: у пропущенного
+        // звена ключ не вычисляется — 'missing?.[next()]' не зовёт next().
+        if (expr.optional() && target.isNull()) {
+            throw Absent.INSTANCE;
+        }
         Value key = valueOf(expr.key(), context);
         return read(target, key, expr.style(), expr.span(), context);
+    }
+
+    /**
+     * Граница цепочки безопасного обращения: пропуск звена становится значением.
+     * <p>
+     * Единственное место, где {@link Absent} ловится. Всё остальное про цепочку —
+     * в {@link OptionalChainExpr}: и почему замыкание идёт до конца, и почему
+     * граница лежит в дереве отдельным узлом.
+     */
+    @Override
+    public Value visitOptionalChain(OptionalChainExpr expr, ExecutionContext context) {
+        try {
+            return valueOf(expr.inner(), context);
+        } catch (Absent skipped) {
+            return NullValue.NULL;
+        }
     }
 
     /**
@@ -1868,10 +1905,19 @@ public final class Interpreter
         Value memberKey = null;
         if (expr.callee() instanceof AccessExpr access) {
             receiver = valueOf(access.target(), context);
+            if (access.optional() && receiver.isNull()) {
+                throw Absent.INSTANCE;
+            }
             memberKey = valueOf(access.key(), context);
             callee = read(receiver, memberKey, access.style(), access.span(), context);
         } else {
             callee = valueOf(expr.callee(), context);
+        }
+        // 'handler?.()' — вопрос к вызову, а не к обращению: метода в языке нет,
+        // и пустым бывает само вызываемое значение. Аргументы при пропуске
+        // не вычисляются — они идут ниже.
+        if (expr.optional() && callee.isNull()) {
+            throw Absent.INSTANCE;
         }
         if (!(callee instanceof FunctionValue function)) {
             throw notCallable(expr, callee, receiver, memberKey, context);
@@ -2364,6 +2410,12 @@ public final class Interpreter
         return switch (target) {
             case VariableExpr variable ->
                     new VariablePlace(context.scope(), variable.name(), variable.span(), context);
+            // Безопасное обращение целью записи не бывает: парсер говорит об этом
+            // человеку, а сюда такая цель может прийти только из-за ошибки в движке.
+            case AccessExpr access when access.optional() ->
+                    throw new IllegalStateException("'?.' слева от присваивания: " + target);
+            case OptionalChainExpr chain ->
+                    throw new IllegalStateException("'?.' слева от присваивания: " + chain);
             case AccessExpr access -> new ContainerPlace(
                     this,
                     valueOf(access.target(), context),

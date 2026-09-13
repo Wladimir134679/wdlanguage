@@ -238,6 +238,10 @@ public final class Parser {
             // веток проверены той же меркой, каждое по отдельности.
             case MatchExpr ignored -> true;
             case TryExpr shortForm -> doesSomething(shortForm.inner());
+            // Безопасный вызов — это вызов: 'logger?.info(...)' делает дело ровно так же,
+            // как 'logger.info(...)', и мерка у них обязана быть одна. Обёртка здесь
+            // не при чём — она про то, докуда доходит пропуск.
+            case OptionalChainExpr chain -> doesSomething(chain.inner());
             default -> false;
         };
     }
@@ -280,6 +284,16 @@ public final class Parser {
         if (target instanceof VariableExpr variable && isSelfName(variable.name())) {
             diagnostics.error(target.span(), "'" + variable.name() + "' нельзя присвоить: "
                     + "это имя самого объекта. Поле объекта пишется как 'this." + "имя = значение'");
+            return false;
+        }
+        // Безопасное обращение слева отвергается отдельным сообщением, а не общим:
+        // обращение слева как раз стоит, и совет «поставьте имя или обращение»
+        // отправил бы искать ошибку не туда.
+        if (target instanceof OptionalChainExpr
+                || target instanceof AccessExpr access && access.optional()) {
+            diagnostics.error(target.span(), "'?.' не может стоять слева от '" + op
+                    + "': запись в пустое значение молча потеряла бы данные."
+                    + " Проверьте получателя явно или заведите его");
             return false;
         }
         if (target instanceof VariableExpr || target instanceof AccessExpr) {
@@ -1525,6 +1539,19 @@ public final class Parser {
         }
         Operators.Infix infix = Operators.infix(start.type());
         if (infix != null) {
+            // Ленивые операции образцом быть не могут: образец спрашивает «подходит ли
+            // предмет», а они подставляют значение. Разобрать их здесь было можно
+            // и раньше — и выполнение падало крахом движка, а не ошибкой скрипта:
+            // Operations их не считает, их считает интерпретатор по виду узла.
+            if (infix.op().isShortCircuit()) {
+                diagnostics.error(start.span(), "'" + infix.op().symbol()
+                        + "' не может быть образцом ветки 'case': образец сравнивает предмет,"
+                        + " а эта операция подставляет значение. Условие ветки пишется"
+                        + " словом 'if'");
+                cursor.advance();
+                expression(Operators.COMPARISON + 1); // правую часть дочитываем, чтобы не сыпать производными ошибками
+                return null;
+            }
             cursor.advance();
             Expr right = expression(Operators.COMPARISON + 1);
             return right instanceof ErrorExpr ? null
@@ -1803,6 +1830,10 @@ public final class Parser {
      */
     Expr expression(int minPower) {
         Expr left = prefix();
+        // Было ли в цепочке, которая собирается прямо сейчас, безопасное звено.
+        // Признак живёт ровно до конца постфиксной части: там цепочка заканчивается,
+        // и туда же встаёт граница замыкания.
+        boolean optional = false;
         while (true) {
             TokenType type = cursor.peek().type();
 
@@ -1811,18 +1842,33 @@ public final class Parser {
             // операндов три.
             if (type == TokenType.DOT || type == TokenType.LBRACKET) {
                 if (Operators.ACCESS < minPower) {
-                    return left;
+                    return chained(left, optional);
                 }
                 left = access(left);
                 continue;
             }
             if (type == TokenType.LPAREN) {
                 if (Operators.ACCESS < minPower) {
-                    return left;
+                    return chained(left, optional);
                 }
-                left = call(left);
+                left = call(left, false);
                 continue;
             }
+            if (type == TokenType.QUESTIONDOT) {
+                if (Operators.ACCESS < minPower) {
+                    return chained(left, optional);
+                }
+                left = optionalLink(left);
+                optional = true;
+                continue;
+            }
+
+            // Дальше идёт уже не звено — значит, цепочка кончилась здесь, и здесь же
+            // её граница. Всё, что ниже, видит обычное выражение и про безопасное
+            // обращение не знает вовсе.
+            left = chained(left, optional);
+            optional = false;
+
             if (type == TokenType.QUESTION) {
                 if (Operators.TERNARY < minPower) {
                     return left;
@@ -1868,6 +1914,18 @@ public final class Parser {
             Expr right = expression(infix.rightPower());
             left = new BinaryExpr(infix.op(), left, right, left.span().to(right.span()));
         }
+    }
+
+    /**
+     * Граница цепочки безопасного обращения — или ничего, если {@code ?.} в ней
+     * не было.
+     * <p>
+     * Обёртка появляется только там, где написан {@code ?.}: обычное {@code a.b.c}
+     * остаётся тем же деревом, что и было, — ни лишнего уровня для инструментов,
+     * ни лишней работы для выполнения.
+     */
+    private static Expr chained(Expr left, boolean optional) {
+        return optional ? new OptionalChainExpr(left, left.span()) : left;
     }
 
     /**
@@ -2198,27 +2256,62 @@ public final class Parser {
      */
     private Expr access(Expr target) {
         Token operator = cursor.advance(); // . или [
-        if (operator.type() == TokenType.DOT) {
-            Token name = cursor.peek();
-            if (name.type() != TokenType.WORD && !name.type().isKeyword()) {
-                diagnostics.error(name.span(),
-                        "после точки ожидалось имя поля, найдено " + describe(name));
-                // Ключ — пустой узел сразу за точкой, а не подвернувшийся токен: у 'obj.'
-                // в конце строки следующий токен принадлежит следующей инструкции, и,
-                // проглотив его, обращение соврало бы про структуру файла. Заодно
-                // интервал ребёнка остаётся внутри интервала родителя — на этом стоит
-                // поиск узла под курсором.
-                return new AccessExpr(target, new ErrorExpr(Span.point(operator.span().end())),
-                        AccessStyle.DOT, target.span().to(operator.span()));
-            }
-            cursor.advance();
-            Expr key = new LiteralExpr(StringValue.of(name.text()), name.span());
-            return new AccessExpr(target, key, AccessStyle.DOT, target.span().to(name.span()));
-        }
+        return operator.type() == TokenType.DOT
+                ? dotAccess(target, operator, false)
+                : bracketAccess(target, false);
+    }
 
+    /**
+     * Безопасное звено: {@code ?.имя}, {@code ?.[ключ]} или {@code ?.(аргументы)}.
+     * <p>
+     * Одна лексема {@code ?.} на все три формы, и дальше всё то же самое, что
+     * у обычного звена, — с поднятым флагом. Форма узнаётся по следующему токену
+     * и не требует ни заглядывания вперёд, ни отката: после {@code ?.} стоит либо
+     * скобка, либо имя.
+     * <p>
+     * Почему записи {@code a?[i]} нет и не будет — в {@code TokenType.QUESTIONDOT};
+     * почему замыкание идёт до конца цепочки — в {@link OptionalChainExpr}.
+     */
+    private Expr optionalLink(Expr target) {
+        Token operator = cursor.advance(); // ?.
+        TokenType next = cursor.peek().type();
+        if (next == TokenType.LBRACKET) {
+            cursor.advance();
+            return bracketAccess(target, true);
+        }
+        if (next == TokenType.LPAREN) {
+            return call(target, true);
+        }
+        return dotAccess(target, operator, true);
+    }
+
+    /** Обращение по имени: то, что стоит после {@code .} или после {@code ?.}. */
+    private Expr dotAccess(Expr target, Token operator, boolean optional) {
+        Token name = cursor.peek();
+        if (name.type() != TokenType.WORD && !name.type().isKeyword()) {
+            diagnostics.error(name.span(), "после " + (optional ? "'?.'" : "точки")
+                    + " ожидалось имя поля" + (optional ? ", '[' или '('" : "")
+                    + ", найдено " + describe(name));
+            // Ключ — пустой узел сразу за точкой, а не подвернувшийся токен: у 'obj.'
+            // в конце строки следующий токен принадлежит следующей инструкции, и,
+            // проглотив его, обращение соврало бы про структуру файла. Заодно
+            // интервал ребёнка остаётся внутри интервала родителя — на этом стоит
+            // поиск узла под курсором.
+            return new AccessExpr(target, new ErrorExpr(Span.point(operator.span().end())),
+                    AccessStyle.DOT, optional, target.span().to(operator.span()));
+        }
+        cursor.advance();
+        Expr key = new LiteralExpr(StringValue.of(name.text()), name.span());
+        return new AccessExpr(target, key, AccessStyle.DOT, optional,
+                target.span().to(name.span()));
+    }
+
+    /** Обращение по вычисляемому ключу; открывающая скобка уже съедена. */
+    private Expr bracketAccess(Expr target, boolean optional) {
         Expr key = expression(0);
         Token close = cursor.expect(TokenType.RBRACKET, "закрывающую скобку ']'");
-        return new AccessExpr(target, key, AccessStyle.BRACKET, target.span().to(close.span()));
+        return new AccessExpr(target, key, AccessStyle.BRACKET, optional,
+                target.span().to(close.span()));
     }
 
     /**
@@ -2227,11 +2320,14 @@ public final class Parser {
      * Вызывается уже разобранное выражение, каким бы оно ни было, — поэтому
      * {@code f()()}, {@code point.asText()} и {@code handlers[0](x)} разбираются
      * тем же кодом, без единого особого случая. Отдельного «вызова метода» в языке нет.
+     * <p>
+     * Оттуда же и {@code optional}: раз метода нет, {@code handler?.()} — вопрос
+     * к вызову, а не к обращению.
      */
-    private Expr call(Expr callee) {
+    private Expr call(Expr callee, boolean optional) {
         List<Argument> arguments = new ArrayList<>();
         Token close = argumentList(arguments);
-        return new CallExpr(callee, arguments, callee.span().to(close.span()));
+        return new CallExpr(callee, arguments, optional, callee.span().to(close.span()));
     }
 
     /**

@@ -91,7 +91,8 @@ public final class Operations {
                     bitwise(op, left, right, span);
 
             // Ленивые операции вычисляет интерпретатор: сюда они попасть не могут.
-            case AND, OR -> throw new IllegalArgumentException("операция " + op + " вычисляется лениво");
+            case AND, OR, COALESCE ->
+                    throw new IllegalArgumentException("операция " + op + " вычисляется лениво");
         };
     }
 

@@ -15,6 +15,7 @@ import ru.wds.wdl.ast.expr.MatchCase;
 import ru.wds.wdl.ast.expr.MatchExpr;
 import ru.wds.wdl.ast.expr.NewExpr;
 import ru.wds.wdl.ast.expr.ObjectExpr;
+import ru.wds.wdl.ast.expr.OptionalChainExpr;
 import ru.wds.wdl.ast.expr.TernaryExpr;
 import ru.wds.wdl.ast.expr.TryExpr;
 import ru.wds.wdl.ast.expr.UnaryExpr;
@@ -102,6 +103,9 @@ final class DefaultValues {
             case TernaryExpr ternary ->
                     firstUse(names, ternary.condition(), ternary.ifTrue(), ternary.ifFalse());
             case AccessExpr access -> firstUse(names, access.target(), access.key());
+            // Граница цепочки '?.' — обёртка вокруг обычного обращения: имена ищутся
+            // в ней самой.
+            case OptionalChainExpr chain -> findUse(chain.inner(), names);
             case CallExpr call -> {
                 VariableExpr inCallee = findUse(call.callee(), names);
                 yield inCallee != null ? inCallee : inArguments(names, call.arguments());

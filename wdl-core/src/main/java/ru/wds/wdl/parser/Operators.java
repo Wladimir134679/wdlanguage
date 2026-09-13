@@ -46,6 +46,22 @@ final class Operators {
     static final int AND = 6;
     static final int EQUALITY = 8;
     static final int COMPARISON = 10;
+    /**
+     * Подстановка {@code ??} — <b>сильнее сравнений</b> и слабее всего остального,
+     * что стоит выше.
+     * <p>
+     * Место между {@link #COMPARISON} и {@link #BIT_OR} было свободно: шаг 2
+     * в таблице заводился ровно для этого. Выбор решают два примера, в каждом
+     * из которых слабая подстановка <b>молча</b> считает не то:
+     * {@code name ?? "anon" == "anon"} обязано быть {@code (name ?? "anon") == "anon"},
+     * а {@code count ?? 0 > 5} — {@code (count ?? 0) > 5}.
+     * <p>
+     * Цена принята и названа: <b>правая часть забирает арифметику</b> —
+     * {@code price ?? 0 + tax} это {@code price ?? (0 + tax)}. Кому нужно иначе —
+     * скобки. Это та же позиция, что у {@code ?:} в Kotlin, с поправкой на то,
+     * что здесь побитовые операции стоят выше сравнений.
+     */
+    static final int COALESCE = 11;
     static final int BIT_OR = 12;
     static final int BIT_XOR = 14;
     static final int BIT_AND = 16;
@@ -87,6 +103,7 @@ final class Operators {
         assign.put(TokenType.SHLASSIGN, AssignOp.SHIFT_LEFT);
         assign.put(TokenType.SHRASSIGN, AssignOp.SHIFT_RIGHT);
         assign.put(TokenType.USHRASSIGN, AssignOp.SHIFT_RIGHT_UNSIGNED);
+        assign.put(TokenType.QUESTIONASSIGN, AssignOp.COALESCE);
         ASSIGN = Collections.unmodifiableMap(assign);
 
         Map<TokenType, Infix> infix = new EnumMap<>(TokenType.class);
@@ -114,6 +131,8 @@ final class Operators {
         // не требует скобок.
         put(infix, TokenType.IN, BinaryOp.IN, COMPARISON);
         put(infix, TokenType.HAS, BinaryOp.HAS, COMPARISON);
+
+        put(infix, TokenType.QUESTIONQUESTION, BinaryOp.COALESCE, COALESCE);
 
         put(infix, TokenType.DOTDOT, BinaryOp.RANGE, RANGE);
 

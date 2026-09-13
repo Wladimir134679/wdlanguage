@@ -465,9 +465,20 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
     @Override
     public Void visitAccess(AccessExpr expr, Integer depth) {
         String style = expr.style() == AccessStyle.DOT ? "точка" : "скобки";
-        line(depth, "обращение (" + style + ")", expr);
+        line(depth, "обращение (" + style + (expr.optional() ? ", безопасное" : "") + ")", expr);
         visit(expr.target(), depth + 1);
         return visit(expr.key(), depth + 1);
+    }
+
+    /**
+     * Граница цепочки безопасного обращения. В дампе она видна отдельной строкой
+     * потому же, почему живёт в дереве: до неё доходит пропуск звена, и это часть
+     * смысла записи, а не подробность разбора.
+     */
+    @Override
+    public Void visitOptionalChain(OptionalChainExpr expr, Integer depth) {
+        line(depth, "безопасная цепочка", expr);
+        return visit(expr.inner(), depth + 1);
     }
 
     /**
@@ -499,7 +510,8 @@ public final class AstDumper implements ExprVisitor<Void, Integer>, StmtVisitor<
 
     @Override
     public Void visitCall(CallExpr expr, Integer depth) {
-        line(depth, "вызов, аргументов: " + expr.arguments().size(), expr);
+        line(depth, (expr.optional() ? "безопасный вызов, аргументов: " : "вызов, аргументов: ")
+                + expr.arguments().size(), expr);
         visit(expr.callee(), depth + 1);
         arguments(expr.arguments(), depth + 1);
         return null;

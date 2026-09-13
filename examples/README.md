@@ -27,6 +27,7 @@ wdl-cli/build/install/wdl/bin/wdl examples/language/hello.wdl
 | [match.wdl](language/match.wdl) | `match` выражением и инструкцией: образцы, перечисление, условия в ветках, `else`, значение ветки через `yield`, что бывает ошибкой |
 | [unpack.wdl](language/unpack.wdl) | распаковка `x, y = *point` и `host, port, **rest = **config`, остатки, пропуск `_`, перебор с ключом |
 | [slices.wdl](language/slices.wdl) | срез `a[1..3]` и отрицательный индекс `a[-1]`: включительные границы, подрезка, копия, ключ-диапазон у объекта |
+| [null-safety.wdl](language/null-safety.wdl) | безопасное обращение `config?.db?.host`, подстановка `?? "localhost"`, запись по нужде `??=`: замыкание цепочки, чего `?.` не закрывает |
 | [const.wdl](language/const.wdl) | `const`: заморожено имя, а не содержимое |
 | [functions.wdl](language/functions.wdl) | объявления, `return`, `=>`, анонимные функции, замыкания |
 | [defaults.wdl](language/defaults.wdl) | значения параметров по умолчанию и когда они вычисляются |

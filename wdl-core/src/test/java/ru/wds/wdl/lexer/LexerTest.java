@@ -148,6 +148,31 @@ class LexerTest {
     }
 
     @Test
+    @DisplayName("знак вопроса: '?.', '??' и '??=' — по одному токену, лексер не правился")
+    void questionOperators() {
+        assertEquals(List.of(TokenType.WORD, TokenType.QUESTIONDOT, TokenType.WORD), types("a?.b"));
+        assertEquals(List.of(TokenType.WORD, TokenType.QUESTIONDOT, TokenType.LBRACKET,
+                TokenType.INT, TokenType.RBRACKET), types("a?.[0]"));
+        assertEquals(List.of(TokenType.WORD, TokenType.QUESTIONDOT, TokenType.LPAREN,
+                TokenType.RPAREN), types("a?.()"));
+        assertEquals(List.of(TokenType.WORD, TokenType.QUESTIONQUESTION, TokenType.INT), types("a ?? 1"));
+        assertEquals(List.of(TokenType.WORD, TokenType.QUESTIONASSIGN, TokenType.INT), types("a ??= 1"));
+    }
+
+    @Test
+    @DisplayName("цена одной лексемы: 'a ?.b' — безопасное обращение, а не тернарник")
+    void questionDotEatsTheSpacedTernary() {
+        // Названная в плане и принятая цена решения «?. — одна лексема»: пробел между
+        // '?' и '.' перестал быть свободным. Закреплено тестом, чтобы это нельзя было
+        // «починить» случайно — двусмысленности здесь нет, есть выбор записи.
+        assertEquals(List.of(TokenType.WORD, TokenType.QUESTIONDOT, TokenType.WORD), types("a ?.b"));
+        // Тернарник и короткая форма try? при этом целы: '?' там сам по себе.
+        assertEquals(List.of(TokenType.WORD, TokenType.QUESTION, TokenType.WORD,
+                TokenType.COLON, TokenType.WORD), types("a ? b : c"));
+        assertEquals(List.of(TokenType.TRY, TokenType.QUESTION, TokenType.WORD), types("try? f"));
+    }
+
+    @Test
     @DisplayName("строки: escape-последовательности разворачиваются в значение")
     void strings() {
         assertEquals("привет\nмир\t\"да\"\\", texts("\"привет\\nмир\\t\\\"да\\\"\\\\\""));

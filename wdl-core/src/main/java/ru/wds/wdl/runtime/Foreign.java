@@ -16,9 +16,10 @@ import ru.wds.wdl.source.Span;
  * ядро заворачивало только {@code RuntimeException} и пропускало сигналы по типу,
  * мост ловил всё и опознавал своё по имени пакета. Здесь оно записано один раз:
  * <ul>
- *   <li>{@link WdlError} и {@link ControlSignal} — <b>своё</b>: у ошибки скрипта уже
- *       есть место, текст и класс, а {@code return} из обработчика обязан дойти
- *       до своей функции. Заворачивать их значит подменять причину;</li>
+ *   <li>{@link WdlError}, {@link ControlSignal} и {@link Absent} — <b>своё</b>:
+ *       у ошибки скрипта уже есть место, текст и класс, {@code return}
+ *       из обработчика обязан дойти до своей функции, а пропуск цепочки {@code ?.} —
+ *       до своей границы. Заворачивать их значит подменять причину;</li>
  *   <li>{@code RuntimeException}, проверяемые исключения и {@link LinkageError} —
  *       <b>чужое</b>: становятся {@link ErrorKind#JAVA};</li>
  *   <li>остальные {@code Error} ({@code OutOfMemoryError}, {@code StackOverflowError})
@@ -59,7 +60,7 @@ public final class Foreign {
             // Библиотека вправе бросить ошибку языка и не знать при этом места
             // в скрипте: место знает эта граница, она его и проставляет.
             throw own.at(span);
-        } catch (WdlError | ControlSignal known) {
+        } catch (WdlError | ControlSignal | Absent known) {
             throw known;
         } catch (Throwable failure) {
             throw wrap(failure, span, subject, module);
@@ -76,7 +77,8 @@ public final class Foreign {
         if (failure instanceof WdlRuntimeError own) {
             return own.at(span);
         }
-        if (failure instanceof WdlError || failure instanceof ControlSignal) {
+        if (failure instanceof WdlError || failure instanceof ControlSignal
+                || failure instanceof Absent) {
             return (RuntimeException) failure;
         }
         if (failure instanceof Error error && !(failure instanceof LinkageError)) {

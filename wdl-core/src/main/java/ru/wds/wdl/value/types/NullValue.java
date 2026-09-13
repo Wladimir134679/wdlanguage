@@ -28,6 +28,11 @@ public final class NullValue implements Value {
     }
 
     @Override
+    public boolean isNull() {
+        return true;
+    }
+
+    @Override
     public String display() {
         return "null";
     }
