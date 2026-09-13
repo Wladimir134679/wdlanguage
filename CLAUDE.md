@@ -36,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ./gradlew publishToMavenLocal    # библиотечные модули в ~/.m2 (ru.wds.wdl:wdl-api:<версия>)
 ./gradlew publish                # они же в build/repo — каталог-репозиторий для раздачи
-./gradlew publishToMavenLocal -Pversion=0.1.0        # публикация без -SNAPSHOT
+./gradlew publishToMavenLocal -Pversion=0.5.1        # публикация с другой версией
 ```
 
 JDK 21+ (toolchain из `gradle/libs.versions.toml`), Gradle Wrapper 9.0.

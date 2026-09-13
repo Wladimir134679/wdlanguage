@@ -45,7 +45,7 @@ IDEA. Плагин передаёт его в CLI через `--project-root`, �
 ./gradlew -p ide/idea-plugin buildPlugin  # затем плагин
 ```
 
-Готовый архив — `ide/idea-plugin/build/distributions/wdl-idea-plugin-0.1.1.zip`;
+Готовый архив — `ide/idea-plugin/build/distributions/wdl-idea-plugin-0.5.0.zip`;
 ставится через **Settings → Plugins → ⚙ → Install Plugin from Disk**.
 
 Запустить IDE с плагином, ничего не устанавливая:

@@ -104,7 +104,7 @@ println(args)
 Первая сборка плагина скачивает дистрибутив IDEA.
 
 1. В **Settings → Plugins → ⚙ → Install Plugin from Disk** выберите
-   `ide/idea-plugin/build/distributions/wdl-idea-plugin-0.1.1.zip` и перезапустите IDE.
+   `ide/idea-plugin/build/distributions/wdl-idea-plugin-0.5.0.zip` и перезапустите IDE.
 2. Откройте `.wdl`, выберите **Run** в контекстном меню файла либо зелёный значок
    у начала файла. Созданная конфигурация доступна через зелёную кнопку на панели.
 3. В **Run → Edit Configurations → + → wdl** можно вручную создать конфигурацию:

@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ru.wds.wdl"
-version = "0.1.1"
+version = "0.5.0"
 
 java {
     toolchain {
