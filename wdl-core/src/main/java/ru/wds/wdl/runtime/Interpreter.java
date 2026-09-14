@@ -32,6 +32,7 @@ import ru.wds.wdl.value.Member;
 import ru.wds.wdl.value.DecoratorMeta;
 import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.types.ArrayValue;
+import ru.wds.wdl.value.types.BytesValue;
 import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.Property;
 import ru.wds.wdl.value.NumberValue;
@@ -581,6 +582,14 @@ public final class Interpreter
                     }
                 }
             }
+            // Байты перебираются числами, знаковыми: то же, что даёт 'b[i]'.
+            case BytesValue data -> {
+                for (int i = 0; i < data.size(); i++) {
+                    if (iteration(stmt, context, IntValue.of(i), IntValue.of(data.at(i)))) {
+                        return null;
+                    }
+                }
+            }
             // Диапазон перебирается шагом в единицу, поэтому границы обязаны быть
             // целыми: у '0.5..2.5' нет ответа на вопрос, какие числа он содержит
             // «по одному», а выдумывать его за автора незачем.
@@ -612,7 +621,7 @@ public final class Interpreter
                 }
             }
             default -> throw new WdlRuntimeError(ErrorKind.TYPE, stmt.iterable().span(),
-                    "перебрать можно массив, строку, объект или диапазон, а здесь "
+                    "перебрать можно массив, строку, байты, объект или диапазон, а здесь "
                             + iterable.type().title() + " (" + iterable + ")");
         }
         return null;
@@ -2492,6 +2501,15 @@ public final class Interpreter
                 default -> StringValue.of(String.valueOf(
                         string.value().charAt(Indexes.element(string.length(), key, "строки", span))));
             };
+            // Байты читаются ровно как массив и строка, и ни одной строки нового
+            // поведения для этого не понадобилось: правило числового ключа одно
+            // на весь язык и живёт в Indexes. Байт наружу выходит знаковым —
+            // беззнаковый ответ просят по имени, 'b.uint8(i)'.
+            case BytesValue data -> switch (key) {
+                case StringValue name -> memberOrFail(data, name.value(), span, context);
+                case RangeValue range -> slice(data, range, span);
+                default -> IntValue.of(data.at(Indexes.element(data.size(), key, "байтов", span)));
+            };
             case NumberValue number -> memberOrIndex(number, key, style, span, context);
             // Диапазон неизменяем и по индексу не читается: у него только члены.
             case RangeValue range -> memberOrIndex(range, key, style, span, context);
@@ -2739,6 +2757,19 @@ public final class Interpreter
                 throw new WdlRuntimeError(ErrorKind.TYPE, span,
                         "строку нельзя изменить по индексу или срезу: строки неизменяемы");
             }
+            // Байты неизменяемы по той же причине, что и строка, только цена решения
+            // здесь ещё и в потокобезопасности: неизменяемое значение с final byte[]
+            // внутри публикуется безопасно само по себе, и замков не нужно нигде.
+            // Место, где байты собирают, называется Writer и живёт в sys.bytes.
+            case BytesValue data -> {
+                if (key instanceof StringValue name) {
+                    throw readOnlyMember(data, name.value(), span);
+                }
+                throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                        "байты нельзя изменить по индексу или срезу: bytes неизменяем. "
+                                + "Собрать новые байты можно буфером: "
+                                + "'import sys.bytes as bin' и 'bin.writer()'");
+            }
             default -> throw new WdlRuntimeError(ErrorKind.TYPE, span,
                     "в значение типа " + container.type().title() + " нельзя записать " + how(style, key));
         }
@@ -2812,6 +2843,15 @@ public final class Interpreter
         String value = string.value();
         Indexes.Slice cut = Indexes.of(value.length(), range, "строки", span);
         return StringValue.of(value.substring(cut.from(), cut.to()));
+    }
+
+    /**
+     * Срез байтов — копия, а не окно на тот же массив: почему именно так,
+     * написано у {@link BytesValue#slice}.
+     */
+    private static Value slice(BytesValue data, RangeValue range, Span span) {
+        Indexes.Slice cut = Indexes.of(data.size(), range, "байтов", span);
+        return data.slice(cut.from(), cut.to());
     }
 
     /**

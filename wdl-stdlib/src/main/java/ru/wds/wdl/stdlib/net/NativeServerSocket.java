@@ -10,6 +10,7 @@ import ru.wds.wdl.value.Arity;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
+import ru.wds.wdl.value.types.StringValue;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -38,9 +39,15 @@ public final class NativeServerSocket {
     static NativeClass build(NativeClass socketClass) {
         return NativeClass.named("Server")
                 .field("port", IntValue.of(9088))
+                // Режим принятых соединений задаётся у сервера, а не у каждого
+                // клиента: у него один протокол на всех, и спрашивать режим
+                // в каждом accept() значило бы дать ему разойтись между вызовами.
+                .field("mode", StringValue.of(SocketState.TEXT))
 
                 .init((self, context, args, span) -> {
                     int port = (int) args.integer(0, "порт", 9088);
+                    self.put("mode", StringValue.of(SocketState.modeOf(
+                            args.string(1, "режим", SocketState.TEXT), span)));
                     try {
                         self.state(new ServerState(new ServerSocket(port)));
                     } catch (IOException e) {
@@ -63,7 +70,7 @@ public final class NativeServerSocket {
                         throw new WdlRuntimeError(span, "Ошибка при accept(): " + failed.getMessage());
                     }
                     try {
-                        return NativeSocket.wrap(socketClass, client);
+                        return NativeSocket.wrap(socketClass, client, mode(self));
                     } catch (IOException e) {
                         throw new WdlRuntimeError(span, "Ошибка при обертке сокета: " + e.getMessage());
                     }
@@ -74,7 +81,7 @@ public final class NativeServerSocket {
                     ServerState state = state(self, span);
                     Thread thread = context.threads().start(
                             "server-" + state.server().getLocalPort(),
-                            () -> accepting(state, socketClass, callback, context));
+                            () -> accepting(state, socketClass, mode(self), callback, context));
                     state.listening(thread);
                     return self;
                 })
@@ -108,8 +115,8 @@ public final class NativeServerSocket {
      * печатается в вывод запуска. Один клиент, на котором обработчик споткнулся,
      * не должен закрывать сервер для остальных.
      */
-    private static void accepting(ServerState state, NativeClass socketClass, Callback callback,
-                                  CallContext context) {
+    private static void accepting(ServerState state, NativeClass socketClass, String mode,
+                                  Callback callback, CallContext context) {
         ServerSocket server = state.server();
         while (!server.isClosed() && !Thread.currentThread().isInterrupted()) {
             Socket client;
@@ -120,13 +127,18 @@ public final class NativeServerSocket {
                 return;
             }
             try {
-                callback.call(NativeSocket.wrap(socketClass, client));
+                callback.call(NativeSocket.wrap(socketClass, client, mode));
             } catch (WdlError error) {
                 context.write("обработчик подключения: " + describe(error) + System.lineSeparator());
             } catch (IOException | RuntimeException | LinkageError failure) {
                 context.write("обработчик подключения: " + failure + System.lineSeparator());
             }
         }
+    }
+
+    /** Режим сервера из его поля: он задан при открытии и потом не меняется. */
+    private static String mode(NativeInstance self) {
+        return self.get("mode") instanceof StringValue name ? name.value() : SocketState.TEXT;
     }
 
     private static String describe(WdlError error) {

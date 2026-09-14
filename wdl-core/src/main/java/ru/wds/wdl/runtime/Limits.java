@@ -55,9 +55,18 @@ import java.util.Objects;
  * @param maxEntries   предел цепочки «скрипт → приложение → скрипт» на одном потоке:
  *                     кадры скрипта на каждом внешнем входе начинаются заново,
  *                     и {@code maxCallDepth} такую цепочку не видит
+ * @param maxBufferBytes сколько байтов разрешено запросить <b>одним</b> выделением
+ *                     ({@code bin.zeros(n)}, {@code io.readBytes(path)}, рост буфера);
+ *                     {@code 0} — без предела. Считается запрос, а не живой объём:
+ *                     освобождение отдаёт сборщик мусора, и счётчик «сколько всего
+ *                     занято сейчас» разошёлся бы с реальностью — лучше простой
+ *                     и верный предел, чем сложный и врущий. Нужен потому, что
+ *                     {@code bin.zeros(1 &lt;&lt; 40)} тратит ровно один шаг:
+ *                     счётчик шагов, останавливающий растущий по элементу массив,
+ *                     такое выделение не видит вовсе
  */
 public record Limits(long maxSteps, Duration timeout, int maxThreads,
-                     int maxCallDepth, int maxEntries) {
+                     int maxCallDepth, int maxEntries, long maxBufferBytes) {
 
     /**
      * Предел вложенности вызовов по умолчанию.
@@ -89,6 +98,15 @@ public record Limits(long maxSteps, Duration timeout, int maxThreads,
     public static final int SAFE_THREADS = 8;
 
     /**
+     * Одно выделение байтов в безопасном профиле: 64 МиБ.
+     * <p>
+     * Ориентир тот же, что у остальных чисел профиля: картинку, архив и ответ сервера
+     * честный скрипт читает целиком и не замечает предела, а опечатка в размере
+     * останавливается, не уронив приложение, в которое движок встроен.
+     */
+    public static final long SAFE_BUFFER_BYTES = 64L * 1024 * 1024;
+
+    /**
      * Через сколько шагов поток сверяется с общим счётчиком и с часами.
      * <p>
      * Счётчик один на запуск (иначе «восемь потоков по лимиту каждый» — это не лимит),
@@ -103,10 +121,11 @@ public record Limits(long maxSteps, Duration timeout, int maxThreads,
     static final int STEP_BATCH = 256;
 
     private static final Limits NONE =
-            new Limits(0, Duration.ZERO, 0, DEFAULT_CALL_DEPTH, DEFAULT_ENTRIES);
+            new Limits(0, Duration.ZERO, 0, DEFAULT_CALL_DEPTH, DEFAULT_ENTRIES, 0);
 
     private static final Limits SAFE =
-            new Limits(SAFE_STEPS, SAFE_TIMEOUT, SAFE_THREADS, DEFAULT_CALL_DEPTH, DEFAULT_ENTRIES);
+            new Limits(SAFE_STEPS, SAFE_TIMEOUT, SAFE_THREADS, DEFAULT_CALL_DEPTH, DEFAULT_ENTRIES,
+                    SAFE_BUFFER_BYTES);
 
     public Limits {
         Objects.requireNonNull(timeout, "timeout");
@@ -126,6 +145,10 @@ public record Limits(long maxSteps, Duration timeout, int maxThreads,
         if (maxEntries <= 0) {
             throw new IllegalArgumentException("предел внешних входов должен быть "
                     + "положительным: " + maxEntries);
+        }
+        if (maxBufferBytes < 0) {
+            throw new IllegalArgumentException("предел выделения не может быть "
+                    + "отрицательным: " + maxBufferBytes);
         }
     }
 
@@ -179,6 +202,16 @@ public record Limits(long maxSteps, Duration timeout, int maxThreads,
         return maxThreads > 0;
     }
 
+    /**
+     * Ограничен ли размер одного выделения.
+     * <p>
+     * Спрашивается перед каждым выделением байтов, и при {@code false} проверка
+     * кончается здесь — чтением поля и сравнением, как у {@link #counting()}.
+     */
+    public boolean limitsBuffers() {
+        return maxBufferBytes > 0;
+    }
+
     /** Таймаут в наносекундах; {@code 0}, если его нет. */
     long timeoutNanos() {
         return timeout.isZero() ? 0 : timeout.toNanos();
@@ -202,6 +235,7 @@ public record Limits(long maxSteps, Duration timeout, int maxThreads,
         private int maxThreads;
         private int maxCallDepth;
         private int maxEntries;
+        private long maxBufferBytes;
 
         private Builder(Limits from) {
             this.maxSteps = from.maxSteps;
@@ -209,6 +243,7 @@ public record Limits(long maxSteps, Duration timeout, int maxThreads,
             this.maxThreads = from.maxThreads;
             this.maxCallDepth = from.maxCallDepth;
             this.maxEntries = from.maxEntries;
+            this.maxBufferBytes = from.maxBufferBytes;
         }
 
         /** Сколько шагов скрипта можно сделать за запуск; {@code 0} — без предела. */
@@ -241,8 +276,15 @@ public record Limits(long maxSteps, Duration timeout, int maxThreads,
             return this;
         }
 
+        /** Сколько байтов можно запросить одним выделением; {@code 0} — без предела. */
+        public Builder maxBufferBytes(long bytes) {
+            this.maxBufferBytes = bytes;
+            return this;
+        }
+
         public Limits build() {
-            return new Limits(maxSteps, timeout, maxThreads, maxCallDepth, maxEntries);
+            return new Limits(maxSteps, timeout, maxThreads, maxCallDepth, maxEntries,
+                    maxBufferBytes);
         }
     }
 }

@@ -323,6 +323,16 @@ public final class ExecutionContext implements CallContext {
         run.checkpoint(span);
     }
 
+    /**
+     * Выделение байтов: тот же запуск, но другой вопрос — не про сделанную работу,
+     * а про выданный за раз ресурс. Почему это не шаг, разобрано
+     * у {@link CallContext#allocating}.
+     */
+    @Override
+    public void allocating(long bytes, String what, Span span) {
+        run.allocating(bytes, what, span);
+    }
+
     @Override
     public ScriptThreads threads() {
         return run.threads();

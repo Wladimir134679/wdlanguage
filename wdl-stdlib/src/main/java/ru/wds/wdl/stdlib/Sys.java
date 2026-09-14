@@ -41,6 +41,7 @@ public final class Sys {
     public static Map<String, Supplier<Library>> registry() {
         Map<String, Supplier<Library>> modules = new LinkedHashMap<>();
         modules.put("std", Std::library);
+        modules.put("sys/bytes", ru.wds.wdl.stdlib.bytes.Binaries::library);
         modules.put("sys/io", Io::library);
         modules.put("sys/json", Json::library);
         modules.put("sys/meta", Meta::library);

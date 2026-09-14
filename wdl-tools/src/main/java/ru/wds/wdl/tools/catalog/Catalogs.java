@@ -271,7 +271,9 @@ public final class Catalogs {
      */
     private static String constant(String name, Value value) {
         return switch (value.type()) {
-            case NULL, BOOL, NUMBER, STRING, RANGE -> {
+            // Байты сюда попадают наравне с простыми типами потому, что их печать
+            // и есть короткая запись — длина и превью, а не содержимое.
+            case NULL, BOOL, NUMBER, STRING, RANGE, BYTES -> {
                 String shown = value.toString();
                 yield shown.length() > 40 || shown.indexOf('\n') >= 0 ? name : name + " = " + shown;
             }

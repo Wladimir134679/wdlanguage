@@ -190,6 +190,10 @@ public final class Main implements Callable<Integer> {
             description = "Сколько потоков разрешено скрипту (th.spawn и th.pool)")
     private int maxThreads;
 
+    @Option(names = {"--max-buffer"}, paramLabel = "<байт>",
+            description = "Сколько байтов можно запросить одним выделением (bin.zeros, readBytes)")
+    private long maxBufferBytes;
+
     @Option(names = {"--catalog"},
             description = "Показать имена, доступные скриптам: встроенные, std и модули sys.*")
     private boolean showCatalog;
@@ -791,7 +795,7 @@ public final class Main implements Callable<Integer> {
      * и по той же причине.
      */
     private Limits limits() {
-        if (maxSteps <= 0 && timeoutSeconds <= 0 && maxThreads <= 0) {
+        if (maxSteps <= 0 && timeoutSeconds <= 0 && maxThreads <= 0 && maxBufferBytes <= 0) {
             return Limits.none();
         }
         return Limits.builder()
@@ -800,6 +804,7 @@ public final class Main implements Callable<Integer> {
                         ? Duration.ofNanos((long) (timeoutSeconds * 1_000_000_000L))
                         : Duration.ZERO)
                 .maxThreads(Math.max(maxThreads, 0))
+                .maxBufferBytes(Math.max(maxBufferBytes, 0))
                 .build();
     }
 

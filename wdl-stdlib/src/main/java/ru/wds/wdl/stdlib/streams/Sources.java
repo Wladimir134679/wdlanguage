@@ -7,12 +7,14 @@ import ru.wds.wdl.stdlib.Files;
 import ru.wds.wdl.stdlib.thread.Threads;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.Value;
+import ru.wds.wdl.value.types.BytesValue;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
 import ru.wds.wdl.value.types.StringValue;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -214,6 +216,57 @@ final class Sources {
                 } catch (IOException ignored) {
                     // Закрытие — последнее, что делает уже отработавший конвейер,
                     // и падать на нём незачем: читать всё равно больше нечего.
+                }
+            }
+        };
+    }
+
+    /**
+     * Файл кусками байтов — ленивый ответ на «а если файл не влезает в память».
+     * <p>
+     * {@code io.readBytes} читает файл целиком, и для картинки это правильно;
+     * для пятидесяти гигабайт — нет. Здесь же в памяти живёт ровно один кусок,
+     * и предел выделения ({@code Limits.maxBufferBytes}) проверяется один раз,
+     * на размер куска, а не на размер файла.
+     * <p>
+     * Последний кусок короче остальных — так же, как последняя строка у {@code lines}
+     * бывает без перевода строки. Дополнять его нулями значило бы отдать наверх
+     * данные, которых в файле нет.
+     */
+    static Source chunks(InputStream source, int size, Runnable released,
+                         CallContext context, Span span) {
+        return new Source() {
+
+            private boolean closed;
+
+            @Override
+            public Value next() {
+                if (closed) {
+                    return null;
+                }
+                context.step(span);
+                byte[] buffer = new byte[size];
+                int read = Files.io(span, () -> source.readNBytes(buffer, 0, size));
+                if (read <= 0) {
+                    // Дочитали — закрываем сразу: ждать терминальной операции незачем,
+                    // а забытый дескриптор держит файл до конца запуска.
+                    close();
+                    return null;
+                }
+                return read == size ? BytesValue.owning(buffer) : BytesValue.of(buffer, 0, read);
+            }
+
+            @Override
+            public void close() {
+                if (closed) {
+                    return;
+                }
+                closed = true;
+                released.run();
+                try {
+                    source.close();
+                } catch (IOException ignored) {
+                    // Закрытие — последнее, что делает уже отработавший конвейер.
                 }
             }
         };

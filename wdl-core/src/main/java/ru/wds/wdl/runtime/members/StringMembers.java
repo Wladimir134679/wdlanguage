@@ -1,6 +1,7 @@
 package ru.wds.wdl.runtime.members;
 
 import ru.wds.wdl.runtime.Args;
+import ru.wds.wdl.runtime.Encodings;
 import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.Indexes;
 import ru.wds.wdl.runtime.Overloading;
@@ -53,6 +54,20 @@ public final class StringMembers {
                     text(receiver).codePoints()
                             .forEach(point -> chars.add(StringValue.of(new String(Character.toChars(point)))));
                     return ArrayValue.of(chars);
+                })
+                // Текст в байты — без импорта: текст в языке уже есть, и заставлять
+                // импортировать модуль ради перевода строки в байты — то же самое,
+                // что заставлять импортировать его ради len. Свойство, а не метод:
+                // существительное, без аргументов, ответ зависит только от строки.
+                .snapshot("bytes", (receiver, context, span) ->
+                        Encodings.bytes(text(receiver), Encodings.DEFAULT, "string.bytes", span))
+                // А вот кодировка — аргумент, значит метод. Имя глагольное по той же
+                // причине: за ним стоит перекодирование, которое может не получиться.
+                .method("encode", Arity.exactly(1), (receiver, context, arguments, span) -> {
+                    Args args = args("encode", arguments, context, span);
+                    return Encodings.bytes(text(receiver),
+                            Encodings.of(args.string(0, "кодировка"), "string.encode()", span),
+                            "string.encode()", span);
                 })
                 .method("indexOf", Arity.exactly(1), (receiver, context, arguments, span) ->
                         IntValue.of(text(receiver).indexOf(args("indexOf", arguments, context, span)

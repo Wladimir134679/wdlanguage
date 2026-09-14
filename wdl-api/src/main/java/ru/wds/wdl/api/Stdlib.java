@@ -7,6 +7,7 @@ import ru.wds.wdl.stdlib.Json;
 import ru.wds.wdl.stdlib.Meta;
 import ru.wds.wdl.stdlib.Std;
 import ru.wds.wdl.stdlib.Times;
+import ru.wds.wdl.stdlib.bytes.Binaries;
 import ru.wds.wdl.stdlib.gui.Gui;
 import ru.wds.wdl.stdlib.net.Sockets;
 import ru.wds.wdl.stdlib.streams.Streams;
@@ -87,6 +88,10 @@ public enum Stdlib {
             }
             case SAFE -> {
                 modules.put("std", Std::library);
+                // Байты мира не трогают вовсе: ни файла, ни сокета, ни процесса —
+                // только память, и её размер держит предел выделения запуска
+                // (Limits.maxBufferBytes, который SAFE ставит сам).
+                modules.put("sys/bytes", Binaries::library);
                 modules.put("sys/json", Json::library);
                 // Даты и метаданные декораторов мира не трогают: java.time неизменяем
                 // и умеет только арифметику, sys/meta собирает карту по значению,
@@ -99,6 +104,7 @@ public enum Stdlib {
             }
             case STANDARD -> {
                 modules.put("std", Std::library);
+                modules.put("sys/bytes", Binaries::library);
                 modules.put("sys/io", Io::library);
                 modules.put("sys/json", Json::library);
                 modules.put("sys/meta", Meta::library);

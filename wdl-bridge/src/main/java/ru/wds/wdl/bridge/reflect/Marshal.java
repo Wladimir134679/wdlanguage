@@ -10,6 +10,7 @@ import ru.wds.wdl.value.FunctionValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.BoolValue;
+import ru.wds.wdl.value.types.BytesValue;
 import ru.wds.wdl.value.types.FloatValue;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.IntValue;
@@ -135,6 +136,11 @@ public final class Marshal {
             // Оборачивать сам Optional значило бы заставить скрипт звать get().
             case Optional<?> maybe -> maybe.isPresent() ? toValue(maybe.get(), span) : NullValue.NULL;
             case CharSequence text -> StringValue.of(text.toString());
+            // Байты переезжают одним куском памяти, а не поэлементно: миллион байт
+            // из Java — это один clone(), а не миллион значений в списке. Ветка стоит
+            // до общей ветки массива намеренно: та разложила бы byte[] ровно в то
+            // представление, ради ухода от которого тип bytes и заведён.
+            case byte[] octets -> BytesValue.of(octets);
             case Collection<?> items -> collection(items, span);
             case Map<?, ?> entries -> map(entries, span);
             default -> object.getClass().isArray() ? array(object, span) : wrap(object, span);
@@ -225,6 +231,7 @@ public final class Marshal {
             case FloatValue number -> realCost(number.value(), target);
             case StringValue text -> stringCost(text.value(), target);
             case ArrayValue ignored -> listCost(target);
+            case BytesValue ignored -> target == byte[].class ? EXACT : object(target);
             case FunctionValue ignored -> JavaProxy.sam(target) != null ? 2 : object(target);
             case InstanceObjectValue instance -> instanceCost(instance, target);
             case MapValue ignored -> Map.class.isAssignableFrom(target) ? 3 : object(target);
@@ -368,6 +375,11 @@ public final class Marshal {
             case FloatValue number -> real(number.value(), target, subject, span);
             case StringValue text -> string(text.value(), target);
             case ArrayValue items -> list(items, target, subject, context, span);
+            // Обратно — тоже одним куском. Диапазон при этом не проверяется ни в одну
+            // сторону: у байта в контейнере знака нет, пока его не прочитали, —
+            // знак появляется ровно в момент ответа скрипту.
+            case BytesValue data -> target == byte[].class || target == Object.class
+                    ? data.toArray() : NO;
             case FunctionValue function -> proxy(function, target, context);
             case InstanceObjectValue instance -> instance(instance, target, subject, context, span);
             case MapValue entries -> Map.class.isAssignableFrom(target) || target == Object.class

@@ -86,7 +86,7 @@ class MembershipTest {
     @DisplayName("искать можно только в массиве, строке или объекте")
     void containerMustBeContainer() {
         assertTrue(errorOf("1 in 5").getMessage()
-                .contains("искать можно в массиве, строке, объекте или диапазоне, а здесь число (5)"));
+                .contains("искать можно в массиве, строке, байтах, объекте или диапазоне, а здесь число (5)"));
         assertTrue(errorOf("1 in null").getMessage().contains("искать можно в массиве"));
         assertTrue(errorOf("5 in \"текст\"").getMessage()
                 .contains("в строке ищется строка, а здесь число (5)"));

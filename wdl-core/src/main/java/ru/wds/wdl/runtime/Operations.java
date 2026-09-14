@@ -5,6 +5,7 @@ import ru.wds.wdl.ast.op.UnaryOp;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.ClassValue;
 import ru.wds.wdl.value.types.ArrayValue;
+import ru.wds.wdl.value.types.BytesValue;
 import ru.wds.wdl.value.types.BoolValue;
 import ru.wds.wdl.value.types.FloatValue;
 import ru.wds.wdl.value.types.IntValue;
@@ -173,6 +174,11 @@ public final class Operations {
         }
         if (left instanceof ArrayValue a && right instanceof ArrayValue b) {
             return ArrayValue.concat(a, b);
+        }
+        // Байты склеиваются с байтами — и только: 'data + "хвост"' уже разобрано
+        // выше строкой, а 'data + 1' почти наверняка значит ошибку выше.
+        if (left instanceof BytesValue a && right instanceof BytesValue b) {
+            return BytesValue.concat(a, b);
         }
         return null;
     }
@@ -450,6 +456,20 @@ public final class Operations {
                 }
                 yield text.value().contains(part.value());
             }
+            // В байтах ищется байт в любой записи или целая последовательность:
+            // подпись формата ищут вторым способом, разделитель пакета — первым.
+            case BytesValue data -> {
+                if (item instanceof BytesValue part) {
+                    yield data.indexOf(part, 0) >= 0;
+                }
+                Byte octet = Octets.matching(item);
+                if (octet == null) {
+                    throw new WdlRuntimeError(ErrorKind.TYPE, span,
+                            "в байтах ищется байт (-128..255) или bytes, а здесь "
+                                    + item.type().title() + " (" + item + ")");
+                }
+                yield data.contains(octet);
+            }
             case MapValue object -> object.has(item);
             // У диапазона спрашивается число, и любое: вопрос «между ли» осмыслен
             // и для вещественного, а целые границы нужны только перебору.
@@ -467,7 +487,7 @@ public final class Operations {
 
     private static WdlRuntimeError notContainer(Value container, Span span) {
         return new WdlRuntimeError(ErrorKind.TYPE, span,
-                "искать можно в массиве, строке, объекте или диапазоне, а здесь "
+                "искать можно в массиве, строке, байтах, объекте или диапазоне, а здесь "
                         + container.type().title() + " (" + container + ")");
     }
 

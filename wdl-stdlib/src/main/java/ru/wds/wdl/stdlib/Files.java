@@ -7,9 +7,11 @@ import ru.wds.wdl.runtime.ErrorKind;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.BoolValue;
+import ru.wds.wdl.value.types.BytesValue;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.StringValue;
 
@@ -97,6 +99,22 @@ public final class Files {
                 return self;
             })
 
+            // Байты, а не текст: картинку, архив и всё, что не текст, читать строкой
+            // нельзя — декодер UTF-8 подменяет непарные байты на U+FFFD, и обратно
+            // того же файла из неё уже не собрать.
+            .method("readBytes", Arity.exactly(0), (self, context, arguments, span) ->
+                    readBytes(path(self, span), context, span))
+
+            .method("writeBytes", Arity.exactly(1), (self, context, arguments, span) -> {
+                writeBytes(path(self, span), arguments.bytes(0, "байты"), false, span);
+                return self;
+            })
+
+            .method("appendBytes", Arity.exactly(1), (self, context, arguments, span) -> {
+                writeBytes(path(self, span), arguments.bytes(0, "байты"), true, span);
+                return self;
+            })
+
             .method("exists", Arity.exactly(0), (self, context, arguments, span) ->
                     BoolValue.of(java.nio.file.Files.exists(path(self, span))))
 
@@ -124,6 +142,38 @@ public final class Files {
 
             .constant("SEPARATOR", StringValue.of(java.io.File.separator))
             .build();
+    }
+
+    /**
+     * Читает файл целиком байтами.
+     * <p>
+     * Размер спрашивается <b>до</b> чтения и отмечается у запуска как выделение
+     * ({@code Limits.maxBufferBytes}): иначе {@code io.readBytes} на файле в терабайт
+     * уронил бы приложение, потратив ровно один шаг скрипта. Шаги берутся пачкой,
+     * пропорционально объёму, — по тому же правилу, что у всех операций над байтами.
+     * <p>
+     * Открыт наружу вместе с {@link #writeBytes}: байты читает не один модуль,
+     * а {@code sys.io} и {@code sys.streams}, и второй набор текстов «не удалось
+     * обратиться к файлу» разошёлся бы с первым.
+     */
+    public static BytesValue readBytes(Path path, CallContext context, Span span) {
+        long size = io(span, () -> java.nio.file.Files.size(path));
+        context.allocating(size, "io.readBytes()", span);
+        ru.wds.wdl.runtime.Octets.work(context, size, span);
+        return BytesValue.owning(io(span, () -> java.nio.file.Files.readAllBytes(path)));
+    }
+
+    /** Пишет байты в файл: затирая прежнее либо дописывая в конец. */
+    public static void writeBytes(Path path, BytesValue data, boolean append, Span span) {
+        byte[] raw = data.toArray();
+        io(span, () -> {
+            if (append) {
+                java.nio.file.Files.write(path, raw, StandardOpenOption.CREATE,
+                        StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+            } else {
+                java.nio.file.Files.write(path, raw);
+            }
+        });
     }
 
     /** Путь из поля {@code path}: поле обычное, значит и прочитать его можно обычно. */

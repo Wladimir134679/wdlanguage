@@ -152,6 +152,27 @@ public final class Io {
                 })
                 .doc("дописывает строку в конец файла; возвращает путь")
 
+                // Байты — отдельными именами, а не режимом у read/write: тип ответа
+                // должен быть виден из текста вызова. io.read вернёт строку всегда,
+                // io.readBytes — байты всегда, и гадать по аргументам не приходится.
+                .function("readBytes", PATH, (context, arguments, span) ->
+                        Files.readBytes(Files.pathOf(arguments, 0), context, span))
+                .doc("читает файл целиком байтами — без всякого декодирования")
+
+                .function("writeBytes", PATH_DATA, (context, arguments, span) -> {
+                    Files.writeBytes(Files.pathOf(arguments, 0),
+                            arguments.bytes(1, "байты"), false, span);
+                    return arguments.get(0);
+                })
+                .doc("записывает байты в файл, затирая прежнее; возвращает путь")
+
+                .function("appendBytes", PATH_DATA, (context, arguments, span) -> {
+                    Files.writeBytes(Files.pathOf(arguments, 0),
+                            arguments.bytes(1, "байты"), true, span);
+                    return arguments.get(0);
+                })
+                .doc("дописывает байты в конец файла; возвращает путь")
+
                 .function("exists", PATH, path((path, span) ->
                         BoolValue.of(java.nio.file.Files.exists(path))))
                 .doc("есть ли такой файл или каталог")
@@ -203,6 +224,10 @@ public final class Io {
     /** Путь и то, что в него пишут. */
     private static final Signature PATH_TEXT =
             Signature.of(Param.required("path"), Param.required("text"));
+
+    /** Путь и байты — второе имя, потому что имя параметра видно в вызове. */
+    private static final Signature PATH_DATA =
+            Signature.of(Param.required("path"), Param.required("data"));
 
     /** Тело функции от одного пути — таких здесь большинство. */
     private static BuiltinFunction.Body path(PathFunction body) {

@@ -467,6 +467,17 @@ public final class WdlEngine {
         }
 
         /**
+         * Короткая форма: сколько байтов можно запросить одним выделением;
+         * {@code 0} — без предела.
+         * <p>
+         * Тот предел, которого не заменяет счётчик шагов: {@code bin.zeros(1 << 40)}
+         * тратит ровно один шаг.
+         */
+        public Builder maxBufferBytes(long bytes) {
+            return limits(current().toBuilder().maxBufferBytes(bytes).build());
+        }
+
+        /**
          * Пределы, от которых отсчитываются короткие формы.
          * <p>
          * Заданные явно, иначе те, что дал бы набор: {@code stdlib(SAFE).maxSteps(1000)}

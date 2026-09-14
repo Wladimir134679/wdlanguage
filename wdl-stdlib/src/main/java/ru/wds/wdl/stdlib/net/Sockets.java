@@ -21,10 +21,10 @@ public final class Sockets {
         return Module.named("sys/net/socket")
                 .doc("TCP: соединение и слушающий сокет")
                 .type("Socket", scope -> NativeSocket.build())
-                .doc("соединение: чтение и запись строк, закрывается через use")
+                .doc("соединение: строки или байты — режим выбирается при открытии")
                 .type("Server", scope -> NativeServerSocket.build(
                         Module.typeIn(scope, "Socket")))
-                .doc("слушающий сокет: accept() отдаёт соединение")
+                .doc("слушающий сокет: accept() отдаёт соединение в режиме сервера")
                 .build();
     }
 }

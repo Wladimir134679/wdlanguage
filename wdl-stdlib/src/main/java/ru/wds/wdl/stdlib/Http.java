@@ -14,6 +14,7 @@ import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.NumberValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.BoolValue;
+import ru.wds.wdl.value.types.BytesValue;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.types.NullValue;
@@ -81,11 +82,19 @@ public final class Http {
      * обычным обращением, печатаются и перебираются без единой строчки здесь.
      * Метод остался ровно один — {@code ok()}, потому что «успех» это диапазон,
      * а не поле.
+     * <p>
+     * <b>Тело лежит двумя полями, и это не дублирование.</b> {@code bytes} — ответ
+     * как он пришёл, байт в байт; {@code body} — он же, декодированный в UTF-8.
+     * Картинку, архив и любой двоичный ответ читают первым полем: у строки, собранной
+     * декодером, непарные байты заменены на {@code U+FFFD}, и обратно того же ответа
+     * из неё не собрать. Тело читается один раз и в байты — {@code body} собирается
+     * из них же, второго запроса за этим не стоит.
      */
     private static NativeClass responseClass() {
         return NativeClass.named("Response")
                 .field("status")
                 .field("body", StringValue.EMPTY)
+                .field("bytes", BytesValue.EMPTY)
                 .field("headers", new MapValue())
                 .field("url", StringValue.EMPTY)
                 .method("ok", Arity.exactly(0), (self, context, arguments, span) -> {
@@ -176,19 +185,28 @@ public final class Http {
 
     private Value send(String method, URI uri, Value body, MapValue options,
                        CallContext context, Span span) {
-        HttpRequest.BodyPublisher payload = body == null || body == NullValue.NULL
-                ? HttpRequest.BodyPublishers.noBody()
-                : HttpRequest.BodyPublishers.ofString(body.display(), StandardCharsets.UTF_8);
+        // Байты уходят как есть — иначе display() отправил бы на сервер не тело,
+        // а его превью ('bytes(1048576: 89 50 …)'). Всё остальное — текстом в UTF-8,
+        // как и раньше.
+        HttpRequest.BodyPublisher payload;
+        if (body == null || body == NullValue.NULL) {
+            payload = HttpRequest.BodyPublishers.noBody();
+        } else if (body instanceof BytesValue data) {
+            payload = HttpRequest.BodyPublishers.ofByteArray(data.toArray());
+        } else {
+            payload = HttpRequest.BodyPublishers.ofString(body.display(), StandardCharsets.UTF_8);
+        }
 
         HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                 .timeout(timeout(options, span))
                 .method(method, payload);
         headers(options, request, span);
 
-        HttpResponse<String> response;
+        HttpResponse<byte[]> response;
         try {
-            response = client().send(request.build(),
-                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            // Байтами, а не строкой: декодирование — дело вызывающего, и молча
+            // портить двоичный ответ модуль не вправе.
+            response = client().send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
         } catch (HttpTimeoutException timeout) {
             throw new WdlRuntimeError(span, "истекло время ожидания ответа от " + uri);
         } catch (IOException failure) {
@@ -204,15 +222,21 @@ public final class Http {
                     + reason(wrong));
         }
 
+        byte[] raw = response.body();
+        context.allocating(raw.length, "http: тело ответа", span);
         return responseClass.instantiate(List.of(
                 IntValue.of(response.statusCode()),
-                StringValue.of(response.body()),
+                // Терпимое декодирование, а не отказ: ответ сервера — это то, что
+                // прислали, и ронять скрипт на чужой кодировке нельзя. Кому нужна
+                // точность — берёт r.bytes и декодирует сам, каким угодно способом.
+                StringValue.of(new String(raw, StandardCharsets.UTF_8)),
+                BytesValue.of(raw),
                 headersOf(response),
                 StringValue.of(uri.toString())), context, span);
     }
 
     /** Заголовки ответа: имя в нижнем регистре, значения через запятую. */
-    private static MapValue headersOf(HttpResponse<String> response) {
+    private static MapValue headersOf(HttpResponse<byte[]> response) {
         MapValue headers = new MapValue();
         for (Map.Entry<String, List<String>> entry : response.headers().map().entrySet()) {
             headers.put(entry.getKey().toLowerCase(Locale.ROOT),

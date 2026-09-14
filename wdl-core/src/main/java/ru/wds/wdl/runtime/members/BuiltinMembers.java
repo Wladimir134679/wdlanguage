@@ -47,6 +47,7 @@ public final class BuiltinMembers {
         sets.put(ValueType.TRAIT, withType(TraitMembers.set()));
         sets.put(ValueType.MODULE, withType(ModuleMembers.set()));
         sets.put(ValueType.RANGE, withType(RangeMembers.set()));
+        sets.put(ValueType.BYTES, withType(BytesMembers.set()));
         SETS = Collections.unmodifiableMap(sets);
     }
 

@@ -23,6 +23,7 @@ import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.RangeValue;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -78,6 +79,10 @@ public final class Streams {
 
     /** Один путь — контракт {@code lines}, тот же, что у функций {@code sys.io}. */
     private static final Signature PATH = Signature.of(Param.required("path"));
+
+    /** Путь и размер куска: {@code streams.chunks("big.bin", 65536)}. */
+    private static final Signature CHUNKS =
+            Signature.of(Param.required("path"), Param.required("size"));
 
     /** Начало и конец — обе границы включительно, как у {@code a..b}. */
     private static final Signature BOUNDS =
@@ -160,6 +165,12 @@ public final class Streams {
                                 lines(Files.pathOf(arguments, 0), open, context, span)))
                 .documented("ленивое построчное чтение файла; закрывается через use"));
 
+        scope.define("chunks", BuiltinFunction.of("chunks", CHUNKS,
+                        (context, arguments, span) -> NativeStream.wrap(streamClass,
+                                chunks(Files.pathOf(arguments, 0),
+                                        chunkSize(arguments, context, span), open, context, span)))
+                .documented("ленивое чтение файла кусками байтов; закрывается через use"));
+
         // Член массива: 'a.stream()'. Без import его нет, ядро не меняется, цена
         // нулевая — набор ставится в таблицу членов запуска ровно тогда, когда модуль
         // выполнили. Метод, а не свойство: 'a.stream' свойством отдавало бы значение,
@@ -211,6 +222,39 @@ public final class Streams {
             return Sources.of(array.items(), context, span);
         }
         throw arguments.wrong(index, "звено склейки", "ожидался поток или массив");
+    }
+
+    /**
+     * Источник кусков байтов поверх открытого файла.
+     * <p>
+     * Открывается и учитывается ровно как построчный: тем же {@code Files.io},
+     * с той же регистрацией в реестре открытых источников. Разница одна — что
+     * читается, байты или строки.
+     */
+    private static Source chunks(Path path, int size, Set<Source> open,
+                                 CallContext context, Span span) {
+        InputStream source = Files.io(span, () -> java.nio.file.Files.newInputStream(path));
+        Source[] holder = new Source[1];
+        holder[0] = Sources.chunks(source, size, () -> open.remove(holder[0]), context, span);
+        open.add(holder[0]);
+        return holder[0];
+    }
+
+    /**
+     * Размер куска: положительный и такой, чтобы предел выделения запуска его пропустил.
+     * <p>
+     * Предел спрашивается один раз, здесь, а не на каждом куске: размер у всех кусков
+     * один, и повторять вопрос на каждой итерации значило бы платить за ответ,
+     * который уже известен.
+     */
+    private static int chunkSize(Args arguments, CallContext context, Span span) {
+        long size = arguments.integer(1, "размер куска");
+        if (size <= 0 || size > Integer.MAX_VALUE - 8) {
+            throw new WdlRuntimeError(ErrorKind.VALUE, span, "streams.chunks(): размер куска"
+                    + " должен быть положительным числом байтов, а здесь " + size);
+        }
+        context.allocating(size, "streams.chunks()", span);
+        return (int) size;
     }
 
     /**

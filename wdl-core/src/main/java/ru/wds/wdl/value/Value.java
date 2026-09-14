@@ -28,13 +28,19 @@ import ru.wds.wdl.value.types.*;
  * обязан отвечать про него честно, иначе {@code x is Range} пришлось бы писать
  * проверкой ключей.
  * <p>
+ * {@link BytesValue} — двенадцатый тип, и попал сюда по тому же признаку, что и
+ * диапазон: на все вопросы, которые тип обязан иметь, у готовой последовательности
+ * байтов ответы есть — длина, элемент, срез, обход, равенство по содержимому, печать.
+ * Неизменяем, как строка; место, где байты <i>собирают</i>, — класс {@code Writer}
+ * из {@code sys.bytes}, и у него ответов как раз нет, поэтому он класс, а не тип.
+ * <p>
  * {@link ModuleValue} стоит отдельно от {@link MapValue}, хотя устроен похоже:
  * набор имён модуля задан его файлом, и обращаться с ним как со словарём — дописывать
  * ключи, спрашивать несуществующее и получать {@code null} — значит терять ошибки,
  * которые язык умеет назвать сразу.
  */
 public sealed interface Value
-        permits NullValue, BoolValue, NumberValue, StringValue, ArrayValue, MapValue,
+        permits NullValue, BoolValue, NumberValue, StringValue, BytesValue, ArrayValue, MapValue,
                 ModuleValue, RangeValue, FunctionValue, ClassValue, TraitValue {
 
     ValueType type();

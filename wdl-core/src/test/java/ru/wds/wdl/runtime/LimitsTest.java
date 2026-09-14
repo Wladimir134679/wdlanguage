@@ -330,5 +330,41 @@ class LimitsTest {
         assertThrows(IllegalArgumentException.class,
                 () -> Limits.builder().timeout(Duration.ofSeconds(-1)).build());
         assertThrows(IllegalArgumentException.class, () -> Limits.builder().maxCallDepth(0).build());
+        assertThrows(IllegalArgumentException.class,
+                () -> Limits.builder().maxBufferBytes(-1).build());
+    }
+
+    // --- выделение байтов -----------------------------------------------------
+
+    @Test
+    @DisplayName("Одно выделение больше предела — обычная ошибка скрипта, а не остановка")
+    void allocationIsRefusedAsScriptError() {
+        // Обычная ошибка намеренно: «это выделение слишком велико» значит «эта
+        // операция не удалась», и поймать её обработчиком совершенно законно, —
+        // то же правило, что у отказа в потоке.
+        WdlRuntimeError refused = assertThrows(WdlRuntimeError.class, () -> {
+            ExecutionContext context = ExecutionContext.fresh()
+                    .withLimits(Limits.builder().maxBufferBytes(1024).build());
+            context.allocating(4096, "тест", Span.NONE);
+        });
+        assertEquals(ErrorKind.VALUE, refused.kind());
+        assertTrue(refused.getMessage().contains("разрешено 1024"), refused.getMessage());
+    }
+
+    @Test
+    @DisplayName("Выключенный предел выделения не отказывает ничему")
+    void allocationIsFreeWithoutLimit() {
+        ExecutionContext context = ExecutionContext.fresh();
+        assertFalse(context.limits().limitsBuffers());
+        // Терабайт «просят» без единого байта настоящей памяти: проверка кончается
+        // чтением поля, до всякого выделения.
+        context.allocating(1L << 40, "тест", Span.NONE);
+    }
+
+    @Test
+    @DisplayName("Безопасный профиль ставит предел выделения сам")
+    void safeProfileLimitsAllocation() {
+        assertEquals(Limits.SAFE_BUFFER_BYTES, Limits.safeDefaults().maxBufferBytes());
+        assertTrue(Limits.safeDefaults().limitsBuffers());
     }
 }

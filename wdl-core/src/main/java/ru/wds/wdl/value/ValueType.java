@@ -23,7 +23,8 @@ public enum ValueType {
     CLASS("class", "класс"),
     TRAIT("trait", "трейт"),
     MODULE("module", "модуль"),
-    RANGE("range", "диапазон");
+    RANGE("range", "диапазон"),
+    BYTES("bytes", "байты");
 
     private final String id;
     private final String title;

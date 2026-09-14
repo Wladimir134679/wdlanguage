@@ -11,6 +11,7 @@ import ru.wds.wdl.value.TraitValue;
 import ru.wds.wdl.value.Value;
 import ru.wds.wdl.value.types.ArrayValue;
 import ru.wds.wdl.value.types.BoolValue;
+import ru.wds.wdl.value.types.BytesValue;
 import ru.wds.wdl.value.types.InstanceObjectValue;
 import ru.wds.wdl.value.types.MapValue;
 import ru.wds.wdl.value.types.NullValue;
@@ -197,6 +198,25 @@ public final class Args extends AbstractList<Value> {
 
     public ArrayValue array(int index) {
         return array(index, null);
+    }
+
+    /**
+     * Байты — готовая последовательность, а не массив чисел.
+     * <p>
+     * Массив сюда не приводится молча: {@code [1, 2]} и {@code bin.of([1, 2])} —
+     * разные значения с разными обещаниями, и перевод между ними пишется по имени
+     * ({@code bin.of}), чтобы место копирования было видно в тексте.
+     */
+    public BytesValue bytes(int index, String role) {
+        Value value = at(index);
+        if (value instanceof BytesValue data) {
+            return data;
+        }
+        throw wrong(index, role, "ожидались байты");
+    }
+
+    public BytesValue bytes(int index) {
+        return bytes(index, null);
     }
 
     /**

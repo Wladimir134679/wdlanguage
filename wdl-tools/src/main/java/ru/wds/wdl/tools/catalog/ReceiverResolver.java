@@ -133,7 +133,7 @@ public final class ReceiverResolver {
      * так и остаётся неизвестным: широкое, но ложное completion хуже пустого.
      * <p>
      * Уверенность {@code INFERRED}, а не {@code EXACT}: диапазон в скобках даёт срез
-     * только у массива и строки, а у объекта остаётся обычным ключом — и там
+     * только у массива, строки и байтов, а у объекта остаётся обычным ключом — и там
      * значением под ним лежит что угодно.
      */
     private ReceiverType sliceOf(AccessExpr access) {
@@ -144,7 +144,7 @@ public final class ReceiverResolver {
             return null;
         }
         return switch (receiver.valueType()) {
-            case ARRAY, STRING -> new ReceiverType.Builtin(receiver.valueType(),
+            case ARRAY, STRING, BYTES -> new ReceiverType.Builtin(receiver.valueType(),
                     ReceiverType.Confidence.INFERRED, "срез");
             default -> null;
         };
