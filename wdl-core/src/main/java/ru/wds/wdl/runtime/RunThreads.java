@@ -49,6 +49,16 @@ public final class RunThreads implements ScriptThreads {
     /** Занятые места квоты: потоки {@code spawn} плюс размеры открытых пулов. */
     private final AtomicInteger used = new AtomicInteger();
 
+    /**
+     * Чем будить тех, кого прерывание не будит.
+     * <p>
+     * Поток, стоящий в {@code accept()} или {@code read()}, из них по {@code interrupt}
+     * не выходит; будит его закрытие того, чего он ждёт. Знает об этом только тот, кто
+     * поток завёл, — он и оставляет здесь свой короткий вызов
+     * ({@link ScriptThreads#start(String, Runnable, Runnable)}).
+     */
+    private final ConcurrentHashMap<Thread, Runnable> wakers = new ConcurrentHashMap<>();
+
     private final AtomicInteger counter = new AtomicInteger();
     private final Run run;
 
@@ -58,6 +68,11 @@ public final class RunThreads implements ScriptThreads {
 
     @Override
     public Thread start(String name, Runnable body) {
+        return start(name, body, null);
+    }
+
+    @Override
+    public Thread start(String name, Runnable body, Runnable waker) {
         Objects.requireNonNull(body, "body");
         if (run.isClosed()) {
             // Заводить поток в закрытом запуске бессмысленно: первый же его вызов
@@ -73,6 +88,7 @@ public final class RunThreads implements ScriptThreads {
                 body.run();
             } finally {
                 live.remove(Thread.currentThread());
+                wakers.remove(Thread.currentThread());
                 // Место освобождается вместе с потоком, а не при закрытии запуска:
                 // скрипт, честно дождавшийся 'join', вправе завести следующий.
                 used.decrementAndGet();
@@ -82,10 +98,14 @@ public final class RunThreads implements ScriptThreads {
         // В реестр — до старта: иначе короткий поток успел бы завершиться и снять себя
         // раньше, чем его записали, и остался бы в реестре навсегда.
         live.add(thread);
+        if (waker != null) {
+            wakers.put(thread, waker);
+        }
         try {
             thread.start();
         } catch (RuntimeException | Error failed) {
             live.remove(thread);
+            wakers.remove(thread);
             used.decrementAndGet();
             throw failed;
         }
@@ -136,11 +156,33 @@ public final class RunThreads implements ScriptThreads {
      * канала, до точки проверки уже не дойдёт, и достать его можно только так.
      */
     void interruptAll() {
+        // Будильник — первым: поток, которому есть чем просыпаться, к моменту
+        // прерывания уже вышел из блокирующего чтения, и прерывание застанет его
+        // в скрипте, где ему и место.
         for (Thread thread : live) {
+            wake(thread);
             thread.interrupt();
         }
         for (Thread thread : pooled) {
             thread.interrupt();
+        }
+    }
+
+    /**
+     * Зовёт будильник потока, если тот его оставил.
+     * <p>
+     * Ошибка будильника не отменяет остановку остальных: закрытие запуска — не то
+     * место, где можно бросить половину потоков непрерванными из-за одного сокета,
+     * который закрылся неудачно.
+     */
+    private void wake(Thread thread) {
+        Runnable waker = wakers.remove(thread);
+        if (waker == null) {
+            return;
+        }
+        try {
+            waker.run();
+        } catch (RuntimeException | LinkageError ignored) {
         }
     }
 

@@ -7,6 +7,8 @@ import ru.wds.wdl.runtime.WdlError;
 import ru.wds.wdl.runtime.WdlRuntimeError;
 import ru.wds.wdl.source.Span;
 import ru.wds.wdl.value.Arity;
+import ru.wds.wdl.value.Signature;
+import ru.wds.wdl.value.Signature.Param;
 import ru.wds.wdl.value.CallContext;
 import ru.wds.wdl.value.types.IntValue;
 import ru.wds.wdl.value.types.NullValue;
@@ -26,10 +28,11 @@ import java.net.Socket;
  * по закрытым модулям.
  * <p>
  * Обработчик вызывается <b>в том же потоке приёма</b> и потому обязан быть коротким:
- * его дело — принять клиента и подписаться на его строки ({@code client.onLine(...)}),
- * а не разговаривать с ним. Каждый {@code onLine} заводит свой поток, и вот в них
- * клиенты уже обслуживаются одновременно. Долгая работа прямо здесь задержала бы
- * приём следующего клиента — и это видно в коде, а не спрятано за пулом.
+ * его дело — принять клиента и подписаться на то, что он пришлёт
+ * ({@code client.onLine(...)} в текстовом режиме, {@code client.onBytes(...)}
+ * в байтовом), а не разговаривать с ним. Каждая подписка заводит свой поток, и вот
+ * в них клиенты уже обслуживаются одновременно. Долгая работа прямо здесь задержала
+ * бы приём следующего клиента — и это видно в коде, а не спрятано за пулом.
  */
 public final class NativeServerSocket {
 
@@ -49,7 +52,13 @@ public final class NativeServerSocket {
                     self.put("mode", StringValue.of(SocketState.modeOf(
                             args.string(1, "режим", SocketState.TEXT), span)));
                     try {
-                        self.state(new ServerState(new ServerSocket(port)));
+                        ServerSocket opened = new ServerSocket(port);
+                        // Поле — занятый порт, а не запрошенный: 'new net.Server(0)'
+                        // просит любой свободный, и узнать какой можно только здесь.
+                        // Ноль в поле оставил бы клиенту адрес, по которому не
+                        // подключиться.
+                        self.put("port", IntValue.of(opened.getLocalPort()));
+                        self.state(new ServerState(opened));
                     } catch (IOException e) {
                         throw new WdlRuntimeError(span, "Не удалось открыть ServerSocket на порту "
                                 + port + ": " + e.getMessage());
@@ -76,12 +85,16 @@ public final class NativeServerSocket {
                     }
                 })
 
-                .method("onConnection", Arity.exactly(1), (self, context, args, span) -> {
+                .method("onConnection", Signature.of(Param.required("handler")), (self, context, args, span) -> {
                     Callback callback = args.callback(0, "обработчик");
                     ServerState state = state(self, span);
+                    // Будильник закрывает сам сервер, а не только снимает приём:
+                    // из accept() поток выходит по закрытию сокета и никак иначе.
+                    // Зовётся он при закрытии запуска, когда порт уже никому не нужен.
                     Thread thread = context.threads().start(
                             "server-" + state.server().getLocalPort(),
-                            () -> accepting(state, socketClass, mode(self), callback, context));
+                            () -> accepting(state, socketClass, mode(self), callback, context),
+                            state::close);
                     state.listening(thread);
                     return self;
                 })

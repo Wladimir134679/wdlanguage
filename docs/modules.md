@@ -207,8 +207,8 @@ import "/sys/json"            // файл sys/json.wdl в корне проек�
 |---|---|
 | `sys.io` | `read`, `write`, `append`, `lines`, `exists`, `list`, `mkdirs`, `remove`, `size` и класс `File` |
 | `sys.json` | `parse` — в значения языка, `stringify` — обратно, вторым аргументом отступ |
-| `sys.net.http` | `get`, `post`, `put`, `delete`, `request` и класс `Response` (`status`, `body`, `headers`, `ok()`) |
-| `sys.net.socket` | TCP: классы `Socket` и `Server`, обработчики строк и соединений |
+| `sys.net.http` | `get`, `post`, `put`, `delete`, `request` и класс `Response` (`status`, `body`, `bytes`, `headers`, `ok()`) |
+| `sys.net.socket` | TCP: классы `Socket` и `Server`, режим строк или байтов, обработчики `onLine`/`onBytes`/`onConnection` |
 | `sys.streams` | ленивые конвейеры: источники, стадии, терминальные операции — [конвейеры](streams.md) |
 | `sys.thread` | потоки, пул, замок, счётчик, канал, защёлка — [потоки](threads.md) |
 | `sys.time` | весь `java.time`, открытый [мостом](java-interop.md), без единого написанного метода |

@@ -19,7 +19,7 @@ taskArea = new gui.TextArea(rows: 14, cols: 35)
 def addTask() {
     text = inputField.text
     if (text != "") {
-        taskArea.append(text: "• " + text + "\n")
+        taskArea.append("• " + text + "\n")
         inputField.text = ""
     }
 }
